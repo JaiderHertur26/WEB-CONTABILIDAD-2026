@@ -119,45 +119,65 @@ export function useCompanyData(key) {
     }
   }, [activeCompany, companies, key, isConsolidated]);
 
-  // NUEVO: ESCUCHA EN TIEMPO REAL (MULTIUSUARIO)
+  // ESCUCHA EN TIEMPO REAL CON PREVENCIÓN DE ERRORES (ANTIBALAS)
   useEffect(() => {
-    loadData();
+    let isActive = true; // Evita actualizar estados si cambias de pantalla rápido
+    let channel;
 
-    if (!activeCompany) return;
+    const safeLoad = async () => {
+        try {
+            await loadData();
+        } catch (e) {
+            console.error("Error silencioso cargando datos:", e);
+        }
+    };
 
-    // Suscripción al canal de Supabase para esta empresa y este módulo
-    const channel = supabase
-        .channel(`sync-${activeCompany.id}-${key}`)
-        .on(
-            'postgres_changes',
-            {
-                event: '*', // Escucha cualquier cambio (Insert/Update)
-                schema: 'public',
-                table: 'app_data_sync',
-                filter: `company_id=eq.${activeCompany.id}`
-            },
-            (payload) => {
-                // Si alguien más en el mundo guardó datos en esta misma sección (ej: transacciones)
-                if (payload.new && payload.new.storage_key === key) {
-                    console.log(`📡 ¡Cambio detectado desde otro usuario en: ${key}! Actualizando pantalla...`);
-                    loadData(); // Recarga la tabla silenciosamente sin F5
-                }
+    safeLoad();
+
+    if (activeCompany) {
+        try {
+            // Verificamos que tu versión de Supabase soporte .channel()
+            if (typeof supabase.channel === 'function') {
+                channel = supabase
+                    .channel(`sync-${activeCompany.id}-${key}`)
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'app_data_sync', filter: `company_id=eq.${activeCompany.id}` },
+                        (payload) => {
+                            if (payload.new && payload.new.storage_key === key && isActive) {
+                                console.log(`📡 Datos recibidos en ${key}. Actualizando...`);
+                                safeLoad();
+                            }
+                        }
+                    )
+                    .subscribe();
             }
-        )
-        .subscribe();
+        } catch (err) {
+            console.warn("⚠️ Tiempo real no disponible momentáneamente:", err);
+        }
+    }
 
     const handleStorageUpdate = (e) => {
         if (e.detail?.key === `${activeCompany?.id}-${key}` ||
             e.detail?.key === 'all-data-update' ||
             (isConsolidated && e.detail?.key?.endsWith(`-${key}`))) {
-            loadData();
+            if (isActive) safeLoad();
         }
     };
+    
     window.addEventListener('storage-updated', handleStorageUpdate);
     
     return () => {
+        isActive = false;
         window.removeEventListener('storage-updated', handleStorageUpdate);
-        supabase.removeChannel(channel); // Apaga el canal al cambiar de pantalla
+        
+        if (channel && typeof supabase.removeChannel === 'function') {
+            try {
+                supabase.removeChannel(channel);
+            } catch (e) {
+                // Ignoramos errores al cerrar el canal
+            }
+        }
     };
   }, [loadData, activeCompany, key, isConsolidated]);
 
@@ -165,7 +185,7 @@ export function useCompanyData(key) {
       if (!activeCompany) return;
       const storageKey = `${activeCompany.id}-${key}`;
       
-      // 1. Guardado Local Inmediato (Para que la app se sienta instantánea)
+      // 1. Guardado Local Inmediato
       await storage.setItem(storageKey, JSON.stringify(newData));
       window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: storageKey } }));
       
@@ -173,9 +193,8 @@ export function useCompanyData(key) {
           setData(newData);
       }
 
-      // 2. NUEVO: FUSIÓN INTELIGENTE (SMART MERGE) PARA MULTIUSUARIO
+      // 2. FUSIÓN INTELIGENTE PROTEGIDA CONTRA CRASHES
       try {
-          // Descargamos un micro-segundo antes lo último que hay en la nube
           const { data: cloudRow, error: fetchError } = await supabase
               .from('app_data_sync')
               .select('data')
@@ -185,24 +204,18 @@ export function useCompanyData(key) {
 
           let finalDataToUpload = newData;
 
-          // Si hay datos en la nube y tienen un ID válido, fusionamos
           if (!fetchError && cloudRow && Array.isArray(cloudRow.data)) {
-              // Comprobamos que sean datos fusionables (que tengan id)
-              const isMergeable = newData.length > 0 && newData[0].id;
+              // Verificación súper estricta para evitar que un objeto simple dañe la fusión
+              const isMergeable = Array.isArray(newData) && newData.length > 0 && newData[0] && newData[0].id;
               
               if (isMergeable) {
-                  // Creamos un mapa con los datos de la NUBE
                   const mergeMap = new Map(cloudRow.data.map(item => [item.id, item]));
-                  
-                  // Sobreescribimos / Añadimos los datos LOCALES nuevos
                   newData.forEach(item => mergeMap.set(item.id, item));
-                  
-                  // El resultado es un arreglo perfecto sin perder datos de nadie
                   finalDataToUpload = Array.from(mergeMap.values());
               }
           }
 
-          // 3. Subimos a la nube la versión definitiva
+          // 3. Subimos a la nube
           const { error } = await supabase
               .from('app_data_sync')
               .upsert({
@@ -212,9 +225,8 @@ export function useCompanyData(key) {
                   updated_at: new Date().toISOString()
               });
 
-          if (error) {
-              console.error(`❌ Error sincronizando [${key}] a la nube:`, error);
-          }
+          if (error) console.error(`❌ Error sincronizando [${key}]:`, error);
+          
       } catch (cloudError) {
           console.error("Error de red intentando guardar en Supabase:", cloudError);
       }
