@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { useAuth } from '@/contexts/LocalAuthContext';
+import { useAuth, getCompanies, saveCompanies } from '@/contexts/LocalAuthContext'; // IMPORTAMOS LA CONEXIÓN A LA NUBE
 import { storage } from '@/lib/storage';
 import { 
   LogIn, User, Lock, Building, Shield, Key, Phone, MapPin, 
@@ -39,12 +39,18 @@ const Login = () => {
   const [isAddingSub, setIsAddingSub] = useState(false);
   const [newSubData, setNewSubData] = useState({ doc: '', serial: '' });
 
-  // Load companies
+  // CARGAMOS LAS EMPRESAS DIRECTO DE LA NUBE
   useEffect(() => {
     const loadData = async () => {
-      const data = await storage.getItem('companies');
-      const storedCompanies = JSON.parse(data || '[]');
-      setCompanies(storedCompanies);
+      try {
+          // Descarga desde Supabase
+          const cloudCompanies = await getCompanies();
+          setCompanies(cloudCompanies);
+          // Actualizamos la caché local por seguridad
+          await storage.setItem('companies', JSON.stringify(cloudCompanies));
+      } catch (error) {
+          console.error("Error al cargar empresas en el login:", error);
+      }
     };
     loadData();
   }, []);
@@ -60,11 +66,7 @@ const Login = () => {
     e.preventDefault();
 
     if (!selectedCompanyId) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Selecciona una empresa o administrador."
-      });
+      toast({ variant: "destructive", title: "Error", description: "Selecciona una empresa o administrador." });
       return;
     }
 
@@ -74,11 +76,7 @@ const Login = () => {
         toast({ title: "Bienvenido Administrador", description: "Acceso concedido." });
         await login({ isGeneralAdmin: true, accessLevel: 'full' });
       } else {
-        toast({
-          variant: "destructive",
-          title: "Acceso Denegado",
-          description: "Usuario o contraseña incorrectos."
-        });
+        toast({ variant: "destructive", title: "Acceso Denegado", description: "Usuario o contraseña incorrectos." });
       }
       return;
     }
@@ -219,6 +217,7 @@ const Login = () => {
     });
   };
 
+  // ACTUALIZADO PARA GUARDAR NUEVOS REGISTROS DIRECTO A LA NUBE
   const handleFinalizeRegistration = async () => {
     if (hierarchy.some(n => !n.name.trim())) {
         toast({ variant: "destructive", title: "Datos incompletos", description: "Todas las empresas deben tener un nombre." });
@@ -230,29 +229,38 @@ const Login = () => {
         return;
     }
     
-    const existingData = await storage.getItem('companies');
-    let currentStorage = JSON.parse(existingData || '[]');
-    
-    hierarchy.forEach(newNode => {
-        const idx = currentStorage.findIndex(c => c.doc === newNode.doc);
-        if (idx >= 0) {
-            currentStorage[idx] = { ...currentStorage[idx], ...newNode };
-        } else {
-            currentStorage.push(newNode);
-        }
-    });
+    try {
+        const currentCloud = await getCompanies();
+        let currentStorage = [...currentCloud];
+        
+        hierarchy.forEach(newNode => {
+            const idx = currentStorage.findIndex(c => c.doc === newNode.doc);
+            if (idx >= 0) {
+                currentStorage[idx] = { ...currentStorage[idx], ...newNode };
+            } else {
+                currentStorage.push(newNode);
+            }
+        });
 
-    await storage.setItem('companies', JSON.stringify(currentStorage));
-    setCompanies(currentStorage);
-    toast({ title: "¡Registro Exitoso!", description: "Empresas registradas correctamente." });
-    
-    setRegStep(1);
-    setHierarchy([]);
-    setRootAuth({ doc: '', serial: '' });
-    setIsAddingSub(false);
-    
-    const tabTrigger = document.querySelector('[data-value="login"]');
-    if (tabTrigger) tabTrigger.click();
+        // 1. Guardar en Supabase
+        await saveCompanies(currentStorage);
+        // 2. Guardar en local cache
+        await storage.setItem('companies', JSON.stringify(currentStorage));
+        setCompanies(currentStorage);
+        
+        toast({ title: "¡Registro Exitoso!", description: "Empresas registradas correctamente en la nube." });
+        
+        setRegStep(1);
+        setHierarchy([]);
+        setRootAuth({ doc: '', serial: '' });
+        setIsAddingSub(false);
+        
+        const tabTrigger = document.querySelector('[data-value="login"]');
+        if (tabTrigger) tabTrigger.click();
+
+    } catch (error) {
+        toast({ variant: "destructive", title: "Error de conexión", description: "No se pudieron guardar las empresas en la nube." });
+    }
   };
 
   const renderTree = (parentId = null, depth = 0) => {
