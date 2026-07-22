@@ -22,12 +22,13 @@ export const getCompanies = async () => {
   }
 };
 
-// CORRECCIÓN AQUÍ: Ahora la función lanza el error hacia la interfaz
 export const saveCompanies = async (companies) => {
   try {
-    const cleanedCompanies = companies.map(c => ({
-        id: String(c.id), // Forzamos a que sea texto
-        parent_id: c.parentId ? String(c.parentId) : null,
+    // PASO 1: Insertamos todas las empresas SIN el parent_id. 
+    // Esto evita que Supabase bloquee la subida si una sucursal intenta insertarse antes que su parroquia principal.
+    const step1 = companies.map(c => ({
+        id: String(c.id), 
+        parent_id: null, // Lo forzamos a nulo temporalmente
         name: c.name,
         doc_nit: c.doc || c.doc_nit || null,
         address: c.address || null,
@@ -36,18 +37,37 @@ export const saveCompanies = async (companies) => {
         password: c.password,
     }));
 
-    const { error } = await supabase
+    const { error: error1 } = await supabase
         .from('companies')
-        .upsert(cleanedCompanies, { onConflict: 'id' });
+        .upsert(step1, { onConflict: 'id' });
 
-    // Si Supabase se queja, interrumpimos el proceso
-    if (error) {
-        console.error("Error Supabase:", error);
-        throw new Error(error.message); 
+    if (error1) {
+        console.error("Error Supabase (Paso 1):", error1);
+        throw new Error("Error BD: " + error1.message); 
     }
+
+    // PASO 2: Ahora que todas existen en la nube, actualizamos las que sí tienen parentId
+    const withParents = companies.filter(c => c.parentId);
+    if (withParents.length > 0) {
+        const step2 = withParents.map(c => ({
+            id: String(c.id),
+            parent_id: String(c.parentId)
+        }));
+        
+        // Supabase actualizará solo estas dos columnas sin borrar el resto
+        const { error: error2 } = await supabase
+            .from('companies')
+            .upsert(step2, { onConflict: 'id' });
+
+        if (error2) {
+            console.error("Error Supabase (Paso 2):", error2);
+            throw new Error("Error vinculando sucursales: " + error2.message);
+        }
+    }
+
   } catch (e) {
     console.error("Error crítico guardando companies:", e);
-    throw e; // Dispara el Toast rojo en Settings.js
+    throw e; // Esto disparará el error exacto en la interfaz
   }
 };
 
