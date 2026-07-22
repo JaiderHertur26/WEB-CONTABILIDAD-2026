@@ -24,17 +24,16 @@ export const getCompanies = async () => {
 
 export const saveCompanies = async (companies) => {
   try {
-    // PASO 1: Insertamos todas las empresas SIN el parent_id. 
-    // Esto evita que Supabase bloquee la subida si una sucursal intenta insertarse antes que su parroquia principal.
+    // PASO 1: Insertamos todas las empresas sin el parent_id
     const step1 = companies.map(c => ({
         id: String(c.id), 
-        parent_id: null, // Lo forzamos a nulo temporalmente
-        name: c.name,
-        doc_nit: c.doc || c.doc_nit || null,
-        address: c.address || null,
-        phone: c.phone || null,
-        username: c.username,
-        password: c.password,
+        parent_id: null,
+        name: String(c.name),
+        doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
+        address: c.address ? String(c.address) : null,
+        phone: c.phone ? String(c.phone) : null,
+        username: String(c.username),
+        password: String(c.password),
     }));
 
     const { error: error1 } = await supabase
@@ -42,32 +41,35 @@ export const saveCompanies = async (companies) => {
         .upsert(step1, { onConflict: 'id' });
 
     if (error1) {
-        console.error("Error Supabase (Paso 1):", error1);
-        throw new Error("Error BD: " + error1.message); 
+        throw new Error("Error BD (Paso 1): " + error1.message); 
     }
 
-    // PASO 2: Ahora que todas existen en la nube, actualizamos las que sí tienen parentId
+    // PASO 2: Volvemos a guardar las que son sucursales, enviando TODOS los datos + el parent_id
     const withParents = companies.filter(c => c.parentId);
     if (withParents.length > 0) {
         const step2 = withParents.map(c => ({
             id: String(c.id),
-            parent_id: String(c.parentId)
+            parent_id: String(c.parentId),
+            name: String(c.name), // SOLUCIÓN: Ya no enviamos el nombre vacío
+            doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
+            address: c.address ? String(c.address) : null,
+            phone: c.phone ? String(c.phone) : null,
+            username: String(c.username),
+            password: String(c.password),
         }));
         
-        // Supabase actualizará solo estas dos columnas sin borrar el resto
         const { error: error2 } = await supabase
             .from('companies')
             .upsert(step2, { onConflict: 'id' });
 
         if (error2) {
-            console.error("Error Supabase (Paso 2):", error2);
             throw new Error("Error vinculando sucursales: " + error2.message);
         }
     }
 
   } catch (e) {
     console.error("Error crítico guardando companies:", e);
-    throw e; // Esto disparará el error exacto en la interfaz
+    throw e;
   }
 };
 
