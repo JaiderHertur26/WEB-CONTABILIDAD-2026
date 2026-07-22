@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { storage } from '@/lib/storage';
+import { supabase } from '@/lib/supabase'; // <-- Importamos nuestra nueva conexión a la nube
 
 const LocalAuthContext = createContext();
 
@@ -7,19 +8,53 @@ const LocalAuthContext = createContext();
 
 export const getCompanies = async () => {
   try {
-    const data = await storage.getItem('companies');
-    return JSON.parse(data || '[]');
+    // NUEVO: Consultamos directamente a la base de datos en la nube (Supabase)
+    const { data, error } = await supabase
+        .from('companies')
+        .select('*');
+
+    if (error) {
+        console.error("Error al consultar empresas en Supabase:", error);
+        return [];
+    }
+
+    // Mapeamos los datos de la nube para que React los entienda como antes
+    return (data || []).map(comp => ({
+        ...comp,
+        doc: comp.doc_nit, // Transformamos doc_nit (BD) a doc (React)
+        parentId: comp.parent_id
+    }));
   } catch (e) {
-    console.error("Error reading companies from storage:", e);
+    console.error("Error de red al obtener companies:", e);
     return [];
   }
 };
 
 export const saveCompanies = async (companies) => {
   try {
-    await storage.setItem('companies', JSON.stringify(companies));
+    // Filtramos y adaptamos el objeto para que coincida exactamente con las columnas de PostgreSQL
+    const cleanedCompanies = companies.map(c => ({
+        id: c.id,
+        parent_id: c.parentId || null,
+        name: c.name,
+        doc_nit: c.doc || c.doc_nit || null,
+        address: c.address || null,
+        phone: c.phone || null,
+        username: c.username,
+        password: c.password,
+        // Ignoramos campos obsoletos como partialPassword o authSerial si ya no se usan en BD
+    }));
+
+    // NUEVO: Upsert inserta si no existe, o actualiza si el ID ya existe en la nube
+    const { error } = await supabase
+        .from('companies')
+        .upsert(cleanedCompanies, { onConflict: 'id' });
+
+    if (error) {
+        console.error("Error al guardar empresas en Supabase:", error.message);
+    }
   } catch (e) {
-    console.error("Error saving companies to storage:", e);
+    console.error("Error de red al guardar companies:", e);
   }
 };
 
@@ -88,6 +123,7 @@ export const LocalAuthProvider = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
+        // La sesión actual se mantiene en local para evitar cierres de sesión al recargar
         const session = await storage.getItem('auth_session');
         const level = await storage.getItem('auth_access_level') || 'full';
         

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './LocalAuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { storage } from '@/lib/storage';
+import { supabase } from '@/lib/supabase'; // <-- Conexión a la nube
 
 export const CompanyContext = createContext();
 
@@ -12,21 +13,36 @@ export const CompanyProvider = ({ children }) => {
   const [isConsolidated, setIsConsolidated] = useState(false);
   const { toast } = useToast();
 
+  // NUEVO: Cargar empresas desde Supabase en la nube
   const loadCompanies = async () => {
     try {
-      const data = await storage.getItem('companies');
-      const stored = JSON.parse(data || '[]');
-      setCompanies(stored);
+      const { data, error } = await supabase
+        .from('companies')
+        .select('*');
+
+      if (error) {
+          console.error("Error cargando empresas de Supabase:", error);
+          return;
+      }
+
+      // Mapeamos las columnas de BD a las variables que usa React
+      const mappedCompanies = (data || []).map(comp => ({
+          ...comp,
+          doc: comp.doc_nit,
+          parentId: comp.parent_id
+      }));
+
+      setCompanies(mappedCompanies);
     } catch (e) {
-      console.error("Error loading companies:", e);
+      console.error("Error de red al cargar empresas:", e);
     }
   };
 
-  // Load companies
+  // Cargar empresas al iniciar
   useEffect(() => {
     loadCompanies();
     
-    // Custom event listener since cross-tab IndexedDB sync isn't native like localStorage
+    // Escucha eventos locales por si alguna otra pestaña actualiza algo urgente
     const handleStorageUpdate = (e) => {
        if (e.detail?.key === 'companies' || e.detail?.key === 'all-data-update') {
            loadCompanies();
@@ -36,7 +52,7 @@ export const CompanyProvider = ({ children }) => {
     return () => window.removeEventListener('storage-updated', handleStorageUpdate);
   }, []);
 
-  // Set active company based on session
+  // Establecer la empresa activa basándose en la sesión (Guardado en Local)
   useEffect(() => {
     const initActiveCompany = async () => {
       if (isAuthenticated && activeSessionId && activeSessionId !== 'general_admin') {
@@ -44,6 +60,7 @@ export const CompanyProvider = ({ children }) => {
           setActiveCompany(current || null);
           
           if (current) {
+             // La vista consolidada es una preferencia visual del navegador, se queda en storage
              const consolidationData = await storage.getItem(`${current.id}-consolidate`);
              setIsConsolidated(consolidationData === 'true');
           }
@@ -52,9 +69,13 @@ export const CompanyProvider = ({ children }) => {
           setIsConsolidated(false);
       }
     };
-    initActiveCompany();
+    // Solo iniciamos esto cuando companies ya se cargó de la nube
+    if (companies.length > 0 || !isAuthenticated) {
+        initActiveCompany();
+    }
   }, [activeSessionId, companies, isAuthenticated]); 
 
+  // Preferencia visual local
   const toggleConsolidation = async (value) => {
     if (!activeCompany) return;
     setIsConsolidated(value);
@@ -65,25 +86,43 @@ export const CompanyProvider = ({ children }) => {
      await loadCompanies();
   };
 
+  // NUEVO: Actualizar credenciales directo en la nube
   const updateCompanyCredentials = async (companyId, newData) => {
-    const updatedCompanies = companies.map(c => {
-      if (c.id === companyId) {
-        return { ...c, ...newData };
-      }
-      return c;
-    });
-    
-    setCompanies(updatedCompanies);
-    await storage.setItem('companies', JSON.stringify(updatedCompanies));
-    window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: 'companies' } }));
-    
-    if (activeCompany && activeCompany.id === companyId) {
-       setActiveCompany({ ...activeCompany, ...newData });
-    }
+    try {
+        // Preparamos el objeto para Supabase asegurando los nombres correctos de columnas
+        const updatePayload = { ...newData };
+        if (newData.doc !== undefined) {
+            updatePayload.doc_nit = newData.doc;
+            delete updatePayload.doc;
+        }
+        if (newData.parentId !== undefined) {
+            updatePayload.parent_id = newData.parentId;
+            delete updatePayload.parentId;
+        }
 
-    toast({ title: "Seguridad Actualizada", description: "Las credenciales han sido modificadas correctamente." });
+        const { error } = await supabase
+            .from('companies')
+            .update(updatePayload)
+            .eq('id', companyId);
+
+        if (error) throw error;
+
+        // Recargamos el estado local con los datos frescos de la nube
+        await loadCompanies();
+        
+        // Si actualizamos la empresa actual, refrescamos el estado activo
+        if (activeCompany && activeCompany.id === companyId) {
+           setActiveCompany(prev => ({ ...prev, ...newData }));
+        }
+
+        toast({ title: "Seguridad Actualizada", description: "Las credenciales han sido modificadas en la nube." });
+    } catch (e) {
+        console.error("Error actualizando credenciales:", e);
+        toast({ variant: "destructive", title: "Error", description: "No se pudieron actualizar las credenciales." });
+    }
   };
 
+  // Cambiar de empresa es un evento de sesión (Local)
   const switchCompany = async (companyId) => {
     const target = companies.find(c => c.id === companyId);
     if (target) {
@@ -101,7 +140,7 @@ export const CompanyProvider = ({ children }) => {
   const value = {
     activeCompany,
     companies,
-    setCompanies: refreshCompanies, // We can expose the async refresh directly
+    setCompanies: refreshCompanies, 
     isGeneralAdmin,
     accessLevel: useAuth().accessLevel,
     isConsolidated,
