@@ -27,7 +27,7 @@ export function useCompanyData(key) {
         let loadedData = [];
         let fetchFromCloudSuccess = false;
 
-        // 1. INTENTO DE DESCARGA EN LA NUBE (BLINDADO)
+        // 1. INTENTO DE DESCARGA EN LA NUBE
         try {
             if (isConsolidated && companies && companies.length > 0) {
                 const relevantCompanies = companies.filter(c => c && (c.id === activeCompany.id || c.parentId === activeCompany.id));
@@ -129,7 +129,7 @@ export function useCompanyData(key) {
     }
   }, [activeCompany, companies, key, isConsolidated]);
 
-  // ESCUCHA EN TIEMPO REAL CON MANEJO DE ERRORES SILENCIOSO
+  // ESCUCHA EN TIEMPO REAL
   useEffect(() => {
     let isActive = true;
     let channel = null;
@@ -182,18 +182,29 @@ export function useCompanyData(key) {
     };
   }, [loadData, activeCompany, key, isConsolidated]);
 
+
+  // FUNCIÓN DE GUARDADO (CON DETECTOR DE ELIMINACIÓN)
   const saveData = async (newData) => {
       if (!activeCompany) return;
       const storageKey = `${activeCompany.id}-${key}`;
       
       try {
+          // DETECTOR DE ELIMINACIÓN: Comparamos qué teníamos vs qué estamos guardando
+          let deletedIds = [];
+          if (Array.isArray(data) && Array.isArray(newData)) {
+              const currentIds = data.map(item => item?.id).filter(Boolean);
+              const newIds = newData.map(item => item?.id).filter(Boolean);
+              // Si un ID estaba antes pero ya no está en la nueva data, fue eliminado
+              deletedIds = currentIds.filter(id => !newIds.includes(id));
+          }
+
           // 1. CAMBIO VISUAL INMEDIATO
           if (!isConsolidated && mounted.current) {
               setData(newData);
           }
           await storage.setItem(storageKey, JSON.stringify(newData));
 
-          // 2. FUSIÓN INTELIGENTE (SMART MERGE)
+          // 2. FUSIÓN INTELIGENTE (CON BORRADO)
           const { data: cloudRow, error: fetchError } = await supabase
               .from('app_data_sync')
               .select('data')
@@ -204,11 +215,23 @@ export function useCompanyData(key) {
           let finalDataToUpload = newData;
 
           if (!fetchError && cloudRow && Array.isArray(cloudRow.data)) {
-              const isMergeable = Array.isArray(newData) && newData.length > 0 && newData[0] && newData[0].id;
+              const checkHasIds = (arr) => Array.isArray(arr) && arr.length > 0 && arr[0] && arr[0].id;
+              const isMergeable = checkHasIds(newData) || checkHasIds(data) || checkHasIds(cloudRow.data);
               
               if (isMergeable) {
-                  const mergeMap = new Map(cloudRow.data.map(item => [item.id, item]));
-                  newData.forEach(item => mergeMap.set(item.id, item));
+                  // Mapeamos lo de la nube
+                  const mergeMap = new Map(cloudRow.data.map(item => [item?.id, item]).filter(entry => entry[0]));
+                  
+                  // Agregamos o actualizamos lo local
+                  if (Array.isArray(newData)) {
+                      newData.forEach(item => {
+                          if (item && item.id) mergeMap.set(item.id, item);
+                      });
+                  }
+
+                  // ¡NUEVO! Eliminamos expresamente lo que el usuario acaba de borrar
+                  deletedIds.forEach(id => mergeMap.delete(id));
+                  
                   finalDataToUpload = Array.from(mergeMap.values());
               }
           }
