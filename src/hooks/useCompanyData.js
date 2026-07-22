@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase'; // <-- Tu conexión a la nube
+import { supabase } from '@/lib/supabase';
 
 export function useCompanyData(key) {
   const { activeCompany, companies, isConsolidated } = useCompany();
@@ -26,11 +26,11 @@ export function useCompanyData(key) {
     let loadedData = [];
     let fetchFromCloudSuccess = false;
 
-    // 1. INTENTAMOS DESCARGAR DESDE LA NUBE (Supabase)
+    // 1. DESCARGAR DE LA NUBE
     try {
         if (isConsolidated && companies.length > 0) {
             const relevantCompanies = companies.filter(c => c.id === activeCompany.id || c.parentId === activeCompany.id);
-            const companyIds = relevantCompanies.map(c => c.id);
+            const companyIds = relevantCompanies.map(c => String(c.id));
 
             const { data: dbData, error } = await supabase
                 .from('app_data_sync')
@@ -40,8 +40,8 @@ export function useCompanyData(key) {
 
             if (!error && dbData && dbData.length > 0) {
                 dbData.forEach(row => {
-                    const comp = relevantCompanies.find(c => c.id === row.company_id);
-                    if (Array.isArray(row.data)) {
+                    const comp = relevantCompanies.find(c => String(c.id) === String(row.company_id));
+                    if (comp && Array.isArray(row.data)) {
                         const tagged = row.data.map(item => ({ 
                             ...item, 
                             _companyId: comp.id, 
@@ -57,7 +57,7 @@ export function useCompanyData(key) {
             const { data: dbData, error } = await supabase
                 .from('app_data_sync')
                 .select('data')
-                .eq('company_id', activeCompany.id)
+                .eq('company_id', String(activeCompany.id))
                 .eq('storage_key', key)
                 .maybeSingle();
 
@@ -67,10 +67,10 @@ export function useCompanyData(key) {
             }
         }
     } catch (cloudError) {
-        console.warn("No se pudo conectar a la nube, buscando datos locales...");
+        console.warn("No se pudo conectar a la nube, buscando en local...");
     }
 
-    // 2. MODO RESPALDO: Si no hay internet o la nube está vacía, leemos del caché local
+    // 2. MODO LOCAL (Respaldo si no hay internet o si la nube está vacía)
     if (!fetchFromCloudSuccess || loadedData.length === 0) {
         if (isConsolidated && companies.length > 0) {
             const relevantCompanies = companies.filter(c => c.id === activeCompany.id || c.parentId === activeCompany.id);
@@ -102,11 +102,10 @@ export function useCompanyData(key) {
             }
         }
     } else if (!isConsolidated) {
-        // Si descargó con éxito de la nube, actualizamos la caché local
+        // Actualizamos caché local con lo que bajó de la nube
         await storage.setItem(`${activeCompany.id}-${key}`, JSON.stringify(loadedData));
     }
 
-    // 3. ACTUALIZAR EL ESTADO DE LA INTERFAZ
     if (mounted.current) {
         if (Array.isArray(loadedData) && loadedData.length > 0) {
              const allHaveIds = loadedData.every(item => item && (item.id !== undefined && item.id !== null));
@@ -140,7 +139,7 @@ export function useCompanyData(key) {
       if (!activeCompany) return;
       const storageKey = `${activeCompany.id}-${key}`;
       
-      // 1. GUARDADO LOCAL RÁPIDO (La app no se congela esperando a internet)
+      // Guardado Local
       await storage.setItem(storageKey, JSON.stringify(newData));
       window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: storageKey } }));
       
@@ -150,22 +149,24 @@ export function useCompanyData(key) {
           await loadData();
       }
 
-      // 2. GUARDADO SILENCIOSO EN LA NUBE (Supabase)
+      // GUARDADO EN LA NUBE CORREGIDO
       try {
           const { error } = await supabase
               .from('app_data_sync')
               .upsert({
-                  company_id: activeCompany.id,
+                  company_id: String(activeCompany.id),
                   storage_key: key,
                   data: newData,
                   updated_at: new Date().toISOString()
-              }, { onConflict: 'company_id, storage_key' }); // Actualiza la fila si ya existe
+              }); // Supabase detecta automáticamente la llave primaria
 
           if (error) {
-              console.error("Error sincronizando con la nube:", error.message);
+              console.error(`❌ Error sincronizando [${key}] a la nube:`, error);
+          } else {
+              console.log(`☁️✅ Sincronización exitosa a Supabase: Módulo -> ${key}`);
           }
       } catch (cloudError) {
-          console.error("Error de red al intentar sincronizar con Supabase:", cloudError);
+          console.error("Error de red intentando guardar en Supabase:", cloudError);
       }
   };
 

@@ -9,12 +9,11 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePermission } from '@/hooks/usePermission';
-// IMPORTANTE: Importamos saveCompanies para subir a la nube
 import { validateCompanyJSON, mergeCompanies, saveCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
+import { supabase } from '@/lib/supabase'; // IMPORTANTE PARA LA RESTAURACIÓN
 
 const Settings = () => {
-    // IMPORTANTE: Traemos updateCompanyCredentials del contexto
     const { activeCompany, companies, setCompanies, isGeneralAdmin, updateCompanyCredentials } = useCompany();
     const { canModify, isReadOnly } = usePermission();
     const { toast } = useToast();
@@ -55,12 +54,10 @@ const Settings = () => {
     const handleSaveSettings = async () => {
         if (!canModify) return;
         if (activeCompany) {
-          // Secuencias sí se quedan locales porque dependen del dispositivo
           const sequenceKey = `${activeCompany.id}-voucher-sequence`;
           const sequences = { income: parseInt(voucherSequences.income) || 0, expense: parseInt(voucherSequences.expense) || 0, transfer: parseInt(voucherSequences.transfer) || 0 };
           await storage.setItem(sequenceKey, JSON.stringify(sequences));
 
-          // CORRECCIÓN: Guardamos los datos del perfil directo en la Nube
           await updateCompanyCredentials(activeCompany.id, {
               name: profileData.name, 
               address: profileData.address, 
@@ -143,10 +140,10 @@ const Settings = () => {
                 let content;
                 try {
                     content = JSON.parse(e.target.result);
-                } catch (error) {
-    console.error(error);
-    toast({ variant: 'destructive', title: 'Error', description: error.message || 'Error procesando el archivo.' });
-}
+                } catch (jsonError) {
+                    toast({ variant: 'destructive', title: 'Error', description: 'Archivo JSON inválido' });
+                    return;
+                }
 
                 if (isGeneralAdmin) {
                     if (content.type !== 'ADMIN_STRUCTURE_ONLY') {
@@ -167,12 +164,9 @@ const Settings = () => {
 
                     const merged = mergeCompanies(companies, content.companies);
                     
-                    // CORRECCIÓN: Guardamos las empresas en la NUBE (Supabase)
                     await saveCompanies(merged);
-                    // Recargamos el estado local descargando de la nube
                     setCompanies(); 
-                    
-                    toast({ title: "Empresas restauradas en la nube", description: `Se actualizaron ${content.companies.length} empresas en la base de datos.` });
+                    toast({ title: "Empresas restauradas en la nube", description: `Se actualizaron ${content.companies.length} empresas.` });
 
                 } else {
                      if (content.type === 'ADMIN_STRUCTURE_ONLY') {
@@ -184,7 +178,7 @@ const Settings = () => {
 
             } catch (error) {
                 console.error(error);
-                toast({ variant: 'destructive', title: 'Error', description: 'Error procesando el archivo.' });
+                toast({ variant: 'destructive', title: 'Error', description: error.message || 'Error procesando el archivo.' });
             }
         };
         reader.readAsText(file);
@@ -207,9 +201,7 @@ const Settings = () => {
         };
 
         const allowedScope = new Set();
-        if (activeCompany) {
-            allowedScope.add(activeCompany.id);
-        }
+        if (activeCompany) allowedScope.add(activeCompany.id);
 
         const backupCompanies = content.companies || [];
         backupCompanies.forEach(bkpComp => {
@@ -249,11 +241,7 @@ const Settings = () => {
                     const count = Array.isArray(records) ? records.length : 0;
 
                     if (!report.dataStats[matchedId]) {
-                        report.dataStats[matchedId] = { 
-                            name: company?.name || matchedId,
-                            total: 0, 
-                            details: {} 
-                        };
+                        report.dataStats[matchedId] = { name: company?.name || matchedId, total: 0, details: {} };
                     }
                     report.dataStats[matchedId].total += count;
                     report.dataStats[matchedId].details[type] = count;
@@ -291,7 +279,6 @@ const Settings = () => {
                     return existingComp;
                 });
                 
-                // CORRECCIÓN: Guardar en la Nube
                 await saveCompanies(newCompaniesList);
                 setCompanies(); 
             }
@@ -306,9 +293,24 @@ const Settings = () => {
                     await storage.removeItem(key);
 
                     if (content.data && content.data[key]) {
-                        await storage.setItem(key, JSON.stringify(content.data[key]));
-                        // El proceso de usar `useCompanyData` en los demás componentes sincronizará esto a la nube gradualmente
-                        restoredDataCount += Array.isArray(content.data[key]) ? content.data[key].length : 0;
+                        const records = content.data[key];
+                        
+                        // Guardar en la PC local
+                        await storage.setItem(key, JSON.stringify(records));
+                        
+                        // NUEVO: Enviar directo a Supabase (La Nube)
+                        const { error: syncError } = await supabase
+                            .from('app_data_sync')
+                            .upsert({
+                                company_id: String(targetId),
+                                storage_key: type,
+                                data: records,
+                                updated_at: new Date().toISOString()
+                            });
+
+                        if (syncError) console.error("Error subiendo datos a Supabase:", syncError);
+
+                        restoredDataCount += Array.isArray(records) ? records.length : 0;
                     }
                 }
                 restoreLog.push(companyName);
@@ -321,12 +323,12 @@ const Settings = () => {
             });
             
             window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: 'all-data-update' } }));
-            toast({ title: 'Restauración Completada', description: `Datos actualizados correctamente.` });
+            toast({ title: 'Restauración en la Nube', description: `Datos subidos a Supabase correctamente.` });
             setIsPreviewOpen(false);
 
         } catch (error) {
             console.error(error);
-            toast({ variant: 'destructive', title: 'Error Crítico', description: 'Falló la restauración. Por favor recargue la página.' });
+            toast({ variant: 'destructive', title: 'Error Crítico', description: 'Falló la subida a la nube.' });
         } finally {
             setIsRestoring(false);
         }
@@ -354,7 +356,7 @@ const Settings = () => {
                                 </div>
                                 <div className="bg-white rounded-lg p-4 border border-green-100 text-sm space-y-2 mb-4">
                                     <div className="flex justify-between border-b pb-2"><span className="text-slate-600">Empresas Actualizadas:</span><span className="font-bold">{restoreReport.companies.length}</span></div>
-                                    <div className="flex justify-between border-b pb-2"><span className="text-slate-600">Registros Restaurados:</span><span className="font-bold">{restoreReport.count}</span></div>
+                                    <div className="flex justify-between border-b pb-2"><span className="text-slate-600">Registros Restaurados (Nube):</span><span className="font-bold">{restoreReport.count}</span></div>
                                 </div>
                                 <div className="flex justify-end gap-3">
                                     <Button variant="outline" onClick={() => window.location.reload()} className="bg-white hover:bg-green-50">Recargar Aplicación</Button>
@@ -395,13 +397,13 @@ const Settings = () => {
                 )}
                 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
-                    <div className="flex items-center justify-between"><div className="flex items-center"><Server className="w-6 h-6 text-green-600 mr-3" /><h2 className="text-xl font-bold text-slate-900">Datos</h2></div><span className="text-xs font-medium px-2 py-1 bg-green-100 text-green-800 rounded-full">V2.3 Cloud</span></div>
+                    <div className="flex items-center justify-between"><div className="flex items-center"><Server className="w-6 h-6 text-green-600 mr-3" /><h2 className="text-xl font-bold text-slate-900">Datos</h2></div><span className="text-xs font-medium px-2 py-1 bg-green-100 text-green-800 rounded-full">V2.4 Cloud Sync</span></div>
                     
-                    {!isGeneralAdmin && <div className="flex gap-2 items-start text-xs bg-slate-50 p-2 rounded"><Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" /><span>La restauración actualizará <strong>únicamente</strong> los datos de la empresa/parroquia en la que estás actualmente logueado. No afectará a sucursales o capillas vinculadas.</span></div>}
+                    {!isGeneralAdmin && <div className="flex gap-2 items-start text-xs bg-slate-50 p-2 rounded"><Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" /><span>La restauración actualizará y subirá a la Nube los datos de la empresa/parroquia actual.</span></div>}
                     
                     <div className="grid md:grid-cols-2 gap-4 mt-4">
-                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Download className="w-6 h-6 text-slate-600" /></div><div className="text-sm"><p className="font-semibold text-slate-700">Exportar</p><p className="text-slate-500 text-xs">Descargar copia local</p></div><Button onClick={handleFullBackup} variant="outline" className="w-full mt-auto"><Download className="w-4 h-4 mr-2" /> Generar</Button></div>
-                        {canModify && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Upload className="w-6 h-6 text-orange-500" /></div><div className="text-sm"><p className="font-semibold text-orange-800">Importar</p><p className="text-orange-600/80 text-xs">Restaurar respaldo</p></div><input type="file" ref={fileInputRef} onChange={handleFileSelect} accept=".json" className="hidden" /><Button onClick={() => fileInputRef.current.click()} variant="default" className="w-full mt-auto bg-orange-600 hover:bg-orange-700 text-white border-none"><Upload className="w-4 h-4 mr-2" /> Cargar</Button></div>}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Download className="w-6 h-6 text-slate-600" /></div><div className="text-sm"><p className="font-semibold text-slate-700">Exportar</p><p className="text-slate-500 text-xs">Descargar copia</p></div><Button onClick={handleFullBackup} variant="outline" className="w-full mt-auto"><Download className="w-4 h-4 mr-2" /> Generar</Button></div>
+                        {canModify && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Upload className="w-6 h-6 text-orange-500" /></div><div className="text-sm"><p className="font-semibold text-orange-800">Importar a Nube</p><p className="text-orange-600/80 text-xs">Sincronizar base de datos</p></div><input type="file" ref={fileInputRef} onChange={handleFileSelect} accept=".json" className="hidden" /><Button onClick={() => fileInputRef.current.click()} variant="default" className="w-full mt-auto bg-orange-600 hover:bg-orange-700 text-white border-none"><Upload className="w-4 h-4 mr-2" /> Subir Archivo</Button></div>}
                     </div>
                 </motion.div>
             </motion.div>
@@ -409,36 +411,16 @@ const Settings = () => {
             <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
                 <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-hidden flex flex-col">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 text-xl"><FileJson className="w-6 h-6 text-blue-600" />Restaurar Datos</DialogTitle>
+                        <DialogTitle className="flex items-center gap-2 text-xl"><FileJson className="w-6 h-6 text-blue-600" />Restaurar Datos a la Nube</DialogTitle>
                         <DialogDescription>Revisa el plan de restauración antes de confirmar.</DialogDescription>
                     </DialogHeader>
                     
                     {backupPreview && (
                         <div className="overflow-y-auto flex-1 pr-2 space-y-4 py-4">
-                            {backupPreview.invalidIds.size > 0 && (
-                                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-3">
-                                    <XCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                                    <div className="text-xs text-red-800">
-                                        <p className="font-bold">IDs No Encontrados ({backupPreview.invalidIds.size})</p>
-                                        <p>Algunas empresas en el respaldo no existen en la Nube y serán ignoradas.</p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {backupPreview.ignoredIds.size > 0 && (
-                                <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 flex items-start gap-3">
-                                    <Info className="w-5 h-5 text-slate-500 flex-shrink-0 mt-0.5" />
-                                    <div className="text-xs text-slate-700">
-                                        <p className="font-bold">Fuera de Contexto ({backupPreview.ignoredIds.size})</p>
-                                        <p>Se omitirán datos del archivo que no corresponden exclusivamente a esta Parroquia.</p>
-                                    </div>
-                                </div>
-                            )}
-
                             <div className="space-y-3">
-                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1">Datos a Restaurar en la Nube</h4>
+                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1">Datos a Subir a Supabase</h4>
                                 {backupPreview.validIds.size === 0 ? (
-                                    <p className="text-sm text-slate-500 italic">No se encontraron datos que pertenezcan a esta entidad en el archivo.</p>
+                                    <p className="text-sm text-slate-500 italic">No se encontraron datos válidos.</p>
                                 ) : (
                                     Object.keys(backupPreview.dataStats).map(id => {
                                         const stat = backupPreview.dataStats[id];
@@ -449,7 +431,6 @@ const Settings = () => {
                                                         <Building className="w-4 h-4 text-blue-500" />
                                                         <span className="font-bold text-sm text-slate-800">{stat.name}</span>
                                                     </div>
-                                                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-mono">ID: {id}</span>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50 p-2 rounded">
                                                     {Object.entries(stat.details).map(([type, count]) => (
@@ -458,25 +439,11 @@ const Settings = () => {
                                                             <span className="font-mono font-bold text-slate-900">{count}</span>
                                                         </div>
                                                     ))}
-                                                    <div className="col-span-2 border-t pt-1 mt-1 flex justify-between font-bold text-slate-800">
-                                                        <span>Total Registros a Importar:</span>
-                                                        <span>{stat.total}</span>
-                                                    </div>
                                                 </div>
                                             </div>
                                         );
                                     })
                                 )}
-                            </div>
-
-                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-4">
-                                <div className="flex items-start gap-2">
-                                    <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-                                    <div className="text-xs text-amber-900">
-                                        <p className="font-bold mb-1">Advertencia de Reemplazo</p>
-                                        <p>Esta acción <span className="font-bold underline">eliminará y reemplazará por completo</span> los datos en la Nube de esta Parroquia con los que vienen en el archivo.</p>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     )}
@@ -489,7 +456,7 @@ const Settings = () => {
                             className="bg-green-600 hover:bg-green-700 text-white"
                         >
                             {isRestoring ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <ArrowRight className="w-4 h-4 mr-2" />}
-                            Confirmar Restauración a la Nube
+                            Confirmar Subida a la Nube
                         </Button>
                     </DialogFooter>
                 </DialogContent>
