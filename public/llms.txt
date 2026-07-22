@@ -1,0 +1,21 @@
+## Pages
+- [Acceso y Registro - JaiderHerTur26](/login): No description available
+- [Activos Fijos - JaiderHerTur26](/fixedassets): No description available
+- [Ajustes](/settings): No description available
+- [Cajas - JaiderHerTur26](/cashaccounts): No description available
+- [Cierres Contables - Sistema Contable](/bookclosings): No description available
+- [Contactos - JaiderHerTur26](/contacts): Gestiona tus clientes y proveedores
+- [Cuentas Bancarias - JaiderHerTur26](/bankaccounts): No description available
+- [Cuentas por Cobrar - JaiderHerTur26](/accountsreceivable): No description available
+- [Cuentas por Pagar - JaiderHerTur26](/accountspayable): No description available
+- [Dashboard - JaiderHerTur26](/dashboard): No description available
+- [Facturación - JaiderHerTur26](/invoices): No description available
+- [Gestión de Empresas - JaiderHerTur26](/companies): No description available
+- [Inventario - JaiderHerTur26](/inventory): No description available
+- [Libro Diario de Misa -](/massintentions): No description available
+- [Mi Organización - JaiderHerTur26](/organization): No description available
+- [Plan de Cuentas - JaiderHerTur26](/accounts): No description available
+- [Propiedades y Oficinas - JaiderHerTur26](/realestates): No description available
+- [Reportes - JaiderHerTur26](/reports): No description available
+- [Reportes Tributarios - JaiderHerTur26](/taxreports): No description available
+- [Transacciones - Sistema Contable](/transactions): No description available

@@ -1,0 +1,20 @@
+# Dependencias
+node_modules/
+
+# Build
+dist/
+
+# Envs
+.env
+.env.local
+.env.production
+.env.development
+
+# Vite
+.vite/
+
+# Sistemas
+.DS_Store
+Thumbs.db
+.vercel
+.env*.local
