@@ -26,7 +26,6 @@ export function useCompanyData(key) {
     let loadedData = [];
     let fetchFromCloudSuccess = false;
 
-    // 1. DESCARGAR DE LA NUBE
     try {
         if (isConsolidated && companies.length > 0) {
             const relevantCompanies = companies.filter(c => c.id === activeCompany.id || c.parentId === activeCompany.id);
@@ -70,7 +69,6 @@ export function useCompanyData(key) {
         console.warn("No se pudo conectar a la nube, buscando en local...");
     }
 
-    // 2. MODO LOCAL (Respaldo si no hay internet o si la nube está vacía)
     if (!fetchFromCloudSuccess || loadedData.length === 0) {
         if (isConsolidated && companies.length > 0) {
             const relevantCompanies = companies.filter(c => c.id === activeCompany.id || c.parentId === activeCompany.id);
@@ -102,7 +100,6 @@ export function useCompanyData(key) {
             }
         }
     } else if (!isConsolidated) {
-        // Actualizamos caché local con lo que bajó de la nube
         await storage.setItem(`${activeCompany.id}-${key}`, JSON.stringify(loadedData));
     }
 
@@ -122,8 +119,33 @@ export function useCompanyData(key) {
     }
   }, [activeCompany, companies, key, isConsolidated]);
 
+  // NUEVO: ESCUCHA EN TIEMPO REAL (MULTIUSUARIO)
   useEffect(() => {
     loadData();
+
+    if (!activeCompany) return;
+
+    // Suscripción al canal de Supabase para esta empresa y este módulo
+    const channel = supabase
+        .channel(`sync-${activeCompany.id}-${key}`)
+        .on(
+            'postgres_changes',
+            {
+                event: '*', // Escucha cualquier cambio (Insert/Update)
+                schema: 'public',
+                table: 'app_data_sync',
+                filter: `company_id=eq.${activeCompany.id}`
+            },
+            (payload) => {
+                // Si alguien más en el mundo guardó datos en esta misma sección (ej: transacciones)
+                if (payload.new && payload.new.storage_key === key) {
+                    console.log(`📡 ¡Cambio detectado desde otro usuario en: ${key}! Actualizando pantalla...`);
+                    loadData(); // Recarga la tabla silenciosamente sin F5
+                }
+            }
+        )
+        .subscribe();
+
     const handleStorageUpdate = (e) => {
         if (e.detail?.key === `${activeCompany?.id}-${key}` ||
             e.detail?.key === 'all-data-update' ||
@@ -132,38 +154,66 @@ export function useCompanyData(key) {
         }
     };
     window.addEventListener('storage-updated', handleStorageUpdate);
-    return () => window.removeEventListener('storage-updated', handleStorageUpdate);
+    
+    return () => {
+        window.removeEventListener('storage-updated', handleStorageUpdate);
+        supabase.removeChannel(channel); // Apaga el canal al cambiar de pantalla
+    };
   }, [loadData, activeCompany, key, isConsolidated]);
 
   const saveData = async (newData) => {
       if (!activeCompany) return;
       const storageKey = `${activeCompany.id}-${key}`;
       
-      // Guardado Local
+      // 1. Guardado Local Inmediato (Para que la app se sienta instantánea)
       await storage.setItem(storageKey, JSON.stringify(newData));
       window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: storageKey } }));
       
       if (!isConsolidated && mounted.current) {
           setData(newData);
-      } else {
-          await loadData();
       }
 
-      // GUARDADO EN LA NUBE CORREGIDO
+      // 2. NUEVO: FUSIÓN INTELIGENTE (SMART MERGE) PARA MULTIUSUARIO
       try {
+          // Descargamos un micro-segundo antes lo último que hay en la nube
+          const { data: cloudRow, error: fetchError } = await supabase
+              .from('app_data_sync')
+              .select('data')
+              .eq('company_id', String(activeCompany.id))
+              .eq('storage_key', key)
+              .maybeSingle();
+
+          let finalDataToUpload = newData;
+
+          // Si hay datos en la nube y tienen un ID válido, fusionamos
+          if (!fetchError && cloudRow && Array.isArray(cloudRow.data)) {
+              // Comprobamos que sean datos fusionables (que tengan id)
+              const isMergeable = newData.length > 0 && newData[0].id;
+              
+              if (isMergeable) {
+                  // Creamos un mapa con los datos de la NUBE
+                  const mergeMap = new Map(cloudRow.data.map(item => [item.id, item]));
+                  
+                  // Sobreescribimos / Añadimos los datos LOCALES nuevos
+                  newData.forEach(item => mergeMap.set(item.id, item));
+                  
+                  // El resultado es un arreglo perfecto sin perder datos de nadie
+                  finalDataToUpload = Array.from(mergeMap.values());
+              }
+          }
+
+          // 3. Subimos a la nube la versión definitiva
           const { error } = await supabase
               .from('app_data_sync')
               .upsert({
                   company_id: String(activeCompany.id),
                   storage_key: key,
-                  data: newData,
+                  data: finalDataToUpload,
                   updated_at: new Date().toISOString()
-              }); // Supabase detecta automáticamente la llave primaria
+              });
 
           if (error) {
               console.error(`❌ Error sincronizando [${key}] a la nube:`, error);
-          } else {
-              console.log(`☁️✅ Sincronización exitosa a Supabase: Módulo -> ${key}`);
           }
       } catch (cloudError) {
           console.error("Error de red intentando guardar en Supabase:", cloudError);
