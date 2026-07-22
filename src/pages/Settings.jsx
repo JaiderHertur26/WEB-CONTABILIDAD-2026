@@ -143,10 +143,10 @@ const Settings = () => {
                 let content;
                 try {
                     content = JSON.parse(e.target.result);
-                } catch (jsonError) {
-                    toast({ variant: 'destructive', title: 'Error', description: 'Archivo JSON inválido' });
-                    return;
-                }
+                } catch (error) {
+    console.error(error);
+    toast({ variant: 'destructive', title: 'Error', description: error.message || 'Error procesando el archivo.' });
+}
 
                 if (isGeneralAdmin) {
                     if (content.type !== 'ADMIN_STRUCTURE_ONLY') {
