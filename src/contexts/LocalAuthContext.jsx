@@ -14,7 +14,8 @@ export const getCompanies = async () => {
     return (data || []).map(comp => ({
         ...comp,
         doc: comp.doc_nit, 
-        parentId: comp.parent_id
+        parentId: comp.parent_id,
+        partialPassword: comp.partial_password // RECUPERAMOS LA CLAVE PARCIAL
     }));
   } catch (e) {
     console.error("Error de red:", e);
@@ -34,6 +35,7 @@ export const saveCompanies = async (companies) => {
         phone: c.phone ? String(c.phone) : null,
         username: String(c.username),
         password: String(c.password),
+        partial_password: c.partialPassword ? String(c.partialPassword) : null, // GUARDAMOS LA CLAVE PARCIAL
     }));
 
     const { error: error1 } = await supabase
@@ -44,18 +46,19 @@ export const saveCompanies = async (companies) => {
         throw new Error("Error BD (Paso 1): " + error1.message); 
     }
 
-    // PASO 2: Volvemos a guardar las que son sucursales, enviando TODOS los datos + el parent_id
+    // PASO 2: Volvemos a guardar las que son sucursales
     const withParents = companies.filter(c => c.parentId);
     if (withParents.length > 0) {
         const step2 = withParents.map(c => ({
             id: String(c.id),
             parent_id: String(c.parentId),
-            name: String(c.name), // SOLUCIÓN: Ya no enviamos el nombre vacío
+            name: String(c.name), 
             doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
             address: c.address ? String(c.address) : null,
             phone: c.phone ? String(c.phone) : null,
             username: String(c.username),
             password: String(c.password),
+            partial_password: c.partialPassword ? String(c.partialPassword) : null, // GUARDAMOS LA CLAVE PARCIAL
         }));
         
         const { error: error2 } = await supabase
