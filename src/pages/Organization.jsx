@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { usePermission } from '@/hooks/usePermission';
+import { supabase } from '@/lib/supabase'; // <-- AÑADIDO: CONEXIÓN A LA NUBE
 
 const Organization = () => {
     const { activeCompany, companies, setCompanies, updateCompanyCredentials } = useCompany();
@@ -20,15 +21,28 @@ const Organization = () => {
     const [formData, setFormData] = useState({ name: '', address: '', phone: '', username: '', password: '', partialPassword: '' });
     const [securityData, setSecurityData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
-    const subCompanies = companies.filter(c => c.parentId === activeCompany?.id);
+    const subCompanies = companies.filter(c => c.parentId && String(c.parentId) === String(activeCompany?.id));
 
-    const handleDelete = (id) => {
+    // 🚀 LÁSER DESTRUCTOR EN LA NUBE PARA SUB-EMPRESAS
+    const handleDelete = async (id) => {
         if (!canModify) return;
-        if (window.confirm('¿Estás seguro de eliminar esta sub-empresa? Se perderán sus datos permanentemente.')) {
-            const updated = companies.filter(c => c.id !== id);
-            setCompanies(updated);
-            localStorage.setItem('companies', JSON.stringify(updated));
-            toast({ title: "Sub-empresa eliminada" });
+        if (window.confirm('¿Estás seguro de eliminar esta sub-empresa de la base de datos? Se perderán sus datos permanentemente.')) {
+            try {
+                const { error } = await supabase
+                    .from('companies')
+                    .delete()
+                    .eq('id', String(id));
+
+                if (error) throw error;
+
+                if (typeof setCompanies === 'function') {
+                    await setCompanies();
+                }
+                toast({ title: "Sub-empresa eliminada exitosamente" });
+            } catch (err) {
+                console.error("Error eliminando sub-empresa:", err);
+                toast({ variant: "destructive", title: "Error", description: "No se pudo eliminar de la nube." });
+            }
         }
     };
 
@@ -44,24 +58,69 @@ const Organization = () => {
         setIsDialogOpen(true);
     };
 
+    // 🚀 GUARDADO DIRECTO A LA NUBE PARA SUB-EMPRESAS
     const handleSave = async (e) => {
         e.preventDefault();
         if (!canModify) return;
-        if (!formData.name.trim() || !formData.username.trim() || !formData.password.trim()) { toast({ variant: "destructive", title: "Datos incompletos", description: "Nombre, Usuario y Contraseña Global son obligatorios." }); return; }
-        const isDuplicateUser = companies.some(c => c.username === formData.username && c.id !== editingId);
-        if (isDuplicateUser) { toast({ variant: "destructive", title: "Usuario no disponible", description: "Este nombre de usuario ya está en uso." }); return; }
-        let updatedCompanies;
-        if (editingId) {
-            updatedCompanies = companies.map(c => c.id === editingId ? { ...c, ...formData, doc: activeCompany.doc, authSerial: activeCompany.authSerial } : c);
-            toast({ title: "Sub-empresa actualizada" });
-        } else {
-            const newCompany = { id: Date.now().toString(), parentId: activeCompany.id, isRoot: false, doc: activeCompany.doc, authSerial: activeCompany.authSerial, ...formData };
-            updatedCompanies = [...companies, newCompany];
-            toast({ title: "Sub-empresa creada" });
+        if (!formData.name.trim() || !formData.username.trim() || !formData.password.trim()) { 
+            toast({ variant: "destructive", title: "Datos incompletos", description: "Nombre, Usuario y Contraseña Global son obligatorios." }); 
+            return; 
         }
-        setCompanies(updatedCompanies);
-        localStorage.setItem('companies', JSON.stringify(updatedCompanies));
-        setIsDialogOpen(false);
+        
+        const isDuplicateUser = companies.some(c => c.username === formData.username && c.id !== editingId);
+        if (isDuplicateUser) { 
+            toast({ variant: "destructive", title: "Usuario no disponible", description: "Este nombre de usuario ya está en uso." }); 
+            return; 
+        }
+
+        try {
+            if (editingId) {
+                // EDITAR SUB-EMPRESA
+                const { error } = await supabase
+                    .from('companies')
+                    .update({
+                        name: formData.name,
+                        address: formData.address,
+                        phone: formData.phone,
+                        username: formData.username,
+                        password: formData.password,
+                        partial_password: formData.partialPassword
+                    })
+                    .eq('id', String(editingId));
+                    
+                if (error) throw error;
+                toast({ title: "Sub-empresa actualizada" });
+            } else {
+                // CREAR NUEVA SUB-EMPRESA
+                const newId = Date.now().toString();
+                const { error } = await supabase
+                    .from('companies')
+                    .insert([{
+                        id: newId,
+                        parent_id: String(activeCompany.id),
+                        doc_nit: activeCompany.doc, // Hereda el NIT de la parroquia
+                        name: formData.name,
+                        address: formData.address,
+                        phone: formData.phone,
+                        username: formData.username,
+                        password: formData.password,
+                        partial_password: formData.partialPassword
+                    }]);
+                    
+                if (error) throw error;
+                toast({ title: "Sub-empresa creada exitosamente" });
+            }
+
+            // Recargar la lista fresca desde la nube
+            if (typeof setCompanies === 'function') {
+                await setCompanies();
+            }
+            setIsDialogOpen(false);
+            
+        } catch (err) {
+            console.error("Error guardando sub-empresa:", err);
+            toast({ variant: "destructive", title: "Error", description: "No se pudo conectar con la base de datos." });
+        }
     };
 
     const handleSecuritySave = (e) => {
