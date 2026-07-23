@@ -12,9 +12,8 @@ import { exportToExcel } from '@/lib/excel';
 import * as XLSX from 'xlsx';
 import { usePermission } from '@/hooks/usePermission';
 
-// IMPORTACIONES CORREGIDAS PARA EVITAR EL ERROR SILENCIOSO
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// IMPORTACIÓN DE LA LIBRERÍA PARA WORD
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, PageOrientation } from 'docx';
 
 const FixedAssets = () => {
     const { canEdit, canDelete, canAdd, canImport, isReadOnly } = usePermission();
@@ -114,141 +113,175 @@ const FixedAssets = () => {
         exportToExcel(excelData, `Inventario_Activos_Fijos_${yearFilter}`);
     };
 
-    // --- EXPORTAR PDF (AHORA PROTEGIDO CON TRY/CATCH Y SINTAXIS SEGURA) ---
-    const handleExportPDF = () => {
+    // --- NUEVO: EXPORTAR A WORD (EDITABLE) ---
+    const handleExportWord = async () => {
         if(filteredAssets.length === 0) {
             toast({ variant: 'destructive', title: "No hay datos para exportar"});
             return;
         }
 
         try {
-            const doc = new jsPDF('landscape'); 
-
-            // Encabezado
-            doc.setFontSize(11);
-            doc.setFont("helvetica", "bold");
-            doc.text("Arquidiócesis\nde Barranquilla", 14, 20);
-            
-            doc.setFontSize(16);
-            doc.text("INVENTARIO", doc.internal.pageSize.getWidth() / 2, 25, { align: "center" });
-
-            // Datos del formulario
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            
             const parroquia = activeCompany?.name || '___________________________';
             const direccion = activeCompany?.address || '___________________________';
             const telefono = activeCompany?.phone || '___________________________';
             const fecha = new Date().toLocaleDateString();
 
-            // Columna Izquierda
-            doc.text(`Parroquia: ${parroquia}`, 14, 40);
-            doc.text(`Dirección: ${direccion}`, 14, 48);
-            doc.text(`Sección a Inventariar: ___________________________`, 14, 56);
-            
-            // Columna Derecha
-            doc.text(`Párroco Actual: ___________________________`, 160, 40);
-            doc.text(`Barrio: ___________________________`, 160, 48);
-            doc.text(`Teléfono: ${telefono}`, 160, 56);
-            doc.text(`Fecha: ${fecha}`, 160, 64);
+            // Configurar los bordes invisibles para el encabezado y firmas
+            const noBorders = {
+                top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
+                left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
+                insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE },
+            };
 
-            // Columnas de la Tabla
-            const tableColumn = [
-                "CANT.",
-                "NOMBRE DEL ACTIVO",
-                "MARCA/MODELO /\nSERIE",
-                "CATEGORIA\nDEL ACTIVO",
-                "USO/DESUSO/\nPRESTAMO",
-                "ESTADO\nBueno/Malo\n/Regular",
-                "VALOR NETO",
-                "OBSERVACIONES"
-            ];
+            // 1. Tabla de Encabezado (Sin bordes)
+            const headerTable = new Table({
+                borders: noBorders,
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph(`Parroquia: ${parroquia}`)] }),
+                        new TableCell({ children: [new Paragraph(`Párroco Actual: ___________________________`)] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph(`Dirección: ${direccion}`)] }),
+                        new TableCell({ children: [new Paragraph(`Barrio: ___________________________`)] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph(`Sección a Inventariar: ___________________________`)] }),
+                        new TableCell({ children: [new Paragraph(`Teléfono: ${telefono}`)] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph(`Fecha: ${fecha}`)] }),
+                    ]})
+                ]
+            });
 
-            let totalValue = 0;
+            // 2. Tabla Principal de Inventario
             const tableRows = [];
 
+            // Fila de Títulos
+            tableRows.push(
+                new TableRow({
+                    children: [
+                        new TableCell({ children: [new Paragraph({ text: "CANT.", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "NOMBRE DEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "MARCA/MODELO /\nSERIE", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "CATEGORIA\nDEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "USO/DESUSO/\nPRESTAMO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "ESTADO\nBueno/Malo/Regular", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "VALOR NETO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "OBSERVACIONES", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                    ]
+                })
+            );
+
+            let totalValue = 0;
             filteredAssets.forEach(asset => {
                 const val = parseFloat(asset.value) || 0;
                 totalValue += val;
-                tableRows.push([
-                    asset.quantity || 1,
-                    asset.name || '',
-                    asset.model || '',
-                    asset.category || '',
-                    asset.usage || '',
-                    asset.status || '',
-                    `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`,
-                    asset.notes || ''
-                ]);
+                tableRows.push(
+                    new TableRow({
+                        children: [
+                            new TableCell({ children: [new Paragraph({ text: (asset.quantity || 1).toString(), alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.name || '' })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.model || '' })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.category || '' })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.usage || '', alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.status || '', alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ children: [new Paragraph({ text: `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, alignment: AlignmentType.RIGHT })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.notes || '' })] }),
+                        ]
+                    })
+                );
             });
 
-            // Fila de Total
-            tableRows.push([
-                "", "", "", "", "", "TOTAL", `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, ""
-            ]);
+            // Fila de Totales
+            tableRows.push(
+                new TableRow({
+                    children: [
+                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "TOTAL", bold: true })], alignment: AlignmentType.CENTER })], shading: { fill: "F5F5F5" } }),
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, bold: true })], alignment: AlignmentType.RIGHT })], shading: { fill: "F5F5F5" } }),
+                        new TableCell({ children: [new Paragraph("")] }),
+                    ]
+                })
+            );
 
-            // Se utiliza autoTable como función externa (Sintaxis infalible)
-            autoTable(doc, {
-                startY: 70,
-                head: [tableColumn],
-                body: tableRows,
-                theme: 'plain', 
-                styles: {
-                    lineWidth: 0.1,
-                    lineColor: [0, 0, 0],
-                    textColor: [0, 0, 0],
-                    fontSize: 8
-                },
-                headStyles: { 
-                    fontStyle: 'bold', 
-                    halign: 'center', 
-                    valign: 'middle',
-                    fillColor: [240, 240, 240]
-                },
-                columnStyles: {
-                    0: { halign: 'center', cellWidth: 15 },
-                    1: { cellWidth: 50 },
-                    2: { cellWidth: 35 },
-                    3: { cellWidth: 30 },
-                    4: { halign: 'center', cellWidth: 25 },
-                    5: { halign: 'center', cellWidth: 30 },
-                    6: { halign: 'right', cellWidth: 30 },
-                    7: { cellWidth: 'auto' }
-                },
-                didParseCell: function(data) {
-                    if (data.row.index === tableRows.length - 1) {
-                        data.cell.styles.fontStyle = 'bold';
-                        data.cell.styles.fillColor = [245, 245, 245];
-                    }
-                }
+            const inventoryTable = new Table({
+                rows: tableRows,
+                width: { size: 100, type: WidthType.PERCENTAGE },
             });
 
-            const finalY = doc.lastAutoTable.finalY || 70;
-            
-            // Firmas
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "bold");
-            doc.text("Reviso:", 40, finalY + 25);
-            doc.setFont("helvetica", "normal");
-            doc.text("_________________________________", 40, finalY + 40);
-            doc.text("Nombre y Firma", 55, finalY + 45);
+            // 3. Tabla de Firmas (Sin bordes)
+            const signaturesTable = new Table({
+                borders: noBorders,
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Reviso:", bold: true })] })] }),
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Ecónomo:", bold: true })] })] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph({ text: "_________________________________", spacing: { before: 600 } })] }),
+                        new TableCell({ children: [new Paragraph({ text: "_________________________________", spacing: { before: 600 } })] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph("Nombre y Firma")] }),
+                        new TableCell({ children: [new Paragraph("Nombre y Firma")] }),
+                    ]}),
+                ]
+            });
 
-            doc.setFont("helvetica", "bold");
-            doc.text("Ecónomo:", 170, finalY + 25);
-            doc.setFont("helvetica", "normal");
-            doc.text("_________________________________", 170, finalY + 40);
-            doc.text("Nombre y Firma", 185, finalY + 45);
+            // Ensamblar el Documento Word
+            const doc = new Document({
+                sections: [{
+                    properties: {
+                        page: {
+                            size: { orientation: PageOrientation.LANDSCAPE }, // APAISADO
+                            margin: { top: 720, right: 720, bottom: 720, left: 720 }, // Márgenes estrechos
+                        },
+                    },
+                    children: [
+                        new Paragraph({ children: [new TextRun({ text: "Arquidiócesis de Barranquilla", bold: true, size: 24 })] }),
+                        new Paragraph({
+                            children: [new TextRun({ text: "INVENTARIO", bold: true, size: 32 })],
+                            alignment: AlignmentType.CENTER,
+                            spacing: { after: 400 },
+                        }),
+                        headerTable,
+                        new Paragraph({ text: "", spacing: { after: 200 } }),
+                        inventoryTable,
+                        new Paragraph({ text: "", spacing: { before: 600 } }),
+                        signaturesTable,
+                        new Paragraph({
+                            children: [new TextRun({ text: "Versión 001-Creado 31/05/2018", size: 16 })],
+                            spacing: { before: 400 }
+                        })
+                    ]
+                }]
+            });
 
-            // Pie de Página
-            doc.setFontSize(8);
-            doc.text("Versión 001-Creado 31/05/2018", 14, doc.internal.pageSize.getHeight() - 10);
+            // Generar y descargar el archivo de forma nativa
+            const blob = await Packer.toBlob(doc);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `CONTROL_INVENTARIOS_${activeCompany?.name || 'Parroquia'}_${yearFilter}.docx`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
 
-            doc.save(`CONTROL_INVENTARIOS_${activeCompany?.name || 'Parroquia'}_${yearFilter}.pdf`);
-            toast({ title: "PDF Generado con éxito", description: "Descarga iniciada" });
+            toast({ title: "Word Generado con éxito", description: "Descarga iniciada" });
 
         } catch (error) {
-            console.error("Error crítico generando el PDF:", error);
-            toast({ variant: 'destructive', title: 'Error al generar', description: 'No se pudo crear el archivo PDF. Revisa la consola para más detalles.' });
+            console.error("Error crítico generando el Word:", error);
+            toast({ variant: 'destructive', title: 'Error al generar', description: 'No se pudo crear el archivo Word. Revisa la consola.' });
         }
     };
     
@@ -309,7 +342,7 @@ const FixedAssets = () => {
                     
                     {/* BOTONES DE EXPORTACIÓN */}
                     <Button onClick={handleExportExcel} variant="outline" className="border-green-200 text-green-700 hover:bg-green-50"><FileSpreadsheet className="w-4 h-4 mr-2" /> Excel</Button>
-                    <Button onClick={handleExportPDF} variant="outline" className="border-red-200 text-red-700 hover:bg-red-50"><FileText className="w-4 h-4 mr-2" /> PDF</Button>
+                    <Button onClick={handleExportWord} variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50"><FileText className="w-4 h-4 mr-2" /> Word</Button>
                     
                     {canAdd && <Button onClick={handleCloneYear} variant="outline">Clonar a Año Actual</Button>}
                 </div>
