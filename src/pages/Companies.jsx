@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useCompany } from '@/contexts/CompanyContext';
 import { generateCompanySerial } from '@/lib/auth-utils';
 import { validateCompanyJSON, mergeCompanies } from '@/contexts/LocalAuthContext';
-import { supabase } from '@/lib/supabase'; // <-- INYECTAMOS EL CONECTOR A LA NUBE
+import { supabase } from '@/lib/supabase';
 
 const Companies = () => {
     const { companies, setCompanies, updateCompanyCredentials } = useCompany();
@@ -21,59 +21,65 @@ const Companies = () => {
     const [selectedCompanyForCredentials, setSelectedCompanyForCredentials] = useState(null);
     const { toast } = useToast();
 
-    const persistCompanies = (updatedCompanies) => {
-        localStorage.setItem('companies', JSON.stringify(updatedCompanies));
-        setCompanies(updatedCompanies);
-    };
-
+    // 🚀 NUEVO: FUNCIÓN DE GUARDADO DIRECTO A LA NUBE
     const handleSaveCompany = async (companyData) => {
-        let updated;
-        let finalCompanyData = { ...companyData };
-        
-        // Generate serial based on document
-        const serial = await generateCompanySerial(companyData.doc);
-        finalCompanyData.authSerial = serial;
+        try {
+            const isNew = !editingCompany;
+            const companyId = isNew ? Date.now().toString() : editingCompany.id;
+            
+            if (isNew) {
+                // Crear empresa nueva en Supabase
+                const { error } = await supabase
+                    .from('companies')
+                    .insert([{
+                        id: companyId,
+                        name: companyData.name,
+                        doc_nit: companyData.doc
+                    }]);
+                    
+                if (error) throw error;
+                toast({ title: "Empresa pre-registrada", description: "Creada exitosamente en la nube." });
+            } else {
+                // Editar empresa existente en Supabase
+                const { error } = await supabase
+                    .from('companies')
+                    .update({
+                        name: companyData.name,
+                        doc_nit: companyData.doc
+                    })
+                    .eq('id', companyId);
+                    
+                if (error) throw error;
+                toast({ title: "Datos actualizados", description: "Modificados exitosamente en la nube." });
+            }
 
-        if (!editingCompany) {
-            // New Stub (Pre-registration)
-            finalCompanyData.id = Date.now().toString();
-            // Ensure no user credentials are set here
-            finalCompanyData.username = null;
-            finalCompanyData.password = null;
+            // Descargamos la lista actualizada para refrescar la pantalla
+            if (typeof setCompanies === 'function') {
+                await setCompanies();
+            }
+            setDialogOpen(false);
             
-            updated = [...companies, finalCompanyData];
-            toast({ title: "Empresa pre-registrada", description: "Serial generado exitosamente." });
-        } else {
-            // Edit existing
-            updated = companies.map(c => c.id === editingCompany.id ? { 
-                ...c, 
-                name: finalCompanyData.name,
-                doc: finalCompanyData.doc,
-                authSerial: serial // Update serial if doc changed
-            } : c);
-            
-            toast({ title: "Datos actualizados" });
+        } catch (err) {
+            console.error("Error guardando empresa:", err);
+            toast({ variant: "destructive", title: "Error", description: "No se pudo conectar con la base de datos." });
         }
-        persistCompanies(updated);
-        setDialogOpen(false);
     };
 
     // EL LÁSER DESTRUCTOR CONFIGURADO
     const handleDeleteCompany = async (id) => {
         if (window.confirm('¿Estás seguro de eliminar esta empresa de la nube? Esta acción es irreversible.')) {
              try {
-                 // 1. Disparamos la orden de borrado a Supabase
                  const { error } = await supabase
                      .from('companies')
                      .delete()
                      .eq('id', String(id));
 
-                 if (error) {
-                     throw error;
-                 }
+                 if (error) throw error;
 
-                 // 2. Si Supabase lo borró exitosamente, limpiamos la pantalla local
-                 persistCompanies(companies.filter(c => String(c.id) !== String(id)));
+                 // Recargamos la lista limpia
+                 if (typeof setCompanies === 'function') {
+                     await setCompanies();
+                 }
                  toast({ title: "Empresa eliminada permanentemente" });
                  
              } catch (err) {
