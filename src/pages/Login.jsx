@@ -3,8 +3,9 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { useAuth, getCompanies, saveCompanies } from '@/contexts/LocalAuthContext'; // IMPORTAMOS LA CONEXIÓN A LA NUBE
+import { useAuth, getCompanies, saveCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
+import { supabase } from '@/lib/supabase'; // <-- IMPORTAMOS LA CONEXIÓN A LA NUBE
 import { 
   LogIn, User, Lock, Building, Shield, Key, Phone, MapPin, 
   Hash, Plus, Trash2, CornerDownRight, Layers, 
@@ -61,7 +62,7 @@ const Login = () => {
       setLoginPassword('');
   };
 
-  // --- Login Logic ---
+  // 🚀 LOGIN ACTUALIZADO: AHORA PASA POR EL PORTERO DE SEGURIDAD (SQL)
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
 
@@ -70,7 +71,7 @@ const Login = () => {
       return;
     }
 
-    // ADMIN GENERAL
+    // ADMIN GENERAL (Se mantiene intacto)
     if (selectedCompanyId === 'general_admin') {
       if (loginUsername === 'hertur26' && loginPassword === '1052042443-Ht') {
         toast({ title: "Bienvenido Administrador", description: "Acceso concedido." });
@@ -81,30 +82,33 @@ const Login = () => {
       return;
     }
 
-    // EMPRESAS
-    const company = companies.find(c => c.id === selectedCompanyId);
+    // EMPRESAS (Se conecta al Portero SQL)
+    try {
+      const { data, error } = await supabase.rpc('secure_login', {
+        p_username: loginUsername,
+        p_password: loginPassword
+      });
 
-    if (!company) {
-      toast({ variant: "destructive", title: "Error", description: "Empresa no encontrada." });
-      return;
+      if (error) throw error;
+
+      if (!data || !data.success) {
+        toast({ variant: "destructive", title: "Acceso Denegado", description: data?.message || "Usuario o contraseña incorrectos." });
+        return;
+      }
+
+      // Validar que el usuario pertenece a la empresa que seleccionó en la pantalla
+      if (String(data.company.id) !== String(selectedCompanyId)) {
+        toast({ variant: "destructive", title: "Acceso Denegado", description: "Este usuario no pertenece a la empresa seleccionada." });
+        return;
+      }
+
+      // Login exitoso con los datos limpios y seguros
+      await login({ isGeneralAdmin: false, company: data.company, accessLevel: data.accessLevel });
+      
+    } catch (err) {
+      console.error("Error crítico en login:", err);
+      toast({ variant: "destructive", title: "Error de red", description: "No se pudo contactar al servidor de seguridad." });
     }
-
-    if (company.username !== loginUsername) {
-      toast({ variant: "destructive", title: "Error", description: "Usuario incorrecto." });
-      return;
-    }
-
-    if (company.password === loginPassword) {
-      await login({ isGeneralAdmin: false, company, accessLevel: 'full' });
-      return;
-    }
-
-    if (company.partialPassword === loginPassword) {
-      await login({ isGeneralAdmin: false, company, accessLevel: 'partial' });
-      return;
-    }
-
-    toast({ variant: "destructive", title: "Error", description: "Contraseña incorrecta." });
   };
 
 
@@ -353,7 +357,7 @@ const Login = () => {
                         </TabsList>
                     )}
 
-                    {/* LOGIN TAB - UPDATED AS PER TASK 2 */}
+                    {/* LOGIN TAB */}
                     <TabsContent value="login" className="mt-0">
                          {/* Company Grid Selector */}
                          <div className="grid grid-cols-2 gap-3 mb-6 max-h-[200px] overflow-y-auto p-1">
