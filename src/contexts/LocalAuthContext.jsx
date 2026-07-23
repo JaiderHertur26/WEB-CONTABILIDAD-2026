@@ -6,7 +6,12 @@ const LocalAuthContext = createContext();
 
 export const getCompanies = async () => {
   try {
-    const { data, error } = await supabase.from('companies').select('*');
+    // EL TRUCO MAESTRO: Le pedimos a Supabase explícitamente que omita las contraseñas
+    const { data, error } = await supabase
+        .from('companies')
+        .select('id, name, doc_nit, parent_id, username, address, phone'); 
+        // 👆 Mira cómo ya no pedimos 'password' ni 'partial_password'
+
     if (error) {
         console.error("Error al consultar empresas:", error);
         return [];
@@ -14,8 +19,7 @@ export const getCompanies = async () => {
     return (data || []).map(comp => ({
         ...comp,
         doc: comp.doc_nit, 
-        parentId: comp.parent_id,
-        partialPassword: comp.partial_password // RECUPERAMOS LA CLAVE PARCIAL
+        parentId: comp.parent_id
     }));
   } catch (e) {
     console.error("Error de red:", e);
