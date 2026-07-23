@@ -11,12 +11,14 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { exportToExcel } from '@/lib/excel';
 import * as XLSX from 'xlsx';
 import { usePermission } from '@/hooks/usePermission';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+
+// IMPORTACIONES CORREGIDAS PARA EVITAR EL ERROR SILENCIOSO
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const FixedAssets = () => {
     const { canEdit, canDelete, canAdd, canImport, isReadOnly } = usePermission();
-    const { activeCompany } = useCompany(); // Importamos los datos de la parroquia activa
+    const { activeCompany } = useCompany();
     const [assets, saveAssets] = useCompanyData('fixedAssets');
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -81,7 +83,7 @@ const FixedAssets = () => {
         toast({ title: "Inventario Clonado", description: `Se creó el inventario para ${currentYear} basado en ${yearFilter}.` });
     };
     
-    // --- EXPORTAR EXCEL CON FORMATO INSTITUCIONAL ---
+    // --- EXPORTAR EXCEL ---
     const handleExportExcel = () => {
         if(filteredAssets.length === 0) {
             toast({ variant: 'destructive', title: "No hay datos para exportar"});
@@ -112,134 +114,142 @@ const FixedAssets = () => {
         exportToExcel(excelData, `Inventario_Activos_Fijos_${yearFilter}`);
     };
 
-    // --- EXPORTAR PDF CON FORMATO INSTITUCIONAL (ARQUIDIÓCESIS) ---
+    // --- EXPORTAR PDF (AHORA PROTEGIDO CON TRY/CATCH Y SINTAXIS SEGURA) ---
     const handleExportPDF = () => {
         if(filteredAssets.length === 0) {
             toast({ variant: 'destructive', title: "No hay datos para exportar"});
             return;
         }
 
-        const doc = new jsPDF('landscape'); // Apaisado para que quepan las columnas
+        try {
+            const doc = new jsPDF('landscape'); 
 
-        // Encabezado
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "bold");
-        doc.text("Arquidiócesis\nde Barranquilla", 14, 20);
-        
-        doc.setFontSize(16);
-        doc.text("INVENTARIO", doc.internal.pageSize.getWidth() / 2, 25, { align: "center" });
+            // Encabezado
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "bold");
+            doc.text("Arquidiócesis\nde Barranquilla", 14, 20);
+            
+            doc.setFontSize(16);
+            doc.text("INVENTARIO", doc.internal.pageSize.getWidth() / 2, 25, { align: "center" });
 
-        // Datos del formulario
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        
-        const parroquia = activeCompany?.name || '___________________________';
-        const direccion = activeCompany?.address || '___________________________';
-        const telefono = activeCompany?.phone || '___________________________';
-        const fecha = new Date().toLocaleDateString();
+            // Datos del formulario
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            
+            const parroquia = activeCompany?.name || '___________________________';
+            const direccion = activeCompany?.address || '___________________________';
+            const telefono = activeCompany?.phone || '___________________________';
+            const fecha = new Date().toLocaleDateString();
 
-        // Columna Izquierda
-        doc.text(`Parroquia: ${parroquia}`, 14, 40);
-        doc.text(`Dirección: ${direccion}`, 14, 48);
-        doc.text(`Sección a Inventariar: ___________________________`, 14, 56);
-        
-        // Columna Derecha
-        doc.text(`Párroco Actual: ___________________________`, 160, 40);
-        doc.text(`Barrio: ___________________________`, 160, 48);
-        doc.text(`Teléfono: ${telefono}`, 160, 56);
-        doc.text(`Fecha: ${fecha}`, 160, 64);
+            // Columna Izquierda
+            doc.text(`Parroquia: ${parroquia}`, 14, 40);
+            doc.text(`Dirección: ${direccion}`, 14, 48);
+            doc.text(`Sección a Inventariar: ___________________________`, 14, 56);
+            
+            // Columna Derecha
+            doc.text(`Párroco Actual: ___________________________`, 160, 40);
+            doc.text(`Barrio: ___________________________`, 160, 48);
+            doc.text(`Teléfono: ${telefono}`, 160, 56);
+            doc.text(`Fecha: ${fecha}`, 160, 64);
 
-        // Columnas de la Tabla
-        const tableColumn = [
-            "CANT.",
-            "NOMBRE DEL ACTIVO",
-            "MARCA/MODELO /\nSERIE",
-            "CATEGORIA\nDEL ACTIVO",
-            "USO/DESUSO/\nPRESTAMO",
-            "ESTADO\nBueno/Malo\n/Regular",
-            "VALOR NETO",
-            "OBSERVACIONES"
-        ];
+            // Columnas de la Tabla
+            const tableColumn = [
+                "CANT.",
+                "NOMBRE DEL ACTIVO",
+                "MARCA/MODELO /\nSERIE",
+                "CATEGORIA\nDEL ACTIVO",
+                "USO/DESUSO/\nPRESTAMO",
+                "ESTADO\nBueno/Malo\n/Regular",
+                "VALOR NETO",
+                "OBSERVACIONES"
+            ];
 
-        let totalValue = 0;
-        const tableRows = [];
+            let totalValue = 0;
+            const tableRows = [];
 
-        filteredAssets.forEach(asset => {
-            const val = parseFloat(asset.value) || 0;
-            totalValue += val;
+            filteredAssets.forEach(asset => {
+                const val = parseFloat(asset.value) || 0;
+                totalValue += val;
+                tableRows.push([
+                    asset.quantity || 1,
+                    asset.name || '',
+                    asset.model || '',
+                    asset.category || '',
+                    asset.usage || '',
+                    asset.status || '',
+                    `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`,
+                    asset.notes || ''
+                ]);
+            });
+
+            // Fila de Total
             tableRows.push([
-                asset.quantity || 1,
-                asset.name || '',
-                asset.model || '',
-                asset.category || '',
-                asset.usage || '',
-                asset.status || '',
-                `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`,
-                asset.notes || ''
+                "", "", "", "", "", "TOTAL", `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, ""
             ]);
-        });
 
-        // Fila de Total
-        tableRows.push([
-            "", "", "", "", "", "TOTAL", `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, ""
-        ]);
-
-        doc.autoTable({
-            startY: 70,
-            head: [tableColumn],
-            body: tableRows,
-            theme: 'plain', // Bordes negros limpios como el formato original
-            styles: {
-                lineWidth: 0.1,
-                lineColor: [0, 0, 0],
-                textColor: [0, 0, 0],
-                fontSize: 8
-            },
-            headStyles: { 
-                fontStyle: 'bold', 
-                halign: 'center', 
-                valign: 'middle',
-                fillColor: [240, 240, 240]
-            },
-            columnStyles: {
-                0: { halign: 'center', cellWidth: 15 },
-                1: { cellWidth: 50 },
-                2: { cellWidth: 35 },
-                3: { cellWidth: 30 },
-                4: { halign: 'center', cellWidth: 25 },
-                5: { halign: 'center', cellWidth: 30 },
-                6: { halign: 'right', cellWidth: 30 },
-                7: { cellWidth: 'auto' }
-            },
-            didParseCell: function(data) {
-                if (data.row.index === tableRows.length - 1) {
-                    data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.fillColor = [245, 245, 245];
+            // Se utiliza autoTable como función externa (Sintaxis infalible)
+            autoTable(doc, {
+                startY: 70,
+                head: [tableColumn],
+                body: tableRows,
+                theme: 'plain', 
+                styles: {
+                    lineWidth: 0.1,
+                    lineColor: [0, 0, 0],
+                    textColor: [0, 0, 0],
+                    fontSize: 8
+                },
+                headStyles: { 
+                    fontStyle: 'bold', 
+                    halign: 'center', 
+                    valign: 'middle',
+                    fillColor: [240, 240, 240]
+                },
+                columnStyles: {
+                    0: { halign: 'center', cellWidth: 15 },
+                    1: { cellWidth: 50 },
+                    2: { cellWidth: 35 },
+                    3: { cellWidth: 30 },
+                    4: { halign: 'center', cellWidth: 25 },
+                    5: { halign: 'center', cellWidth: 30 },
+                    6: { halign: 'right', cellWidth: 30 },
+                    7: { cellWidth: 'auto' }
+                },
+                didParseCell: function(data) {
+                    if (data.row.index === tableRows.length - 1) {
+                        data.cell.styles.fontStyle = 'bold';
+                        data.cell.styles.fillColor = [245, 245, 245];
+                    }
                 }
-            }
-        });
+            });
 
-        const finalY = doc.lastAutoTable.finalY || 70;
-        
-        // Firmas
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "bold");
-        doc.text("Reviso:", 40, finalY + 25);
-        doc.setFont("helvetica", "normal");
-        doc.text("_________________________________", 40, finalY + 40);
-        doc.text("Nombre y Firma", 55, finalY + 45);
+            const finalY = doc.lastAutoTable.finalY || 70;
+            
+            // Firmas
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.text("Reviso:", 40, finalY + 25);
+            doc.setFont("helvetica", "normal");
+            doc.text("_________________________________", 40, finalY + 40);
+            doc.text("Nombre y Firma", 55, finalY + 45);
 
-        doc.setFont("helvetica", "bold");
-        doc.text("Ecónomo:", 170, finalY + 25);
-        doc.setFont("helvetica", "normal");
-        doc.text("_________________________________", 170, finalY + 40);
-        doc.text("Nombre y Firma", 185, finalY + 45);
+            doc.setFont("helvetica", "bold");
+            doc.text("Ecónomo:", 170, finalY + 25);
+            doc.setFont("helvetica", "normal");
+            doc.text("_________________________________", 170, finalY + 40);
+            doc.text("Nombre y Firma", 185, finalY + 45);
 
-        // Pie de Página
-        doc.setFontSize(8);
-        doc.text("Versión 001-Creado 31/05/2018", 14, doc.internal.pageSize.getHeight() - 10);
+            // Pie de Página
+            doc.setFontSize(8);
+            doc.text("Versión 001-Creado 31/05/2018", 14, doc.internal.pageSize.getHeight() - 10);
 
-        doc.save(`CONTROL_INVENTARIOS_${activeCompany?.name || 'Parroquia'}_${yearFilter}.pdf`);
+            doc.save(`CONTROL_INVENTARIOS_${activeCompany?.name || 'Parroquia'}_${yearFilter}.pdf`);
+            toast({ title: "PDF Generado con éxito", description: "Descarga iniciada" });
+
+        } catch (error) {
+            console.error("Error crítico generando el PDF:", error);
+            toast({ variant: 'destructive', title: 'Error al generar', description: 'No se pudo crear el archivo PDF. Revisa la consola para más detalles.' });
+        }
     };
     
     const handleImport = (importedAssets) => {
@@ -297,7 +307,7 @@ const FixedAssets = () => {
                     {canAdd && <Button onClick={() => setNewYearDialogOpen(true)} variant="outline"><CalendarPlus className="w-4 h-4 mr-2"/>Añadir Año</Button>}
                     {canImport && <Button onClick={() => setImportDialogOpen(true)} variant="outline"><Upload className="w-4 h-4 mr-2" /> Importar</Button>}
                     
-                    {/* BOTONES DE EXPORTACIÓN SEPARADOS */}
+                    {/* BOTONES DE EXPORTACIÓN */}
                     <Button onClick={handleExportExcel} variant="outline" className="border-green-200 text-green-700 hover:bg-green-50"><FileSpreadsheet className="w-4 h-4 mr-2" /> Excel</Button>
                     <Button onClick={handleExportPDF} variant="outline" className="border-red-200 text-red-700 hover:bg-red-50"><FileText className="w-4 h-4 mr-2" /> PDF</Button>
                     
