@@ -67,7 +67,12 @@ const Dashboard = () => {
     });
   };
 
-  const hasSubCompanies = companies.some(c => c.parentId && String(c.parentId) === String(activeCompany?.id));
+  // DETECTOR DE CAPILLAS BLINDADO
+  const currentId = String(activeCompany?.id || '').trim();
+  const hasSubCompanies = companies.some(c => {
+      const pId = String(c.parentId || c.parent_id || '').trim();
+      return pId === currentId && pId !== '';
+  });
 
   // Filtro centralizado para Inversiones / Activos
   const isInvestmentCategory = (cat) => {
