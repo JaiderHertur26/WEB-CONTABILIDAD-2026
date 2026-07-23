@@ -29,7 +29,8 @@ export const CompanyProvider = ({ children }) => {
       const mappedCompanies = (data || []).map(comp => ({
           ...comp,
           doc: comp.doc_nit,
-          parentId: comp.parent_id
+          parentId: comp.parent_id,
+          partialPassword: comp.partial_password // RECUPERAMOS LA CONTRASEÑA PARCIAL
       }));
 
       setCompanies(mappedCompanies);
@@ -86,11 +87,12 @@ export const CompanyProvider = ({ children }) => {
      await loadCompanies();
   };
 
-  // NUEVO: Actualizar credenciales directo en la nube
+  // ACTUALIZADO: Traductor completo de variables a nombres de columna SQL
   const updateCompanyCredentials = async (companyId, newData) => {
     try {
         // Preparamos el objeto para Supabase asegurando los nombres correctos de columnas
         const updatePayload = { ...newData };
+        
         if (newData.doc !== undefined) {
             updatePayload.doc_nit = newData.doc;
             delete updatePayload.doc;
@@ -98,6 +100,11 @@ export const CompanyProvider = ({ children }) => {
         if (newData.parentId !== undefined) {
             updatePayload.parent_id = newData.parentId;
             delete updatePayload.parentId;
+        }
+        // NUEVA REGLA DE TRADUCCIÓN:
+        if (newData.partialPassword !== undefined) {
+            updatePayload.partial_password = newData.partialPassword;
+            delete updatePayload.partialPassword;
         }
 
         const { error } = await supabase
