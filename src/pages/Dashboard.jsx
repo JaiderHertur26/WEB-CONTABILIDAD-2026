@@ -67,7 +67,7 @@ const Dashboard = () => {
     });
   };
 
-  const hasSubCompanies = companies.some(c => c.parentId === activeCompany?.id);
+  const hasSubCompanies = companies.some(c => c.parentId && String(c.parentId) === String(activeCompany?.id));
 
   // Filtro centralizado para Inversiones / Activos
   const isInvestmentCategory = (cat) => {
