@@ -14,6 +14,7 @@ export const CompanyProvider = ({ children }) => {
   const { toast } = useToast();
 
   // NUEVO: Cargar empresas desde Supabase en la nube
+  // NUEVO: Cargar empresas desde Supabase en la nube
   const loadCompanies = async () => {
     try {
       const { data, error } = await supabase
@@ -26,11 +27,13 @@ export const CompanyProvider = ({ children }) => {
       }
 
       // Mapeamos las columnas de BD a las variables que usa React
+      // FORZAMOS A QUE LOS IDs SEAN TEXTO PARA QUE EL BOTÓN DE CONSOLIDAR FUNCIONE
       const mappedCompanies = (data || []).map(comp => ({
           ...comp,
+          id: String(comp.id), // <-- Aseguramos que sea texto
           doc: comp.doc_nit,
-          parentId: comp.parent_id,
-          partialPassword: comp.partial_password // RECUPERAMOS LA CONTRASEÑA PARCIAL
+          parentId: comp.parent_id ? String(comp.parent_id) : null, // <-- Aseguramos que sea texto
+          partialPassword: comp.partial_password
       }));
 
       setCompanies(mappedCompanies);
