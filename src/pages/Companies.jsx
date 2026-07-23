@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useCompany } from '@/contexts/CompanyContext';
 import { generateCompanySerial } from '@/lib/auth-utils';
 import { validateCompanyJSON, mergeCompanies } from '@/contexts/LocalAuthContext';
+import { supabase } from '@/lib/supabase'; // <-- INYECTAMOS EL CONECTOR A LA NUBE
 
 const Companies = () => {
     const { companies, setCompanies, updateCompanyCredentials } = useCompany();
@@ -19,8 +20,6 @@ const Companies = () => {
     const [selectedCompanyForSerial, setSelectedCompanyForSerial] = useState(null);
     const [selectedCompanyForCredentials, setSelectedCompanyForCredentials] = useState(null);
     const { toast } = useToast();
-    // Removed fileInputRef as the "Restaurar JSON" button is being removed.
-    // const fileInputRef = useRef(null); 
 
     const persistCompanies = (updatedCompanies) => {
         localStorage.setItem('companies', JSON.stringify(updatedCompanies));
@@ -59,10 +58,28 @@ const Companies = () => {
         setDialogOpen(false);
     };
 
-    const handleDeleteCompany = (id) => {
-        if (window.confirm('¿Estás seguro de eliminar esta empresa? Se perderán todos los datos asociados.')) {
-             persistCompanies(companies.filter(c => c.id !== id));
-             toast({ title: "Empresa eliminada" });
+    // EL LÁSER DESTRUCTOR CONFIGURADO
+    const handleDeleteCompany = async (id) => {
+        if (window.confirm('¿Estás seguro de eliminar esta empresa de la nube? Esta acción es irreversible.')) {
+             try {
+                 // 1. Disparamos la orden de borrado a Supabase
+                 const { error } = await supabase
+                     .from('companies')
+                     .delete()
+                     .eq('id', String(id));
+
+                 if (error) {
+                     throw error;
+                 }
+
+                 // 2. Si Supabase lo borró exitosamente, limpiamos la pantalla local
+                 persistCompanies(companies.filter(c => String(c.id) !== String(id)));
+                 toast({ title: "Empresa eliminada permanentemente" });
+                 
+             } catch (err) {
+                 console.error("Error eliminando en la nube:", err);
+                 toast({ variant: "destructive", title: "Error", description: "No se pudo eliminar la empresa de la base de datos." });
+             }
         }
     };
     
@@ -81,24 +98,6 @@ const Companies = () => {
         setCredentialsDialogOpen(false);
     };
 
-    // handleImportCompanies is now only used in Settings.jsx, so it can be removed from here if no longer needed locally.
-    // However, the prompt specifies "The JSON restoration functionality remains available in Settings.jsx"
-    // and asks to remove the button only from this file, implying the function definition might still be fine here
-    // or moved to a shared utility. For now, it's safe to assume it's moved or its presence here does no harm 
-    // if not called, but adhering to minimal change, we will keep the function definition if it was here originally
-    // and only remove the button and its associated input ref.
-    // As per previous file, this function was defined here. If it was defined as a standalone utility, we would not need to touch it.
-    // Given it was part of this component, and now only Settings.jsx uses JSON import, this function can be safely removed from here.
-    // For now, given the instruction to *only* remove the button, and not modify "company logic, data structure, or state management"
-    // implies leaving the function if it's not strictly part of the button removal.
-    // However, the user also mentioned "The JSON restoration functionality remains available in Settings.jsx",
-    // suggesting it might be better to move this logic if it's not being used here.
-    // Let's re-evaluate. The original Companies.jsx had the fileInputRef and handleImportCompanies.
-    // If the button and input are removed, these are unused. To keep the component clean, they should be removed.
-    // The `validateCompanyJSON` and `mergeCompanies` are imported from `LocalAuthContext`
-    // and are used by `Settings.jsx`, so they should remain there.
-    // Removing the button and its associated input and handler function from this file.
-
     return (
         <>
         <Helmet><title>Gestión de Empresas - JaiderHerTur26</title></Helmet>
@@ -109,14 +108,6 @@ const Companies = () => {
                     <p className="text-slate-600 mt-1">Generación de seriales, pre-registro y gestión de credenciales.</p>
                 </div>
                 <div className="flex gap-2">
-                    {/* Removed the "Restaurar JSON" button and its associated input field */}
-                    {/*
-                    <Button variant="outline" onClick={() => fileInputRef.current.click()} className="bg-white hover:bg-slate-50 border-slate-300 text-slate-700">
-                        <Upload className="w-4 h-4 mr-2" /> Restaurar JSON
-                    </Button>
-                    <input type="file" ref={fileInputRef} accept=".json" onChange={handleImportCompanies} className="hidden" />
-                    */}
-                    
                     <Button onClick={() => { setEditingCompany(null); setDialogOpen(true); }} className="bg-slate-900 hover:bg-slate-800 text-white shadow-lg">
                         <Plus className="w-4 h-4 mr-2" /> Pre-registrar Empresa
                     </Button>
