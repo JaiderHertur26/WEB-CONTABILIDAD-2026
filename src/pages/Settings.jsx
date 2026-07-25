@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { usePermission } from '@/hooks/usePermission';
 import { validateCompanyJSON, mergeCompanies, saveCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase'; // IMPORTANTE PARA LA RESTAURACIÓN
+import { supabase } from '@/lib/supabase';
 
 const Settings = () => {
     const { activeCompany, companies, setCompanies, isGeneralAdmin, updateCompanyCredentials } = useCompany();
@@ -162,11 +162,41 @@ const Settings = () => {
                         return;
                     }
 
-                    const merged = mergeCompanies(companies, content.companies);
+                    // 🛡️ ESCUDO ANTI-SECUESTRO DE ID (ADMIN) - MODO TOLERANCIA CERO
+                    let securityBreach = false;
+                    const secureCompanies = [];
                     
-                    await saveCompanies(merged);
+                    content.companies.forEach(imported => {
+                        const existing = companies.find(c => c.id === imported.id);
+                        if (existing) {
+                            // REGLA 1: Si existe, la Base de Datos MANDA. Protegemos NIT y contraseñas.
+                            secureCompanies.push({
+                                ...existing, 
+                                name: imported.name || existing.name,
+                                address: imported.address || existing.address,
+                                phone: imported.phone || existing.phone,
+                            });
+                        } else {
+                            // REGLA 2: Tolerancia Cero. Si el ID no existe en el sistema, se bloquea.
+                            securityBreach = true;
+                        }
+                    });
+
+                    if (securityBreach) {
+                        toast({ variant: 'destructive', title: 'Acceso Denegado 🛡️', description: 'El archivo contiene IDs alterados o entidades no registradas. Importación bloqueada.' });
+                        return; // Se aborta todo el proceso. NO ENTRA.
+                    }
+
+                    // Fusionamos cuidadosamente con las que ya existían y no venían en el archivo
+                    const finalCompanies = companies.map(c => {
+                        const updated = secureCompanies.find(sc => sc.id === c.id);
+                        return updated ? updated : c;
+                    });
+
+                    // Guardamos la información limpia
+                    await saveCompanies(finalCompanies);
                     setCompanies(); 
-                    toast({ title: "Empresas restauradas en la nube", description: `Se actualizaron ${content.companies.length} empresas.` });
+                    toast({ title: "Importación segura exitosa", description: `Estructura protegida. Se actualizaron ${content.companies.length} entidades.` });
 
                 } else {
                      if (content.type === 'ADMIN_STRUCTURE_ONLY') {
@@ -211,7 +241,7 @@ const Settings = () => {
                     report.validIds.add(bkpComp.id);
                     report.companiesToUpdate.push({ ...bkpComp, currentName: exists.name });
                 } else {
-                    report.invalidIds.add(bkpComp.id);
+                    report.invalidIds.add(bkpComp.id); // Estos se ignorarán en la restauración
                 }
             } else {
                 report.ignoredIds.add(bkpComp.id);
@@ -267,13 +297,12 @@ const Settings = () => {
                 const newCompaniesList = companies.map(existingComp => {
                     const updateData = companiesToUpdate.find(u => u.id === existingComp.id);
                     if (updateData) {
+                        // 🛡️ ESCUDO ANTI-SECUESTRO DE ID (EMPRESAS / PARROQUIAS)
                         return { 
-                            ...existingComp,
+                            ...existingComp, // La Base de Datos MANDA. Bloquea NIT y Contraseñas.
                             name: updateData.name || existingComp.name,
                             address: updateData.address || existingComp.address,
                             phone: updateData.phone || existingComp.phone,
-                            doc: updateData.doc || existingComp.doc,
-                            password: existingComp.password,
                         };
                     }
                     return existingComp;
@@ -295,10 +324,8 @@ const Settings = () => {
                     if (content.data && content.data[key]) {
                         const records = content.data[key];
                         
-                        // Guardar en la PC local
                         await storage.setItem(key, JSON.stringify(records));
                         
-                        // NUEVO: Enviar directo a Supabase (La Nube)
                         const { error: syncError } = await supabase
                             .from('app_data_sync')
                             .upsert({
@@ -323,7 +350,7 @@ const Settings = () => {
             });
             
             window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: 'all-data-update' } }));
-            toast({ title: 'Restauración en la Nube', description: `Datos subidos a Supabase correctamente.` });
+            toast({ title: 'Restauración Blindada', description: `Datos subidos a Supabase protegiendo la identidad original.` });
             setIsPreviewOpen(false);
 
         } catch (error) {

@@ -26,7 +26,7 @@ const Login = () => {
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
-  const [searchQuery, setSearchQuery] = useState(''); // <-- Nuevo estado para el buscador
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Register / Builder States
   const [regStep, setRegStep] = useState(1);
@@ -70,7 +70,6 @@ const Login = () => {
       return;
     }
 
-    // ADMIN GENERAL
     if (selectedCompanyId === 'general_admin') {
       if (loginUsername === 'hertur26' && loginPassword === '1052042443-Ht') {
         toast({ title: "Bienvenido Administrador", description: "Acceso concedido." });
@@ -81,7 +80,6 @@ const Login = () => {
       return;
     }
 
-    // EMPRESAS (Conexión al Portero SQL)
     try {
       const { data, error } = await supabase.rpc('secure_login', {
         p_username: loginUsername,
@@ -108,7 +106,6 @@ const Login = () => {
     }
   };
 
-  // Lógica de Registro (Mantenida intacta)
   const handleStartRegistration = async (e) => {
     e.preventDefault();
     const expected = await generateCompanySerial(rootAuth.doc);
@@ -121,14 +118,26 @@ const Login = () => {
         toast({ variant: "destructive", title: "Ya registrado", description: "Esta empresa ya tiene usuario." });
         return;
     }
+    
+    // CORRECCIÓN: Respetar dirección y teléfono si la empresa ya existía previamente
     const rootNode = {
         id: existing ? existing.id : Date.now().toString(),
-        doc: rootAuth.doc, authSerial: rootAuth.serial, name: existing ? existing.name : '',
-        parentId: null, address: '', phone: '', username: '', password: '', partialPassword: '', isRoot: true
+        doc: rootAuth.doc, authSerial: rootAuth.serial, 
+        name: existing ? (existing.name || '') : '',
+        parentId: null, 
+        address: existing ? (existing.address || '') : '', 
+        phone: existing ? (existing.phone || '') : '', 
+        username: '', password: '', partialPassword: '', isRoot: true
     };
+    
     setHierarchy([rootNode]);
     setSelectedNodeId(rootNode.id);
-    setFormData({ name: rootNode.name, address: '', phone: '', username: '', password: '', partialPassword: '' });
+    setFormData({ 
+        name: rootNode.name, 
+        address: rootNode.address, 
+        phone: rootNode.phone, 
+        username: '', password: '', partialPassword: '' 
+    });
     setRegStep(2);
   };
 
@@ -243,7 +252,6 @@ const Login = () => {
     );
   };
 
-  // Filtramos la lista de empresas activas usando el buscador (y limitamos a 50 para rendimiento extremo)
   const activeCompanies = companies.filter(c => c.username);
   const filteredCompanies = activeCompanies
     .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.doc.includes(searchQuery))
@@ -253,7 +261,6 @@ const Login = () => {
     <>
       <Helmet><title>Acceso y Registro - JaiderHerTur26</title></Helmet>
       <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
-        {/* Background decoration */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
              <div className="absolute -top-[30%] -left-[10%] w-[70%] h-[70%] rounded-full bg-blue-900/20 blur-3xl"></div>
              <div className="absolute top-[40%] -right-[10%] w-[60%] h-[60%] rounded-full bg-indigo-900/20 blur-3xl"></div>
@@ -268,7 +275,6 @@ const Login = () => {
               regStep === 2 ? "max-w-5xl" : "max-w-md"
           )}
         >
-           {/* BRAND HEADER */}
            <div className="bg-white p-8 text-center border-b border-slate-100 relative overflow-hidden">
                 <div className="flex flex-col items-center justify-center gap-3">
                     <div className="relative w-16 h-16 flex items-center justify-center">
@@ -299,12 +305,10 @@ const Login = () => {
                         </TabsList>
                     )}
 
-                    {/* LOGIN TAB REDISEÑADO */}
                     <TabsContent value="login" className="mt-0 outline-none">
                         <AnimatePresence mode="wait">
                             {!selectedCompanyId ? (
                                 <motion.div key="selector" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
-                                    {/* Botón Admin Destacado */}
                                     <button
                                         onClick={() => handleCompanySelect('general_admin')}
                                         className="w-full flex items-center justify-between p-4 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors shadow-sm"
@@ -322,7 +326,6 @@ const Login = () => {
                                         <div className="flex-grow border-t border-slate-200"></div>
                                     </div>
 
-                                    {/* Buscador Inteligente */}
                                     <div className="relative group">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
                                         <input 
@@ -334,7 +337,6 @@ const Login = () => {
                                         />
                                     </div>
 
-                                    {/* Lista Virtualizada Manual (Max 50) */}
                                     <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
                                         {filteredCompanies.length > 0 ? (
                                             filteredCompanies.map(company => (
@@ -413,7 +415,6 @@ const Login = () => {
                         </AnimatePresence>
                     </TabsContent>
 
-                    {/* REGISTER TAB */}
                     <TabsContent value="register" className="mt-0">
                         {regStep === 1 && (
                             <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">

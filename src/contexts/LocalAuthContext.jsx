@@ -6,11 +6,10 @@ const LocalAuthContext = createContext();
 
 export const getCompanies = async () => {
   try {
-    // EL TRUCO MAESTRO: Le pedimos a Supabase explícitamente que omita las contraseñas
+    // EL TRUCO MAESTRO: Pedimos los datos sin exponer las contraseñas
     const { data, error } = await supabase
         .from('companies')
         .select('id, name, doc_nit, parent_id, username, address, phone'); 
-        // 👆 Mira cómo ya no pedimos 'password' ni 'partial_password'
 
     if (error) {
         console.error("Error al consultar empresas:", error);
@@ -30,17 +29,29 @@ export const getCompanies = async () => {
 export const saveCompanies = async (companies) => {
   try {
     // PASO 1: Insertamos todas las empresas sin el parent_id
-    const step1 = companies.map(c => ({
-        id: String(c.id), 
-        parent_id: null,
-        name: String(c.name),
-        doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
-        address: c.address ? String(c.address) : null,
-        phone: c.phone ? String(c.phone) : null,
-        username: String(c.username),
-        password: String(c.password),
-        partial_password: c.partialPassword ? String(c.partialPassword) : null, // GUARDAMOS LA CLAVE PARCIAL
-    }));
+    const step1 = companies.map(c => {
+        const payload = {
+            id: String(c.id), 
+            parent_id: null,
+            name: String(c.name),
+            doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
+            address: c.address || '', // CORRECCIÓN: Usamos '' en lugar de null para React
+            phone: c.phone || '',     // CORRECCIÓN: Usamos '' en lugar de null para React
+            username: String(c.username)
+        };
+
+        // 🛡️ BLINDAJE DE CONTRASEÑAS: 
+        // Solo enviamos la contraseña si viene escrita en el objeto.
+        // Esto evita destruir las contraseñas de las empresas existentes con "undefined".
+        if (c.password) {
+            payload.password = String(c.password);
+        }
+        if (c.partialPassword || c.partial_password) {
+            payload.partial_password = String(c.partialPassword || c.partial_password);
+        }
+
+        return payload;
+    });
 
     const { error: error1 } = await supabase
         .from('companies')
@@ -53,17 +64,26 @@ export const saveCompanies = async (companies) => {
     // PASO 2: Volvemos a guardar las que son sucursales
     const withParents = companies.filter(c => c.parentId);
     if (withParents.length > 0) {
-        const step2 = withParents.map(c => ({
-            id: String(c.id),
-            parent_id: String(c.parentId),
-            name: String(c.name), 
-            doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
-            address: c.address ? String(c.address) : null,
-            phone: c.phone ? String(c.phone) : null,
-            username: String(c.username),
-            password: String(c.password),
-            partial_password: c.partialPassword ? String(c.partialPassword) : null, // GUARDAMOS LA CLAVE PARCIAL
-        }));
+        const step2 = withParents.map(c => {
+            const payload = {
+                id: String(c.id),
+                parent_id: String(c.parentId),
+                name: String(c.name), 
+                doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
+                address: c.address || '',
+                phone: c.phone || '',
+                username: String(c.username)
+            };
+
+            if (c.password) {
+                payload.password = String(c.password);
+            }
+            if (c.partialPassword || c.partial_password) {
+                payload.partial_password = String(c.partialPassword || c.partial_password);
+            }
+
+            return payload;
+        });
         
         const { error: error2 } = await supabase
             .from('companies')
