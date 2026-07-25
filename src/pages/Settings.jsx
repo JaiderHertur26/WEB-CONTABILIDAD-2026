@@ -9,7 +9,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePermission } from '@/hooks/usePermission';
-import { validateCompanyJSON, mergeCompanies, saveCompanies } from '@/contexts/LocalAuthContext';
+import { validateCompanyJSON, saveCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 
@@ -156,47 +156,30 @@ const Settings = () => {
                         toast({ variant: 'destructive', title: 'Error', description: validation.error });
                         return;
                     }
-                    
-                    if (!content.companies || content.companies.length === 0) {
-                        toast({ variant: 'destructive', title: 'Error', description: "No hay empresas válidas en el archivo" });
-                        return;
-                    }
 
-                    // 🛡️ ESCUDO ANTI-SECUESTRO DE ID (ADMIN) - MODO TOLERANCIA CERO
+                    // 🛡️ ESCUDO ANTI-SECUESTRO DE ID (ADMIN)
                     let securityBreach = false;
-                    const secureCompanies = [];
                     
                     content.companies.forEach(imported => {
                         const existing = companies.find(c => c.id === imported.id);
                         if (existing) {
-                            // REGLA 1: Si existe, la Base de Datos MANDA. Protegemos NIT y contraseñas.
-                            secureCompanies.push({
-                                ...existing, 
-                                name: imported.name || existing.name,
-                                address: imported.address || existing.address,
-                                phone: imported.phone || existing.phone,
-                            });
+                            const importedDoc = imported.doc || imported.doc_nit;
+                            if (existing.doc !== importedDoc) {
+                                securityBreach = true;
+                            }
                         } else {
-                            // REGLA 2: Tolerancia Cero. Si el ID no existe en el sistema, se bloquea.
                             securityBreach = true;
                         }
                     });
 
                     if (securityBreach) {
-                        toast({ variant: 'destructive', title: 'Acceso Denegado 🛡️', description: 'El archivo contiene IDs alterados o entidades no registradas. Importación bloqueada.' });
+                        toast({ variant: 'destructive', title: 'Alerta de Seguridad 🚨', description: 'El archivo contiene IDs falsificados o NITs que no coinciden. Importación bloqueada.' });
                         return; // Se aborta todo el proceso. NO ENTRA.
                     }
 
-                    // Fusionamos cuidadosamente con las que ya existían y no venían en el archivo
-                    const finalCompanies = companies.map(c => {
-                        const updated = secureCompanies.find(sc => sc.id === c.id);
-                        return updated ? updated : c;
-                    });
-
-                    // Guardamos la información limpia
-                    await saveCompanies(finalCompanies);
-                    setCompanies(); 
-                    toast({ title: "Importación segura exitosa", description: `Estructura protegida. Se actualizaron ${content.companies.length} entidades.` });
+                    // En un entorno blindado, el Admin no debe sobreescribir el perfil de la empresa desde un JSON.
+                    // Pasamos a restaurar la DATA, ignorando por completo los datos de perfil del archivo.
+                    analyzeAndPreviewBackup(content);
 
                 } else {
                      if (content.type === 'ADMIN_STRUCTURE_ONLY') {
@@ -222,9 +205,6 @@ const Settings = () => {
 
         const report = {
             validIds: new Set(),
-            invalidIds: new Set(),
-            ignoredIds: new Set(),
-            companiesToUpdate: [],
             dataStats: {}, 
             totalRecords: 0,
             content
@@ -234,24 +214,26 @@ const Settings = () => {
         if (activeCompany) allowedScope.add(activeCompany.id);
 
         const backupCompanies = content.companies || [];
+        let securityBreach = false;
+
         backupCompanies.forEach(bkpComp => {
             if (allowedScope.has(bkpComp.id)) {
                 const exists = companies.find(c => c.id === bkpComp.id);
                 if (exists) {
-                    report.validIds.add(bkpComp.id);
-                    report.companiesToUpdate.push({ ...bkpComp, currentName: exists.name });
-                } else {
-                    report.invalidIds.add(bkpComp.id); // Estos se ignorarán en la restauración
+                    // 🛡️ EL CANDADO MAESTRO: Verificamos que el NIT coincida obligatoriamente.
+                    const importedDoc = bkpComp.doc || bkpComp.doc_nit;
+                    if (exists.doc !== importedDoc) {
+                        securityBreach = true; // Archivo falsificado
+                    } else {
+                        report.validIds.add(bkpComp.id);
+                    }
                 }
-            } else {
-                report.ignoredIds.add(bkpComp.id);
             }
         });
-        
-        if (backupCompanies.length === 0 && content.sourceId) {
-             if (allowedScope.has(content.sourceId) && companies.some(c => c.id === content.sourceId)) {
-                 report.validIds.add(content.sourceId);
-             }
+
+        if (securityBreach) {
+            toast({ variant: 'destructive', title: 'Alerta de Seguridad 🚨', description: 'El NIT del archivo no coincide con el de tu entidad. El archivo fue manipulado o pertenece a otra organización.' });
+            return; // ABORTA LA OPERACIÓN Y CIERRA LA PUERTA
         }
 
         if (content.data) {
@@ -269,13 +251,16 @@ const Settings = () => {
                     const type = key.substring(matchedId.length + 1);
                     const records = content.data[key];
                     const count = Array.isArray(records) ? records.length : 0;
-
-                    if (!report.dataStats[matchedId]) {
-                        report.dataStats[matchedId] = { name: company?.name || matchedId, total: 0, details: {} };
+                    
+                    // Solo contamos si hay datos para mostrar en el resumen, evitamos objetos vacíos
+                    if (count > 0 || (typeof records === 'object' && Object.keys(records).length > 0)) {
+                        if (!report.dataStats[matchedId]) {
+                            report.dataStats[matchedId] = { name: company?.name || matchedId, total: 0, details: {} };
+                        }
+                        report.dataStats[matchedId].total += count > 0 ? count : 1;
+                        report.dataStats[matchedId].details[type] = count > 0 ? count : 1;
+                        report.totalRecords += count > 0 ? count : 1;
                     }
-                    report.dataStats[matchedId].total += count;
-                    report.dataStats[matchedId].details[type] = count;
-                    report.totalRecords += count;
                 }
             });
         }
@@ -289,28 +274,12 @@ const Settings = () => {
         setIsRestoring(true);
 
         try {
-            const { content, validIds, companiesToUpdate } = backupPreview;
+            const { content, validIds } = backupPreview;
             const supportedTypes = ['transactions', 'contacts', 'accounts', 'bankAccounts', 'accountsReceivable', 'accountsPayable', 'inventory', 'offices', 'voucher-sequence', 'cash_accounts', 'fixedAssets', 'realEstates', 'initialBalance', 'mass_intentions', 'billing_documents', 'auto_billing_categories'];
             let restoredDataCount = 0;
 
-            if (companiesToUpdate.length > 0) {
-                const newCompaniesList = companies.map(existingComp => {
-                    const updateData = companiesToUpdate.find(u => u.id === existingComp.id);
-                    if (updateData) {
-                        // 🛡️ ESCUDO ANTI-SECUESTRO DE ID (EMPRESAS / PARROQUIAS)
-                        return { 
-                            ...existingComp, // La Base de Datos MANDA. Bloquea NIT y Contraseñas.
-                            name: updateData.name || existingComp.name,
-                            address: updateData.address || existingComp.address,
-                            phone: updateData.phone || existingComp.phone,
-                        };
-                    }
-                    return existingComp;
-                });
-                
-                await saveCompanies(newCompaniesList);
-                setCompanies(); 
-            }
+            // ❌ SE ELIMINÓ LA ACTUALIZACIÓN DEL PERFIL (NOMBRE, DIRECCIÓN, TELÉFONO). 
+            // EL ARCHIVO .JSON NUNCA MÁS TENDRÁ EL PODER DE CAMBIAR LA IDENTIDAD DE LA EMPRESA.
 
             const restoreLog = [];
             for (const targetId of validIds) {
@@ -319,6 +288,8 @@ const Settings = () => {
 
                 for (const type of supportedTypes) {
                     const key = `${targetId}-${type}`;
+                    
+                    // Borramos el dato local viejo para evitar mezclas extrañas
                     await storage.removeItem(key);
 
                     if (content.data && content.data[key]) {
@@ -337,7 +308,7 @@ const Settings = () => {
 
                         if (syncError) console.error("Error subiendo datos a Supabase:", syncError);
 
-                        restoredDataCount += Array.isArray(records) ? records.length : 0;
+                        restoredDataCount += Array.isArray(records) ? records.length : 1;
                     }
                 }
                 restoreLog.push(companyName);
@@ -426,7 +397,7 @@ const Settings = () => {
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
                     <div className="flex items-center justify-between"><div className="flex items-center"><Server className="w-6 h-6 text-green-600 mr-3" /><h2 className="text-xl font-bold text-slate-900">Datos</h2></div><span className="text-xs font-medium px-2 py-1 bg-green-100 text-green-800 rounded-full">V2.4 Cloud Sync</span></div>
                     
-                    {!isGeneralAdmin && <div className="flex gap-2 items-start text-xs bg-slate-50 p-2 rounded"><Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" /><span>La restauración actualizará y subirá a la Nube los datos de la empresa/parroquia actual.</span></div>}
+                    {!isGeneralAdmin && <div className="flex gap-2 items-start text-xs bg-slate-50 p-2 rounded"><Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" /><span>La restauración subirá a la Nube los datos de la empresa/parroquia actual. No altera el Perfil de Ajustes.</span></div>}
                     
                     <div className="grid md:grid-cols-2 gap-4 mt-4">
                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Download className="w-6 h-6 text-slate-600" /></div><div className="text-sm"><p className="font-semibold text-slate-700">Exportar</p><p className="text-slate-500 text-xs">Descargar copia</p></div><Button onClick={handleFullBackup} variant="outline" className="w-full mt-auto"><Download className="w-4 h-4 mr-2" /> Generar</Button></div>
