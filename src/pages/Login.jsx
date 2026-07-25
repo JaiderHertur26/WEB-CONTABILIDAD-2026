@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth, getCompanies, saveCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase'; // <-- IMPORTAMOS LA CONEXIÓN A LA NUBE
+import { supabase } from '@/lib/supabase';
 import { 
-  LogIn, User, Lock, Building, Shield, Key, Phone, MapPin, 
+  User, Lock, Building, Shield, Key, Phone, MapPin, 
   Hash, Plus, Trash2, CornerDownRight, Layers, 
-  AlertCircle, ArrowRight, Save, Hexagon, Network, CheckCircle2
+  AlertCircle, ArrowRight, Save, Network, CheckCircle2,
+  Search, ChevronLeft, SearchX
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from '@/components/ui/label';
@@ -25,9 +26,10 @@ const Login = () => {
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState(''); // <-- Nuevo estado para el buscador
 
   // Register / Builder States
-  const [regStep, setRegStep] = useState(1); // 1: Auth, 2: Builder
+  const [regStep, setRegStep] = useState(1);
   const [rootAuth, setRootAuth] = useState({ doc: '', serial: '' });
   const [hierarchy, setHierarchy] = useState([]); 
   const [selectedNodeId, setSelectedNodeId] = useState(null);
@@ -40,17 +42,14 @@ const Login = () => {
   const [isAddingSub, setIsAddingSub] = useState(false);
   const [newSubData, setNewSubData] = useState({ doc: '', serial: '' });
 
-  // CARGAMOS LAS EMPRESAS DIRECTO DE LA NUBE
   useEffect(() => {
     const loadData = async () => {
       try {
-          // Descarga desde Supabase
           const cloudCompanies = await getCompanies();
           setCompanies(cloudCompanies);
-          // Actualizamos la caché local por seguridad
           await storage.setItem('companies', JSON.stringify(cloudCompanies));
       } catch (error) {
-          console.error("Error al cargar empresas en el login:", error);
+          console.error("Error al cargar empresas:", error);
       }
     };
     loadData();
@@ -60,9 +59,9 @@ const Login = () => {
       setSelectedCompanyId(id);
       setLoginUsername('');
       setLoginPassword('');
+      setSearchQuery('');
   };
 
-  // 🚀 LOGIN ACTUALIZADO: AHORA PASA POR EL PORTERO DE SEGURIDAD (SQL)
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
 
@@ -71,7 +70,7 @@ const Login = () => {
       return;
     }
 
-    // ADMIN GENERAL (Se mantiene intacto)
+    // ADMIN GENERAL
     if (selectedCompanyId === 'general_admin') {
       if (loginUsername === 'hertur26' && loginPassword === '1052042443-Ht') {
         toast({ title: "Bienvenido Administrador", description: "Acceso concedido." });
@@ -82,7 +81,7 @@ const Login = () => {
       return;
     }
 
-    // EMPRESAS (Se conecta al Portero SQL)
+    // EMPRESAS (Conexión al Portero SQL)
     try {
       const { data, error } = await supabase.rpc('secure_login', {
         p_username: loginUsername,
@@ -96,13 +95,11 @@ const Login = () => {
         return;
       }
 
-      // Validar que el usuario pertenece a la empresa que seleccionó en la pantalla
       if (String(data.company.id) !== String(selectedCompanyId)) {
         toast({ variant: "destructive", title: "Acceso Denegado", description: "Este usuario no pertenece a la empresa seleccionada." });
         return;
       }
 
-      // Login exitoso con los datos limpios y seguros
       await login({ isGeneralAdmin: false, company: data.company, accessLevel: data.accessLevel });
       
     } catch (err) {
@@ -111,8 +108,7 @@ const Login = () => {
     }
   };
 
-
-  // --- Registration Logic ---
+  // Lógica de Registro (Mantenida intacta)
   const handleStartRegistration = async (e) => {
     e.preventDefault();
     const expected = await generateCompanySerial(rootAuth.doc);
@@ -120,61 +116,41 @@ const Login = () => {
         toast({ variant: "destructive", title: "Serial Inválido", description: "El serial no coincide con el documento." });
         return;
     }
-
     const existing = companies.find(c => c.doc === rootAuth.doc);
     if (existing && existing.username) {
         toast({ variant: "destructive", title: "Ya registrado", description: "Esta empresa ya tiene usuario." });
         return;
     }
-
     const rootNode = {
         id: existing ? existing.id : Date.now().toString(),
-        doc: rootAuth.doc,
-        authSerial: rootAuth.serial,
-        name: existing ? existing.name : '',
-        parentId: null,
-        address: '', phone: '', username: '', password: '', partialPassword: '',
-        isRoot: true
+        doc: rootAuth.doc, authSerial: rootAuth.serial, name: existing ? existing.name : '',
+        parentId: null, address: '', phone: '', username: '', password: '', partialPassword: '', isRoot: true
     };
-
     setHierarchy([rootNode]);
     setSelectedNodeId(rootNode.id);
-    setFormData({
-        name: rootNode.name, address: '', phone: '', 
-        username: '', password: '', partialPassword: ''
-    });
+    setFormData({ name: rootNode.name, address: '', phone: '', username: '', password: '', partialPassword: '' });
     setRegStep(2);
   };
 
   const handleFormChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    setHierarchy(prev => prev.map(node => 
-        node.id === selectedNodeId ? { ...node, [field]: value } : node
-    ));
+    setHierarchy(prev => prev.map(node => node.id === selectedNodeId ? { ...node, [field]: value } : node));
   };
 
   const handleAddSubCompany = async () => {
     const expected = await generateCompanySerial(newSubData.doc);
     if (!expected || expected !== newSubData.serial) {
-        toast({ variant: "destructive", title: "Serial Inválido", description: "Verifica el NIT y Serial de la sub-empresa." });
+        toast({ variant: "destructive", title: "Serial Inválido", description: "Verifica el NIT y Serial." });
         return;
     }
     if (hierarchy.some(n => n.doc === newSubData.doc)) {
         toast({ variant: "destructive", title: "Duplicado", description: "Esta empresa ya está en la lista." });
         return;
     }
-
-    const parentId = selectedNodeId; 
     const newNode = {
-        id: Date.now().toString(),
-        doc: newSubData.doc,
-        authSerial: newSubData.serial,
-        name: '',
-        parentId: parentId,
-        address: '', phone: '', username: '', password: '', partialPassword: '',
-        isRoot: false
+        id: Date.now().toString(), doc: newSubData.doc, authSerial: newSubData.serial, name: '',
+        parentId: selectedNodeId, address: '', phone: '', username: '', password: '', partialPassword: '', isRoot: false
     };
-
     setHierarchy(prev => [...prev, newNode]);
     setNewSubData({ doc: '', serial: '' });
     setIsAddingSub(false);
@@ -187,41 +163,29 @@ const Login = () => {
     const node = hierarchy.find(n => n.id === nodeId);
     if (node.isRoot) {
         if(!window.confirm("¿Eliminar la empresa raíz cancelará todo el registro. ¿Continuar?")) return;
-        setRegStep(1);
-        setHierarchy([]);
-        setRootAuth({ doc: '', serial: '' });
+        setRegStep(1); setHierarchy([]); setRootAuth({ doc: '', serial: '' });
         return;
     }
-    
     const getDescendants = (id, list) => {
         const children = list.filter(n => n.parentId === id);
         let ids = children.map(c => c.id);
         children.forEach(c => ids = [...ids, ...getDescendants(c.id, list)]);
         return ids;
     };
-    
     const toDelete = [nodeId, ...getDescendants(nodeId, hierarchy)];
     setHierarchy(prev => prev.filter(n => !toDelete.includes(n.id)));
-    
     if (selectedNodeId === nodeId) {
         const root = hierarchy.find(n => n.isRoot);
         setSelectedNodeId(root.id);
-        setFormData({
-            name: root.name, address: root.address, phone: root.phone,
-            username: root.username, password: root.password, partialPassword: root.partialPassword
-        });
+        setFormData({ name: root.name, address: root.address, phone: root.phone, username: root.username, password: root.password, partialPassword: root.partialPassword });
     }
   };
 
   const handleSelectNode = (node) => {
     setSelectedNodeId(node.id);
-    setFormData({
-        name: node.name || '', address: node.address || '', phone: node.phone || '',
-        username: node.username || '', password: node.password || '', partialPassword: node.partialPassword || ''
-    });
+    setFormData({ name: node.name || '', address: node.address || '', phone: node.phone || '', username: node.username || '', password: node.password || '', partialPassword: node.partialPassword || '' });
   };
 
-  // ACTUALIZADO PARA GUARDAR NUEVOS REGISTROS DIRECTO A LA NUBE
   const handleFinalizeRegistration = async () => {
     if (hierarchy.some(n => !n.name.trim())) {
         toast({ variant: "destructive", title: "Datos incompletos", description: "Todas las empresas deben tener un nombre." });
@@ -232,36 +196,21 @@ const Login = () => {
         toast({ variant: "destructive", title: "Datos incompletos", description: "La empresa raíz requiere Usuario y Contraseña." });
         return;
     }
-    
     try {
         const currentCloud = await getCompanies();
         let currentStorage = [...currentCloud];
-        
         hierarchy.forEach(newNode => {
             const idx = currentStorage.findIndex(c => c.doc === newNode.doc);
-            if (idx >= 0) {
-                currentStorage[idx] = { ...currentStorage[idx], ...newNode };
-            } else {
-                currentStorage.push(newNode);
-            }
+            if (idx >= 0) currentStorage[idx] = { ...currentStorage[idx], ...newNode };
+            else currentStorage.push(newNode);
         });
-
-        // 1. Guardar en Supabase
         await saveCompanies(currentStorage);
-        // 2. Guardar en local cache
         await storage.setItem('companies', JSON.stringify(currentStorage));
         setCompanies(currentStorage);
-        
         toast({ title: "¡Registro Exitoso!", description: "Empresas registradas correctamente en la nube." });
-        
-        setRegStep(1);
-        setHierarchy([]);
-        setRootAuth({ doc: '', serial: '' });
-        setIsAddingSub(false);
-        
+        setRegStep(1); setHierarchy([]); setRootAuth({ doc: '', serial: '' }); setIsAddingSub(false);
         const tabTrigger = document.querySelector('[data-value="login"]');
         if (tabTrigger) tabTrigger.click();
-
     } catch (error) {
         toast({ variant: "destructive", title: "Error de conexión", description: "No se pudieron guardar las empresas en la nube." });
     }
@@ -270,33 +219,20 @@ const Login = () => {
   const renderTree = (parentId = null, depth = 0) => {
     const nodes = hierarchy.filter(n => n.parentId === parentId);
     if (nodes.length === 0) return null;
-
     return (
         <div className="space-y-1">
             {nodes.map(node => (
                 <div key={node.id} className="relative">
                     <div 
-                        className={cn(
-                            "flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border",
-                            selectedNodeId === node.id 
-                                ? "bg-blue-50 border-blue-200 shadow-sm" 
-                                : "hover:bg-slate-50 border-transparent"
-                        )}
+                        className={cn("flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all border", selectedNodeId === node.id ? "bg-blue-50 border-blue-200 shadow-sm" : "hover:bg-slate-50 border-transparent")}
                         style={{ marginLeft: `${depth * 20}px` }}
                         onClick={() => handleSelectNode(node)}
                     >
                         <div className="flex items-center gap-2 overflow-hidden">
                             {node.isRoot ? <Building className="w-4 h-4 text-blue-600 shrink-0" /> : <CornerDownRight className="w-4 h-4 text-slate-400 shrink-0" />}
-                            <span className={cn("truncate text-sm font-medium", !node.name && "text-slate-400 italic")}>
-                                {node.name || "Sin nombre"}
-                            </span>
+                            <span className={cn("truncate text-sm font-medium", !node.name && "text-slate-400 italic")}>{node.name || "Sin nombre"}</span>
                         </div>
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6 text-slate-400 hover:text-red-600"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteNode(node.id); }}
-                        >
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-red-600" onClick={(e) => { e.stopPropagation(); handleDeleteNode(node.id); }}>
                             <Trash2 className="w-3 h-3" />
                         </Button>
                     </div>
@@ -306,6 +242,12 @@ const Login = () => {
         </div>
     );
   };
+
+  // Filtramos la lista de empresas activas usando el buscador (y limitamos a 50 para rendimiento extremo)
+  const activeCompanies = companies.filter(c => c.username);
+  const filteredCompanies = activeCompanies
+    .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.doc.includes(searchQuery))
+    .slice(0, 50);
 
   return (
     <>
@@ -352,76 +294,123 @@ const Login = () => {
                 <Tabs defaultValue="login" className="w-full">
                     {regStep === 1 && (
                         <TabsList className="grid w-full grid-cols-2 mb-8 bg-slate-100 p-1 h-12 rounded-xl">
-                            <TabsTrigger value="login" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full">Seleccionar Empresa</TabsTrigger>
-                            <TabsTrigger value="register" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full">Crear Empresa</TabsTrigger>
+                            <TabsTrigger value="login" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full">Entrar al Sistema</TabsTrigger>
+                            <TabsTrigger value="register" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full">Registrar Entidad</TabsTrigger>
                         </TabsList>
                     )}
 
-                    {/* LOGIN TAB */}
-                    <TabsContent value="login" className="mt-0">
-                         {/* Company Grid Selector */}
-                         <div className="grid grid-cols-2 gap-3 mb-6 max-h-[200px] overflow-y-auto p-1">
-                             <button
-                                onClick={() => handleCompanySelect('general_admin')}
-                                className={cn(
-                                    "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all gap-2",
-                                    selectedCompanyId === 'general_admin' 
-                                        ? "border-purple-600 bg-purple-50 text-purple-700 shadow-md ring-2 ring-purple-200" 
-                                        : "border-slate-100 hover:border-purple-200 hover:bg-slate-50 text-slate-600"
-                                )}
-                             >
-                                 <Shield className="w-6 h-6" />
-                                 <span className="text-xs font-bold text-center">Administrador General</span>
-                             </button>
-                             
-                             {companies.filter(c => c.username).map(company => (
-                                 <button
-                                    key={company.id}
-                                    onClick={() => handleCompanySelect(company.id)}
-                                    className={cn(
-                                        "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all gap-2 relative",
-                                        selectedCompanyId === company.id 
-                                            ? "border-blue-600 bg-blue-50 text-blue-700 shadow-md ring-2 ring-blue-200" 
-                                            : "border-slate-100 hover:border-blue-200 hover:bg-slate-50 text-slate-600"
-                                    )}
-                                 >
-                                     <Building className="w-6 h-6" />
-                                     <span className="text-xs font-bold text-center truncate w-full">{company.name}</span>
-                                     {selectedCompanyId === company.id && <div className="absolute top-2 right-2 text-blue-600"><CheckCircle2 className="w-4 h-4"/></div>}
-                                 </button>
-                             ))}
-                         </div>
+                    {/* LOGIN TAB REDISEÑADO */}
+                    <TabsContent value="login" className="mt-0 outline-none">
+                        <AnimatePresence mode="wait">
+                            {!selectedCompanyId ? (
+                                <motion.div key="selector" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
+                                    {/* Botón Admin Destacado */}
+                                    <button
+                                        onClick={() => handleCompanySelect('general_admin')}
+                                        className="w-full flex items-center justify-between p-4 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors shadow-sm"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <Shield className="w-5 h-5" />
+                                            <span className="font-bold text-sm">Acceso Administrador General</span>
+                                        </div>
+                                        <ArrowRight className="w-4 h-4 opacity-50" />
+                                    </button>
 
-                         <form onSubmit={handleLoginSubmit} className="space-y-6">
-                            {selectedCompanyId && (
-                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-bold text-slate-500 uppercase">Usuario</Label>
-                                        <div className="relative group">
-                                            <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
-                                            <input type="text" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-slate-50 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Ingresa usuario" />
+                                    <div className="relative flex items-center">
+                                        <div className="flex-grow border-t border-slate-200"></div>
+                                        <span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-semibold tracking-wider">O selecciona tu entidad</span>
+                                        <div className="flex-grow border-t border-slate-200"></div>
+                                    </div>
+
+                                    {/* Buscador Inteligente */}
+                                    <div className="relative group">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
+                                        <input 
+                                            type="text" 
+                                            value={searchQuery} 
+                                            onChange={(e) => setSearchQuery(e.target.value)} 
+                                            className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" 
+                                            placeholder="Buscar por nombre o NIT..." 
+                                        />
+                                    </div>
+
+                                    {/* Lista Virtualizada Manual (Max 50) */}
+                                    <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+                                        {filteredCompanies.length > 0 ? (
+                                            filteredCompanies.map(company => (
+                                                <button
+                                                    key={company.id}
+                                                    onClick={() => handleCompanySelect(company.id)}
+                                                    className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
+                                                >
+                                                    <div className="flex items-center gap-3 overflow-hidden">
+                                                        <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center shrink-0 group-hover:bg-blue-100 transition-colors">
+                                                            <Building className="w-5 h-5 text-slate-500 group-hover:text-blue-600" />
+                                                        </div>
+                                                        <div className="overflow-hidden">
+                                                            <p className="font-semibold text-slate-800 text-sm truncate">{company.name}</p>
+                                                            <p className="text-xs text-slate-400 font-mono mt-0.5">NIT: {company.doc}</p>
+                                                        </div>
+                                                    </div>
+                                                    <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 opacity-0 group-hover:opacity-100 transition-all transform translate-x-[-10px] group-hover:translate-x-0" />
+                                                </button>
+                                            ))
+                                        ) : (
+                                            <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+                                                <SearchX className="w-10 h-10 mb-2 opacity-20" />
+                                                <p className="text-sm font-medium">No se encontraron entidades</p>
+                                            </div>
+                                        )}
+                                        {activeCompanies.length > 50 && filteredCompanies.length === 50 && (
+                                            <p className="text-center text-xs text-slate-400 pt-2 pb-1 italic">
+                                                Mostrando los 50 mejores resultados. Usa el buscador para ser más específico.
+                                            </p>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            ) : (
+                                <motion.div key="credentials" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <button onClick={() => setSelectedCompanyId(null)} className="text-sm text-slate-500 hover:text-blue-600 flex items-center transition-colors font-medium">
+                                            <ChevronLeft className="w-4 h-4 mr-0.5" /> Volver a selección
+                                        </button>
+                                    </div>
+
+                                    <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-4">
+                                        <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm", selectedCompanyId === 'general_admin' ? "bg-purple-100 text-purple-600" : "bg-blue-100 text-blue-600")}>
+                                            {selectedCompanyId === 'general_admin' ? <Shield className="w-6 h-6" /> : <Building className="w-6 h-6" />}
+                                        </div>
+                                        <div className="overflow-hidden">
+                                            <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Ingresando a</p>
+                                            <p className="text-base font-bold text-slate-900 truncate">
+                                                {selectedCompanyId === 'general_admin' ? 'Administración General' : companies.find(c => c.id === selectedCompanyId)?.name}
+                                            </p>
                                         </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-xs font-bold text-slate-500 uppercase">Contraseña</Label>
-                                        <div className="relative group">
-                                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
-                                            <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-slate-50 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="••••••••" />
+
+                                    <form onSubmit={handleLoginSubmit} className="space-y-5">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold text-slate-700 uppercase">Usuario</Label>
+                                            <div className="relative group">
+                                                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
+                                                <input type="text" autoFocus value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-white shadow-sm rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Ingresa tu usuario" />
+                                            </div>
                                         </div>
-                                    </div>
-                                    
-                                    <Button type="submit" className="w-full h-12 text-base bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20 rounded-xl font-medium tracking-wide transition-all active:scale-95">
-                                        Entrar al Sistema <ArrowRight className="w-5 h-5 ml-2" />
-                                    </Button>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-bold text-slate-700 uppercase">Contraseña</Label>
+                                            <div className="relative group">
+                                                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
+                                                <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-white shadow-sm rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="••••••••" />
+                                            </div>
+                                        </div>
+                                        
+                                        <Button type="submit" className="w-full h-12 text-base bg-slate-900 hover:bg-slate-800 shadow-lg rounded-xl font-medium tracking-wide transition-all active:scale-95 mt-2">
+                                            Entrar al Sistema <ArrowRight className="w-5 h-5 ml-2" />
+                                        </Button>
+                                    </form>
                                 </motion.div>
                             )}
-                            
-                            {!selectedCompanyId && (
-                                <div className="text-center text-slate-400 text-sm py-4 italic">
-                                    Selecciona una empresa arriba para continuar.
-                                </div>
-                            )}
-                         </form>
+                        </AnimatePresence>
                     </TabsContent>
 
                     {/* REGISTER TAB */}
@@ -551,7 +540,7 @@ const Login = () => {
                 </Tabs>
            </div>
            <div className="bg-slate-50 p-4 border-t border-slate-100 text-center text-xs text-slate-400 font-medium">
-               &copy; 2026 JaiderHerTur26. Todos los derechos reservados.
+               &copy; {new Date().getFullYear()} JaiderHerTur26. Todos los derechos reservados.
            </div>
         </motion.div>
       </div>
