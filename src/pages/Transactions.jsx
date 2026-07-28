@@ -109,12 +109,25 @@ const Transactions = () => {
     const billingRef = useRef(null);
     const receiptRef = useRef(null); 
 
+    // 🚀 FILTRO MAESTRO: Extraído y Memoizado para seguridad global
+    const isRelevant = useMemo(() => (item) => {
+        if (!item) return false;
+        const cid = item.company_id || item._companyId || item.companyId;
+        if (!isConsolidated) {
+            return !cid || cid === activeCompany?.id;
+        }
+        const relevantIds = companies.filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id).map(c => c.id);
+        return !cid || relevantIds.includes(cid);
+    }, [isConsolidated, activeCompany, companies]);
+
     const transactionsMap = useMemo(() => {
         return new Map((transactions || []).map(t => [t.id, t]));
     }, [transactions]);
 
     const availableYears = useMemo(() => {
-        const years = new Set((transactions || []).map(t => {
+        // 🚀 Aplicar el filtro a los años disponibles
+        const filteredTrans = (transactions || []).filter(isRelevant);
+        const years = new Set(filteredTrans.map(t => {
             return (typeof t.date === 'string' && t.date.includes('-')) 
                 ? t.date.split('-')[0] 
                 : new Date(t.date).getFullYear().toString();
@@ -122,25 +135,26 @@ const Transactions = () => {
         const currentYear = new Date().getFullYear().toString();
         years.add(currentYear);
         return Array.from(years).sort((a, b) => b - a);
-    }, [transactions]);
+    }, [transactions, isRelevant]);
 
     const getAssetDetails = (destinationStr, categoryName = '') => {
+        const relInitialBalances = (initialBalances || []).filter(isRelevant);
         if (!destinationStr) {
-            const defaultCash = (initialBalances && initialBalances.length > 0) ? initialBalances[0] : null;
+            const defaultCash = relInitialBalances.length > 0 ? relInitialBalances[0] : null;
             return { code: defaultCash?.accountingCode || '11050501', name: defaultCash?.accountingName || 'CAJA PRINCIPAL' };
         }
         const [id, name] = destinationStr.split('|');
         if (id === 'pending_payable') return { code: '23050101', name: 'CUENTAS POR PAGAR' };
         if (id === 'pending_receivable') return { code: '13050505', name: 'CUENTAS POR COBRAR' };
         if (id === 'caja_principal' || (name && name.toUpperCase().includes('CAJA PRINCIPAL'))) {
-            const defaultCash = (initialBalances && initialBalances.length > 0) ? initialBalances[0] : null;
+            const defaultCash = relInitialBalances.length > 0 ? relInitialBalances[0] : null;
             if (defaultCash) return { code: defaultCash.accountingCode || '11050501', name: defaultCash.accountingName || 'CAJA PRINCIPAL' };
             return { code: '11050501', name: 'CAJA PRINCIPAL' };
         }
-        const cashAcc = (cashAccounts || []).find(c => c.id === id);
+        const cashAcc = (cashAccounts || []).filter(isRelevant).find(c => c.id === id);
         if (cashAcc) return { code: cashAcc.accounting_account || '1105', name: cashAcc.name };
         if (id === '12950501' || (name && name.toUpperCase().includes('APORTES COOPERATIVA')) || (categoryName && (categoryName.includes('APORTES COOPERATIVA') || categoryName.includes('12950501')))) return { code: '12950501', name: 'APORTES COOPERATIVA FRATERNIDAD' };
-        const bank = (bankAccounts || []).find(b => b.id === id);
+        const bank = (bankAccounts || []).filter(isRelevant).find(b => b.id === id);
         if (bank) return { code: bank.accountingCode || '1110', name: bank.accountingConcept || bank.bankName };
         if (/^\d+$/.test(id) && id.length >= 4) return { code: id, name: name || 'CUENTA DESTINO' };
         return { code: '1120', name: name || 'BANCO DESCONOCIDO' };
@@ -197,12 +211,6 @@ const Transactions = () => {
     useEffect(() => {
         if (!transactions || !initialBalances) return;
 
-        const isRelevant = (item) => {
-            if (!isConsolidated) return true;
-            const relevantIds = companies.filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id).map(c => c.id);
-            return relevantIds.includes(item._companyId) || (!item._companyId && relevantIds.includes(activeCompany.id));
-        };
-
         let startCash = 0;
         let startBanks = 0;
         let startAportes = 0;
@@ -210,7 +218,8 @@ const Transactions = () => {
         (initialBalances || []).forEach(ib => { if (isRelevant(ib)) startCash += (parseFloat(ib.balance) || 0); });
         (bankAccounts || []).forEach(ba => { if (isRelevant(ba)) { startBanks += (parseFloat(ba.initialBalance) || 0); startAportes += (parseFloat(ba.initialInvestmentBalance) || 0); } });
 
-        const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+        // 🚀 CRÍTICO: Las transacciones deben filtrarse ANTES de hacer la sumatoria acumulada
+        const sorted = [...transactions].filter(isRelevant).sort((a, b) => new Date(a.date) - new Date(b.date));
 
         let runningCash = startCash;
         let runningBanks = startBanks;
@@ -287,7 +296,7 @@ const Transactions = () => {
             return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: accountNumber, _destName: isPending ? '(Pendiente)' : destName, _affectedColumn: affectedColumn, _isPending: isPending };
         });
         setProcessedTransactions(calculated);
-    }, [transactions, initialBalances, bankAccounts, accounts, isConsolidated, activeCompany, companies]);
+    }, [transactions, initialBalances, bankAccounts, accounts, isRelevant]);
 
     useEffect(() => {
         let result = [...processedTransactions];
@@ -355,7 +364,9 @@ const Transactions = () => {
 
     const groupedBillingDocuments = useMemo(() => {
         if (!billingDocuments) return {};
-        const yearDocs = billingDocuments.filter(d => {
+        // 🚀 Filtramos las cuentas de cobro para que no muestre las de la sub-empresa
+        const fBillingDocs = (billingDocuments || []).filter(isRelevant);
+        const yearDocs = fBillingDocs.filter(d => {
             const y = (typeof d.date === 'string' && d.date.includes('-')) ? d.date.split('-')[0] : new Date(d.date).getFullYear().toString();
             return y === selectedYear;
         });
@@ -373,7 +384,7 @@ const Transactions = () => {
             grouped[month][day].push(doc);
         });
         return grouped;
-    }, [billingDocuments, selectedYear]);
+    }, [billingDocuments, selectedYear, isRelevant]);
 
     const getNextVoucherNumber = (type, dateStr) => {
         if (!transactions || transactions.length === 0) return 1;
@@ -382,7 +393,8 @@ const Transactions = () => {
             ? dateStr.split('-')[0] 
             : new Date(dateStr).getFullYear().toString();
         
-        const typeTransactions = transactions.filter(t => {
+        // 🚀 Contar el consecutivo SOLO basado en la empresa actual
+        const typeTransactions = transactions.filter(isRelevant).filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
             
@@ -433,7 +445,10 @@ const Transactions = () => {
             concept: transaction.description,
             beneficiary: beneficiaryName,
             docNumber: docNumber || 'A actualizar',
-            voucherNumber: transaction.voucherNumber
+            voucherNumber: transaction.voucherNumber,
+            // 🚀 SELLO DE EMPRESA
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id
         };
 
         saveBillingDocuments([...(billingDocuments || []), newDoc]);
@@ -504,7 +519,15 @@ const Transactions = () => {
         } else {
             transactionId = `${Date.now()}`;
             const voucherNumber = getNextVoucherNumber(transactionData.type, transactionData.date);
-            const newTransaction = { ...transactionData, id: transactionId, voucherNumber };
+            
+            // 🚀 SELLO DE EMPRESA
+            const newTransaction = { 
+                ...transactionData, 
+                id: transactionId, 
+                voucherNumber,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
+            };
             updatedTransactions = [...transactions, newTransaction];
 
             if (shouldAutoGenerateBill) {
@@ -527,7 +550,9 @@ const Transactions = () => {
                     concept: transactionData.description,
                     beneficiary: beneficiaryName,
                     docNumber: docNum,
-                    voucherNumber: voucherNumber
+                    voucherNumber: voucherNumber,
+                    company_id: activeCompany?.id, // Sello
+                    companyId: activeCompany?.id
                 });
             }
 
@@ -536,7 +561,7 @@ const Transactions = () => {
 
         if (transactionData.type === 'expense' && transactionData.isFixedAsset) {
             const assetPayload = { date: transactionData.date, name: transactionData.description, value: parseFloat(transactionData.amount), year: new Date(transactionData.date).getFullYear().toString(), transactionId: transactionId };
-            updatedAssets.push({ ...assetPayload, id: `asset-${transactionId}`, status: 'Bueno', quantity: 1 });
+            updatedAssets.push({ ...assetPayload, id: `asset-${transactionId}`, status: 'Bueno', quantity: 1, company_id: activeCompany?.id, companyId: activeCompany?.id });
             saveFixedAssets(updatedAssets);
         }
 
@@ -628,6 +653,7 @@ const Transactions = () => {
             const debitAccObj = (accounts || []).find(a => a.name === transferData.debitAccount) || { number: '150805', name: transferData.debitAccount };
             const creditAccObj = (accounts || []).find(a => a.name === transferData.creditAccount) || { number: '133005', name: transferData.creditAccount };
 
+            // 🚀 SELLO DE EMPRESA EN CRUCE
             const expenseTransaction = {
                 id: `${now}-exp`,
                 type: 'expense',
@@ -637,7 +663,9 @@ const Transactions = () => {
                 date: transferData.date,
                 destination: `${creditAccObj.number}|${creditAccObj.name.toUpperCase()}`, 
                 isInternalTransfer: true,
-                voucherNumber
+                voucherNumber,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
             };
 
             const incomeTransaction = {
@@ -649,7 +677,9 @@ const Transactions = () => {
                 date: transferData.date,
                 destination: `${debitAccObj.number}|${debitAccObj.name.toUpperCase()}`, 
                 isInternalTransfer: true,
-                voucherNumber
+                voucherNumber,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
             };
 
             if (debitAccObj.number.startsWith('15')) {
@@ -666,7 +696,9 @@ const Transactions = () => {
                     id: `asset-${expenseTransaction.id}`,
                     status: 'Bueno',
                     quantity: 1,
-                    category: debitAccObj.name 
+                    category: debitAccObj.name,
+                    company_id: activeCompany?.id,
+                    companyId: activeCompany?.id
                 };
 
                 saveFixedAssets([...(fixedAssets || []), newAsset]);
@@ -682,8 +714,9 @@ const Transactions = () => {
         const [fromId, fromName] = fromAccount.split('|');
         const [toId, toName] = toAccount.split('|');
 
-        const expenseTransaction = { id: `${now}-exp`, type: 'expense', description: `Transferencia a ${toName}: ${description}`, amount: parseFloat(amount), category: 'Transferencia Interna', date, destination: fromAccount, isInternalTransfer: true, voucherNumber };
-        const incomeTransaction = { id: `${now}-inc`, type: 'income', description: `Transferencia desde ${fromName}: ${description}`, amount: parseFloat(amount), category: 'Transferencia Interna', date, destination: toAccount, isInternalTransfer: true, voucherNumber };
+        // 🚀 SELLO DE EMPRESA EN TRANSFERENCIA
+        const expenseTransaction = { id: `${now}-exp`, type: 'expense', description: `Transferencia a ${toName}: ${description}`, amount: parseFloat(amount), category: 'Transferencia Interna', date, destination: fromAccount, isInternalTransfer: true, voucherNumber, company_id: activeCompany?.id, companyId: activeCompany?.id };
+        const incomeTransaction = { id: `${now}-inc`, type: 'income', description: `Transferencia desde ${fromName}: ${description}`, amount: parseFloat(amount), category: 'Transferencia Interna', date, destination: toAccount, isInternalTransfer: true, voucherNumber, company_id: activeCompany?.id, companyId: activeCompany?.id };
 
         saveTransactions([...transactions, expenseTransaction, incomeTransaction]);
         toast({ title: "Transferencia registrada", description: "Se movió el dinero entre cuentas." });
@@ -964,14 +997,12 @@ const Transactions = () => {
                                                     <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-800 hover:bg-blue-50" onClick={() => handlePrint(t)} title="Imprimir Comprobante"><Printer className="w-3 h-3" /></Button>
                                                         
-                                                        {/* BOTÓN NUEVO: Cuenta de Cobro solo para Egresos */}
                                                         {t.type === 'expense' && !t.isInternalTransfer && (
                                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50" onClick={() => handleGenerateBillingDoc(t)} title="Generar/Ver Cuenta de Cobro">
                                                                 <FileText className="w-3 h-3" />
                                                             </Button>
                                                         )}
 
-                                                        {/* BOTÓN NUEVO: Recibo de Caja / Donación para Ingresos */}
                                                         {t.type === 'income' && !t.isInternalTransfer && (
                                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50" onClick={() => handleGenerateReceipt(t)} title="Generar Recibo de Caja / Certificado">
                                                                 <FileCheck className="w-3 h-3" />
@@ -1017,7 +1048,7 @@ const Transactions = () => {
                                             </React.Fragment>
                                         );
                                     })}
-                                    {displayTransactions.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay registros contables</td></tr>)}
+                                     {displayTransactions.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay registros contables</td></tr>)}
                                 </tbody>
                             </table>
                         </div>
@@ -1735,7 +1766,10 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                 category: category,
                 destination: selectedBank,
                 isInternalTransfer: false,
-                voucherNumber: voucherNumber
+                voucherNumber: voucherNumber,
+                // 🚀 SELLO DE EMPRESA EN CONCILIACIÓN
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
             });
         });
 
