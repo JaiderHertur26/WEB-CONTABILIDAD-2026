@@ -376,7 +376,8 @@ const TaxReports = () => {
             return p.status === 'Pendiente' && pYear <= parseInt(selectedYear);
         }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
         
-        const totalAssets = cajaGeneral + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + netInventoryAndFixedAssets + depreciacionAcumuladaValue; 
+        // Sumamos todas las variables por separado para el total
+        const totalAssets = cajaGeneral + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
         const netWorth = totalAssets - totalDebts;
 
@@ -397,7 +398,9 @@ const TaxReports = () => {
             { Concepto: '  Anticipos a Proveedores', Valor: anticiposValue, isDetail: true },
             { Concepto: '  Otros Activos Corrientes', Valor: otherAssetsValue, isDetail: true },
             { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
-            { Concepto: '  Activos Fijos (Inventario y Propiedades)', Valor: netInventoryAndFixedAssets, isDetail: true },
+            { Concepto: '  Propiedades, Planta y Equipo', Valor: realEstatesValue, isDetail: true },
+            { Concepto: '  Activos Fijos (Oficina y Equipos)', Valor: manualFixedAssetsValue, isDetail: true },
+            { Concepto: '  Inventario', Valor: inventoryValue, isDetail: true },
             { Concepto: '  Depreciación Acumulada', Valor: depreciacionAcumuladaValue, isDetail: true },
         ];
 

@@ -364,8 +364,6 @@ const Reports = () => {
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
-    
-    const totalFixedAssetsValue = manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + depreciacionAcumuladaValue;
 
     const accountsReceivableValue = fAccountsReceivable.filter(r => {
         const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(currentYear));
@@ -390,13 +388,16 @@ const Reports = () => {
         { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
         { item: 'Activo No Corriente', isBold: true },
         { item: '  Construcciones en Curso', amount: construccionesValue }, 
-        { item: '  Activos Fijos (Incl. Inventario)', amount: manualFixedAssetsValue + realEstatesValue + inventoryValue },
+        { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
+        { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
+        { item: '  Inventario', amount: inventoryValue },
         { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
     ];
     
     const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
     
-    const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + totalFixedAssetsValue; 
+    // Suma exacta de todas las líneas separadas
+    const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
     const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
     const totalEquity = totalAssets - totalLiabilities; 
     
