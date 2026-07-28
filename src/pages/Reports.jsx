@@ -395,19 +395,80 @@ const Reports = () => {
     setReportData({ summary: summaryData, incomeStatement, balanceSheet });
   };
   
-  // 🚀 EXPORTACIÓN EXCEL BLINDADA: Filtra los subtotales para evitar que la "Autosuma" duplique los valores
+  // 🚀 EXPORTACIÓN SERIA Y PROFESIONAL DEL ESTADO DE RESULTADOS
   const handleExportReport = (data, name) => { 
-      const cleanData = data
-          .filter(row => !row.isSubtotal && !row.isTotal)
-          .map(({ item, amount }) => ({ 
-              'Concepto': item.trim(), 
-              'Monto': amount != null ? amount : '' 
-          }));
-      exportToExcel(cleanData, `${name}_${selectedYear}`); 
-      toast({ title: 'Exportado a Excel', description: 'Exportado sin subtotales para facilitar la Autosuma.' }); 
+      const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
+
+      const dataToExport = [
+          { 'Concepto': companyName, 'Monto': '' },
+          { 'Concepto': companyNit, 'Monto': '' },
+          { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
+          { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
+          { 'Concepto': '', 'Monto': '' }, 
+          { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
+          { 'Concepto': '', 'Monto': '' } 
+      ];
+
+      data.forEach(row => {
+          dataToExport.push({
+              'Concepto': row.item.trim(),
+              'Monto': row.amount != null ? row.amount : ''
+          });
+      });
+
+      exportToExcel(dataToExport, `Estado_de_Resultados_${selectedYear}`); 
+      toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
   };
 
-  const handleExportBalanceSheet = () => { const { assets, liabilities, equity, totals } = reportData.balanceSheet; const dataToExport = [ ...assets.map(a => ({ Categoria: a.item, Monto: a.amount != null ? a.amount : '' })), { Categoria: 'TOTAL ACTIVOS', Monto: totals.assets }, {}, ...liabilities.map(l => ({ Categoria: l.item, Monto: l.amount != null ? l.amount : '' })), { Categoria: 'TOTAL PASIVOS', Monto: totals.liabilities }, {}, ...equity.map(e => ({ Categoria: e.item, Monto: e.amount != null ? e.amount : '' })), { Categoria: 'TOTAL PATRIMONIO', Monto: totals.equity }, {}, { Categoria: 'TOTAL PASIVO + PATRIMONIO', Monto: totals.liabilitiesAndEquity } ]; exportToExcel(dataToExport, `Balance_General_${selectedYear}`); }
+  // 🚀 EXPORTACIÓN SERIA Y PROFESIONAL DEL BALANCE GENERAL
+  const handleExportBalanceSheet = () => { 
+      const { assets, liabilities, equity, totals } = reportData.balanceSheet; 
+      const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
+
+      const dataToExport = [
+          { 'Concepto': companyName, 'Monto': '' },
+          { 'Concepto': companyNit, 'Monto': '' },
+          { 'Concepto': `BALANCE GENERAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
+          { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
+          { 'Concepto': '', 'Monto': '' }, 
+          { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
+          { 'Concepto': '', 'Monto': '' } 
+      ];
+
+      assets.forEach(a => {
+          dataToExport.push({
+              'Concepto': a.item.trim(),
+              'Monto': a.amount != null ? a.amount : ''
+          });
+      });
+      dataToExport.push({ 'Concepto': 'TOTAL ACTIVOS', 'Monto': totals.assets });
+      dataToExport.push({ 'Concepto': '', 'Monto': '' });
+
+      liabilities.forEach(l => {
+          dataToExport.push({
+              'Concepto': l.item.trim(),
+              'Monto': l.amount != null ? l.amount : ''
+          });
+      });
+      dataToExport.push({ 'Concepto': 'TOTAL PASIVOS', 'Monto': totals.liabilities });
+      dataToExport.push({ 'Concepto': '', 'Monto': '' });
+
+      equity.forEach(e => {
+          dataToExport.push({
+              'Concepto': e.item.trim(),
+              'Monto': e.amount != null ? e.amount : ''
+          });
+      });
+      dataToExport.push({ 'Concepto': 'TOTAL PATRIMONIO', 'Monto': totals.equity });
+      dataToExport.push({ 'Concepto': '', 'Monto': '' });
+      dataToExport.push({ 'Concepto': 'TOTAL PASIVO + PATRIMONIO', 'Monto': totals.liabilitiesAndEquity });
+
+      exportToExcel(dataToExport, `Balance_General_${selectedYear}`); 
+      toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
+  };
+
   const renderSheetTable = (items) => (items.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''}`}><td className={`py-2 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${item.isSubtotal ? 'font-semibold' : ''}`} style={{ paddingLeft: item.item.search(/\S/) * 4 }}>{item.item.trim()}</td><td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold' : ''}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>)));
 
   return (
