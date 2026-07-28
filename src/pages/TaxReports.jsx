@@ -290,7 +290,7 @@ const TaxReports = () => {
 
         const cajaGeneral = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
 
-        let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0;
+        let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
 
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
@@ -303,7 +303,7 @@ const TaxReports = () => {
                 // Débitos
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
-                else if (drCode.startsWith('1592')) otherAssetsValue += amount; // Depreciación Acumulada
+                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount;
                 else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
@@ -312,7 +312,7 @@ const TaxReports = () => {
                 // Créditos
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
-                else if (crCode.startsWith('1592')) otherAssetsValue -= amount; // Depreciación Acumulada
+                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount;
                 else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
@@ -321,7 +321,7 @@ const TaxReports = () => {
                 return;
             }
 
-            // B. Cruces contables internos (Amortizaciones)
+            // B. Cruces contables internos
             if (t.isInternalTransfer) {
                 if (t.type === 'expense') {
                     const acc = allAccounts.find(a => a.name === t.category);
@@ -345,7 +345,7 @@ const TaxReports = () => {
 
             if (num.startsWith('1330')) anticiposValue += assetImpact;
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
-            else if (num.startsWith('1592')) otherAssetsValue += (t.type === 'expense' ? amount : -amount);
+            else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
             else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
                 otherAssetsValue += assetImpact;
             }
@@ -356,14 +356,15 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
-            if (asset.status === 'Dado de Baja') return false; // <--- OMITIR ACTIVOS DADOS DE BAJA
+            if (asset.status === 'Dado de Baja') return false; 
             if (asset.year) return parseInt(asset.year) <= parseInt(selectedYear);
             if (asset.date) return getSafeYear(asset.date) <= parseInt(selectedYear);
             return false;
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
-        const totalFixedAssetsValue = manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue + otherAssetsValue;
+        
+        const netInventoryAndFixedAssets = manualFixedAssetsValue + realEstatesValue + inventoryValue;
 
         const accountsReceivableValue = fAccountsReceivable.filter(r => {
             const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
@@ -375,7 +376,7 @@ const TaxReports = () => {
             return p.status === 'Pendiente' && pYear <= parseInt(selectedYear);
         }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
         
-        const totalAssets = cajaGeneral + accountsReceivableValue + totalFixedAssetsValue; 
+        const totalAssets = cajaGeneral + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + netInventoryAndFixedAssets + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
         const netWorth = totalAssets - totalDebts;
 
@@ -394,9 +395,10 @@ const TaxReports = () => {
             { Concepto: '    Aportes Ordinarios', Valor: totalInvestmentBalances, isDetail: true },
             { Concepto: '  Cuentas por Cobrar', Valor: accountsReceivableValue, isDetail: true },
             { Concepto: '  Anticipos a Proveedores', Valor: anticiposValue, isDetail: true },
+            { Concepto: '  Otros Activos Corrientes', Valor: otherAssetsValue, isDetail: true },
             { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
-            { Concepto: '  Otros Activos', Valor: otherAssetsValue, isDetail: true },
-            { Concepto: '  Activos Fijos (Inventario y Propiedades)', Valor: (manualFixedAssetsValue + realEstatesValue + inventoryValue), isDetail: true },
+            { Concepto: '  Activos Fijos (Inventario y Propiedades)', Valor: netInventoryAndFixedAssets, isDetail: true },
+            { Concepto: '  Depreciación Acumulada', Valor: depreciacionAcumuladaValue, isDetail: true },
         ];
 
         return [
