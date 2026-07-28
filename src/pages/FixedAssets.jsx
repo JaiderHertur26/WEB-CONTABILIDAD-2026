@@ -297,7 +297,7 @@ const handleOpenRetireDialog = (asset) => {
 
         let totalValue = 0;
         const excelData = filteredAssets.map(a => {
-            const val = parseFloat(a.value) || 0;
+            const val = a.status === 'Dado de Baja' ? 0 : (parseFloat(a.value) || 0);
             totalValue += val;
             return {
                 'CANT.': a.quantity || 1, 
@@ -384,7 +384,7 @@ const handleOpenRetireDialog = (asset) => {
 
             let totalValue = 0;
             filteredAssets.forEach(asset => {
-                const val = parseFloat(asset.value) || 0;
+                const val = asset.status === 'Dado de Baja' ? 0 : (parseFloat(asset.value) || 0);
                 totalValue += val;
                 tableRows.push(
                     new TableRow({
@@ -566,9 +566,10 @@ const handleOpenRetireDialog = (asset) => {
                 <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
                     <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
                     <tbody className="divide-y">{filteredAssets.map(asset => {
-                        const origVal = parseFloat(asset.value) || 0;
-			const acumDepr = parseFloat(asset.accumulatedDepreciation || 0);
-			const netVal = origVal - acumDepr;
+                        const isRetired = asset.status === 'Dado de Baja';
+                        const origVal = isRetired ? 0 : (parseFloat(asset.value) || 0);
+                        const acumDepr = isRetired ? 0 : (parseFloat(asset.accumulatedDepreciation || 0));
+                        const netVal = origVal - acumDepr;
                         return (
                             <tr key={asset.id} className={`hover:bg-slate-50 ${asset.status === 'Dado de Baja' ? 'opacity-50 bg-slate-100' : ''}`}>
                                 <td className="p-3">{asset.quantity || 1}</td>
