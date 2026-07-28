@@ -419,18 +419,39 @@ const TaxReports = () => {
 
     const handleExportRenta = () => {
         const data = generateRentaData;
-        if (data.length === 0 || !areAllDataLoaded) { toast({ variant: 'destructive', title: "No hay datos para exportar." }); return; }
+        if (data.length === 0 || !areAllDataLoaded) { 
+            toast({ variant: 'destructive', title: "No hay datos para exportar." }); 
+            return; 
+        }
         
-        // 🚀 EXPORTACIÓN LIMPIA: Quitamos espaciadores, subtotales y totales para que Excel AutoSume bien
-        const cleanData = data
-            .filter(row => !row.isSubtotal && !row.isTotal && !row.isSpacer)
-            .map(({ Concepto, Valor }) => ({ 
-                'Concepto': Concepto.trim(), 
-                'Valor': Valor != null ? Valor : '' 
-            }));
+        const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+        const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
+
+        // 1. Añadimos el encabezado elegante
+        const dataToExport = [
+            { 'Concepto': companyName, 'Valor': '' },
+            { 'Concepto': companyNit, 'Valor': '' },
+            { 'Concepto': `DECLARACIÓN DE RENTA - AÑO FISCAL ${selectedYear}`, 'Valor': '' },
+            { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Valor': '' },
+            { 'Concepto': '', 'Valor': '' }, 
+            { 'Concepto': 'CONCEPTO / CUENTA', 'Valor': 'VALOR ($)' },
+            { 'Concepto': '', 'Valor': '' } 
+        ];
+
+        // 2. Mapeamos toda la estructura (incluyendo subtotales y totales)
+        data.forEach(({ Concepto, Valor, isSpacer }) => {
+            if (isSpacer) {
+                dataToExport.push({ 'Concepto': '', 'Valor': '' });
+            } else {
+                dataToExport.push({ 
+                    'Concepto': Concepto ? Concepto.trim() : '', 
+                    'Valor': Valor != null ? Valor : '' 
+                });
+            }
+        });
             
-        exportToExcel(cleanData, `Reporte_Declaracion_Renta_${selectedYear}`);
-        toast({ title: "¡Exportado a Excel!", description: "Se exportaron solo los detalles (sin subtotales) para facilitar la Autosuma." });
+        exportToExcel(dataToExport, `Reporte_Declaracion_Renta_${selectedYear}`);
+        toast({ title: "¡Exportado a Excel!", description: "El reporte se ha exportado exitosamente con la estructura formal." });
     };
     
     return (
