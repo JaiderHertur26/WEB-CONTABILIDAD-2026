@@ -87,7 +87,7 @@ const FixedAssets = () => {
     };
 
     
-// --- DEPRECIACIÓN AUTOMÁTICA (Ley colombiana / Estatuto Tributario) ---
+// --- DEPRECIACIÓN AUTOMÁTICA CON CONSECUTIVO DE TRANSFERENCIA ---
     const handleRunDepreciation = () => {
         if (!canEdit && !canAdd) return;
         
@@ -95,7 +95,7 @@ const FixedAssets = () => {
             'edificaciones': 0.0222, // 2.22% (~45 años)
             'maquinaria': 0.10,      // 10%
             'computo': 0.20,         // 20%
-            'vehiculos': 0.20,         // 20%
+            'vehiculos': 0.20,       // 20%
             'muebles': 0.10,         // 10%
             'general': 0.10          
         };
@@ -130,40 +130,73 @@ const FixedAssets = () => {
 
         if (totalDepreciationGenerated > 0) {
             const now = Date.now();
+            const dateStr = `${yearFilter}-12-31`;
+
+            // Calcular el siguiente número de comprobante de transferencia (T-...)
+            const yearTransactions = (transactions || []).filter(t => {
+                let tType = t.type;
+                if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
+                const tYear = (typeof t.date === 'string' && t.date.includes('-')) ? t.date.split('-')[0] : new Date(t.date).getFullYear().toString();
+                return tType === 'transfer' && tYear === yearFilter;
+            });
+            const maxNum = yearTransactions.reduce((max, t) => {
+                const currentVnum = parseInt(t.voucherNumber, 10) || 0;
+                return currentVnum > max ? currentVnum : max;
+            }, 0);
+            const voucherNumber = maxNum + 1;
+
             const deprTransaction = {
                 id: `${now}-depr`,
                 type: 'expense',
                 description: `Depreciación anual acumulada - Vigencia ${yearFilter}`,
                 amount: totalDepreciationGenerated,
                 category: 'Depreciación Acumulada Activos Fijos',
-                date: `${yearFilter}-12-31`,
-                destination: '159205|DEPRECIACION ACUMULADA',
+                date: dateStr,
                 isInternalTransfer: true,
+                voucherNumber: voucherNumber,
+                debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
+                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
                 company_id: activeCompany?.id,
                 companyId: activeCompany?.id
             };
             saveTransactions([...(transactions || []), deprTransaction]);
         }
 
-        toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación fiscal. Gasto registrado sin afectar efectivo.` });
+        toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación fiscal y se asignó el comprobante T-...` });
         setDepreciationDialogOpen(false);
     };
 
-    // --- DAR DE BAJA ACTIVO ---
-    const handleOpenRetireDialog = (asset) => {
-        setSelectedAssetForRetire(asset);
-        setRetireReason('Obsolescencia / Daño');
-        setRetireDialogOpen(true);
-    };
-
+    // --- DAR DE BAJA ACTIVO CON CONSECUTIVO DE TRANSFERENCIA ---
     const handleConfirmRetire = () => {
         if (!selectedAssetForRetire || !canEdit) return;
 
         const assetId = selectedAssetForRetire.id;
         const assetValue = parseFloat(selectedAssetForRetire.value) || 0;
+        const currentDate = new Date().toISOString().split('T')[0];
+        const currentYear = new Date().getFullYear().toString();
 
-        const updatedAssets = assets.map(a => a.id === assetId ? { ...a, status: 'Dado de Baja', usage: 'Desuso', notes: `${a.notes || ''} [Dado de baja: ${retireReason}]` } : a);
+        const updatedAssets = assets.map(a => a.id === assetId ? { 
+            ...a, 
+            status: 'Dado de Baja', 
+            usage: 'Desuso', 
+            value: 0, 
+            netBookValue: 0,
+            notes: `${a.notes || ''} [Dado de baja: ${retireReason}]` 
+        } : a);
         saveAssets(updatedAssets);
+
+        // Calcular el siguiente número de comprobante de transferencia (T-...)
+        const yearTransactions = (transactions || []).filter(t => {
+            let tType = t.type;
+            if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
+            const tYear = (typeof t.date === 'string' && t.date.includes('-')) ? t.date.split('-')[0] : new Date(t.date).getFullYear().toString();
+            return tType === 'transfer' && tYear === currentYear;
+        });
+        const maxNum = yearTransactions.reduce((max, t) => {
+            const currentVnum = parseInt(t.voucherNumber, 10) || 0;
+            return currentVnum > max ? currentVnum : max;
+        }, 0);
+        const voucherNumber = maxNum + 1;
 
         const now = Date.now();
         const retireTransaction = {
@@ -172,15 +205,17 @@ const FixedAssets = () => {
             description: `Baja de activo fijo: ${selectedAssetForRetire.name} (${retireReason})`,
             amount: assetValue,
             category: 'Retiro o Baja de Activos Fijos',
-            date: new Date().toISOString().split('T')[0],
-            destination: '540505|BAJA DE ACTIVOS',
+            date: currentDate,
             isInternalTransfer: true,
+            voucherNumber: voucherNumber,
+            debitAccount: { code: '540505', name: 'BAJA DE ACTIVOS' },
+            creditAccount: { code: '154005', name: 'PROPIEDAD PLANTA Y EQUIPO' },
             company_id: activeCompany?.id,
             companyId: activeCompany?.id
         };
         saveTransactions([...(transactions || []), retireTransaction]);
 
-        toast({ title: "Activo Dado de Baja", description: "Se ha retirado el activo y generado el comprobante contable sin afectar efectivo." });
+        toast({ title: "Activo Dado de Baja", description: "Se asignó el consecutivo de comprobante de transferencia correspondiente." });
         setRetireDialogOpen(false);
         setSelectedAssetForRetire(null);
     };
