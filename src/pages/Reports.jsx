@@ -343,6 +343,7 @@ const Reports = () => {
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
+        if (asset.status === 'Dado de Baja') return false; // <--- FILTRA LOS ACTIVOS DADOS DE BAJA
         if (asset.year) return parseInt(asset.year) <= parseInt(currentYear);
         if (asset.date) return getSafeYear(asset.date) <= parseInt(currentYear);
         return false;
