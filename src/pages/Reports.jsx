@@ -294,37 +294,42 @@ const Reports = () => {
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0;
 
     bsTransactions.forEach(t => {
-        // 1. PROCESAR CRUCES CONTABLES (Amortizaciones de Anticipos, etc.)
-        if (t.debitAccount && t.creditAccount) {
-            const amount = safeParseFloat(t.amount);
-            const drCode = String(t.debitAccount.code);
-            const crCode = String(t.creditAccount.code);
-
-            // Evaluar el Débito (Suma Activos, Resta Pasivos)
-            if (drCode.startsWith('1330')) anticiposValue += amount;
-            else if (drCode.startsWith('1508')) construccionesValue += amount;
-            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) otherAssetsValue += amount;
-            else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
-
-            // Evaluar el Crédito (Resta Activos, Suma Pasivos)
-            if (crCode.startsWith('1330')) anticiposValue -= amount;
-            else if (crCode.startsWith('1508')) construccionesValue -= amount;
-            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) otherAssetsValue -= amount;
-            else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
-            
-            return; // Termina con esta transacción y pasa a la siguiente
-        }
-
-        // 2. IGNORAR TRANSFERENCIAS SIMPLES DE EFECTIVO
-        if (t.isInternalTransfer) return;
-
-        // 3. FLUJO NORMAL PARA INGRESOS Y EGRESOS
+        // Obtenemos la cuenta asociada a la categoría o destino
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
-        
-        const assetImpact = t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount);
-        const liabilityImpact = t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount);
+
+        const amount = safeParseFloat(t.amount);
+
+        // Impacto según la naturaleza de la transacción
+        // Si es gasto o transferencia de salida resta/suma según corresponda, 
+        // pero para cuentas de Activo (1) y Pasivo (2), evaluamos su clase y tipo:
+        let impact = 0;
+        if (num.startsWith('1')) {
+            // En activo: Ingresos/Débitos suman, Gastos/Créditos restan (o viceversa según el tipo)
+            impact = (t.type === 'income' || t.type === 'transfer') ? amount : -amount;
+        } else if (num.startsWith('2')) {
+            // En pasivo: Ingresos/Créditos suman, Egresos/Débitos restan
+            impact = (t.type === 'income' || t.type === 'transfer') ? amount : -amount;
+        }
+
+        // Caso especial para los cruces contables internos (Amortizaciones T-0004, T-0006, T-0008)
+        // Como el cruce genera un par (expense/income), la transacción de tipo 'expense' 
+        // con cuenta 1508 está sumando al activo, y la de tipo 'income' con cuenta 1330 está restando al anticipo.
+        if (t.isInternalTransfer) {
+            if (t.type === 'expense') {
+                if (num.startsWith('1330')) anticiposValue -= amount;
+                else if (num.startsWith('1508')) construccionesValue += amount;
+            } else if (t.type === 'income') {
+                if (num.startsWith('1330')) anticiposValue -= amount;
+                else if (num.startsWith('1508')) construccionesValue += amount;
+            }
+            return;
+        }
+
+        // Flujo normal para transacciones estándar
+        const assetImpact = t.type === 'expense' ? amount : -amount;
+        const liabilityImpact = t.type === 'income' ? amount : -amount;
 
         if (num.startsWith('1330')) anticiposValue += assetImpact;
         else if (num.startsWith('1508')) construccionesValue += assetImpact;
