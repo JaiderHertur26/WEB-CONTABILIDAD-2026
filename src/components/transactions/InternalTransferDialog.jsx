@@ -45,8 +45,8 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className }) 
             </div>
             
             {isOpen && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl flex flex-col overflow-hidden" style={{ maxHeight: '280px' }}>
-                    <div className="p-2 border-b border-slate-100 bg-slate-50">
+                <div className="absolute z-[9999] w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl flex flex-col" style={{ maxHeight: '250px' }}>
+                    <div className="p-2 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
                         <div className="relative">
                             <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
                             <input
@@ -60,11 +60,11 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className }) 
                             />
                         </div>
                     </div>
-                    <div className="overflow-y-auto custom-scrollbar">
+                    <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
                         {filteredOptions.length > 0 ? filteredOptions.map(opt => (
                             <div 
                                 key={opt.value}
-                                className="px-3 py-2.5 text-sm cursor-pointer hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition-colors border-b border-slate-50 last:border-0"
+                                className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition-colors border-b border-slate-50 last:border-0"
                                 onClick={() => {
                                     onChange(opt.value);
                                     setIsOpen(false);
@@ -170,6 +170,7 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* 🚀 EL className "overflow-visible" SOLUCIONA EL RECORTE DEL MENÚ */}
       <DialogContent className="sm:max-w-lg overflow-visible">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">Nueva Transferencia / Cruce</DialogTitle>
