@@ -395,30 +395,16 @@ const Reports = () => {
     setReportData({ summary: summaryData, incomeStatement, balanceSheet });
   };
   
-  // 🚀 EXPORTACIÓN SERIA Y PROFESIONAL DEL ESTADO DE RESULTADOS
+  // 🚀 EXPORTACIÓN EXCEL BLINDADA: Filtra los subtotales para evitar que la "Autosuma" duplique los valores
   const handleExportReport = (data, name) => { 
-      const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
-      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
-
-      const dataToExport = [
-          { 'Concepto': companyName, 'Monto': '' },
-          { 'Concepto': companyNit, 'Monto': '' },
-          { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
-          { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
-          { 'Concepto': '', 'Monto': '' }, 
-          { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
-          { 'Concepto': '', 'Monto': '' } 
-      ];
-
-      data.forEach(row => {
-          dataToExport.push({
-              'Concepto': row.item.trim(),
-              'Monto': row.amount != null ? row.amount : ''
-          });
-      });
-
-      exportToExcel(dataToExport, `Estado_de_Resultados_${selectedYear}`); 
-      toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
+      const cleanData = data
+          .filter(row => !row.isSubtotal && !row.isTotal)
+          .map(({ item, amount }) => ({ 
+              'Concepto': item.trim(), 
+              'Monto': amount != null ? amount : '' 
+          }));
+      exportToExcel(cleanData, `${name}_${selectedYear}`); 
+      toast({ title: 'Exportado a Excel', description: 'Exportado sin subtotales para facilitar la Autosuma.' }); 
   };
 
   const handleExportBalanceSheet = () => { const { assets, liabilities, equity, totals } = reportData.balanceSheet; const dataToExport = [ ...assets.map(a => ({ Categoria: a.item, Monto: a.amount != null ? a.amount : '' })), { Categoria: 'TOTAL ACTIVOS', Monto: totals.assets }, {}, ...liabilities.map(l => ({ Categoria: l.item, Monto: l.amount != null ? l.amount : '' })), { Categoria: 'TOTAL PASIVOS', Monto: totals.liabilities }, {}, ...equity.map(e => ({ Categoria: e.item, Monto: e.amount != null ? e.amount : '' })), { Categoria: 'TOTAL PATRIMONIO', Monto: totals.equity }, {}, { Categoria: 'TOTAL PASIVO + PATRIMONIO', Monto: totals.liabilitiesAndEquity } ]; exportToExcel(dataToExport, `Balance_General_${selectedYear}`); }
