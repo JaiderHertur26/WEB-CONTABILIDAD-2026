@@ -1,105 +1,111 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
-import { ArrowRightLeft, BookOpen, Search, ChevronDown } from 'lucide-react';
+import { ArrowRightLeft, BookOpen, Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 // ============================================================================
-// COMPONENTE: Buscador Inteligente para Cuentas Contables (Autocomplete Seguro)
+// COMPONENTE: Buscador Inteligente basado en Popover y Command (Sin Errores de Foco)
 // ============================================================================
-const SearchableSelect = ({ options, value, onChange, placeholder, className }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [search, setSearch] = useState('');
-    const wrapperRef = useRef(null);
+const Highlight = ({ text, highlight }) => {
+  if (!highlight || !text) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
+  return (
+    <>{parts.map((part, i) => part.toLowerCase() === highlight.toLowerCase() ? <span key={i} className="bg-yellow-200 text-slate-900 font-semibold rounded-sm px-0.5">{part}</span> : part)}</>
+  );
+};
 
-    // Cerrar al hacer clic afuera y restaurar el texto seleccionado
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
-                setIsOpen(false);
-                const selected = options.find(o => o.value === value);
-                if (selected) setSearch(selected.label);
-                else setSearch('');
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [value, options]);
+const AccountSelector = ({ accounts, value, onChange, placeholder, borderColorClass }) => {
+  const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  const selectedAccount = accounts.find(a => a.name === value);
+  const filteredAccounts = accounts.filter(account => {
+    if (!searchQuery) return true;
+    const search = searchQuery.toLowerCase();
+    return (String(account.number).toLowerCase().includes(search) || String(account.name).toLowerCase().includes(search));
+  });
 
-    // Sincronizar texto inicial cuando se abre el modal o cambia el valor externamente
-    useEffect(() => {
-        if (!isOpen) {
-            const selected = options.find(o => o.value === value);
-            setSearch(selected ? selected.label : '');
-        }
-    }, [value, options, isOpen]);
-
-    const filteredOptions = options.filter(opt =>
-        opt.label.toLowerCase().includes(search.toLowerCase())
-    );
-
-    return (
-        <div ref={wrapperRef} className="relative w-full">
-            <div className="relative">
-                {/* 🚀 EL INPUT AHORA ES NATIVO Y VISIBLE SIEMPRE, EVITANDO EL BLOQUEO DEL MODAL */}
-                <input
-                    type="text"
-                    className={cn("w-full px-3 py-2 pr-8 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm", className)}
-                    placeholder={placeholder}
-                    value={search}
-                    onChange={(e) => {
-                        setSearch(e.target.value);
-                        setIsOpen(true);
-                        if (e.target.value === '') onChange(''); // Limpiar valor si borra todo
-                    }}
-                    onFocus={() => setIsOpen(true)}
-                />
-                <ChevronDown className="w-4 h-4 absolute right-3 top-2.5 text-slate-400 pointer-events-none" />
-            </div>
-
-            {isOpen && (
-                <div className="absolute z-[9999] w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl overflow-y-auto" style={{ maxHeight: '200px' }}>
-                    {filteredOptions.length > 0 ? filteredOptions.map(opt => (
-                        <div
-                            key={opt.value}
-                            className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition-colors border-b border-slate-50 last:border-0"
-                            onClick={() => {
-                                onChange(opt.value);
-                                setSearch(opt.label);
-                                setIsOpen(false);
-                            }}
-                        >
-                            {opt.label}
-                        </div>
-                    )) : (
-                        <div className="px-3 py-4 text-sm text-slate-500 text-center flex flex-col items-center">
-                            <Search className="w-5 h-5 text-slate-300 mb-1" />
-                            No se encontraron cuentas
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <PopoverTrigger asChild>
+        <Button 
+            variant="outline" 
+            role="combobox" 
+            aria-expanded={open} 
+            className={cn("w-full justify-between bg-white text-slate-900 hover:bg-slate-50", borderColorClass)}
+        >
+          {selectedAccount ? (
+            <span className="truncate flex items-center">
+                <span className="font-mono text-xs text-slate-500 mr-2 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                    {selectedAccount.number}
+                </span>
+                {selectedAccount.name}
+            </span>
+          ) : (
+            <span className="text-slate-500">{placeholder}</span>
+          )}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[400px] p-0 z-[9999]" align="start">
+        <Command shouldFilter={false} className="w-full">
+          <CommandInput placeholder="Buscar por nombre o código..." value={searchQuery} onValueChange={setSearchQuery} className="h-10" />
+          <CommandList className="max-h-[300px] overflow-y-auto">
+            {filteredAccounts.length === 0 && (<div className="py-6 text-center text-sm text-slate-500">No se encontró la cuenta</div>)}
+            <CommandGroup>
+              {filteredAccounts.map((account) => (
+                <CommandItem 
+                    key={account.id || account.number} 
+                    value={account.name} 
+                    onSelect={() => { 
+                        onChange(account.name); 
+                        setOpen(false); 
+                        setSearchQuery(""); 
+                    }} 
+                    className="cursor-pointer hover:bg-slate-100 aria-selected:bg-slate-100"
+                >
+                  <Check className={cn("mr-2 h-4 w-4 text-blue-600 flex-shrink-0", value === account.name ? "opacity-100" : "opacity-0")} />
+                  <div className="flex flex-col w-full min-w-0">
+                    <div className="font-medium text-sm text-slate-900 truncate">
+                        <Highlight text={account.name} highlight={searchQuery} />
+                    </div>
+                    <div className="text-xs text-slate-500 font-mono truncate">
+                        <Highlight text={String(account.number)} highlight={searchQuery} />
+                    </div>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 };
 
 // ============================================================================
 // COMPONENTE PRINCIPAL: InternalTransferDialog
 // ============================================================================
 const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
-  const [mode, setMode] = useState('money'); 
+  const [mode, setMode] = useState('money'); // 'money' o 'accounting'
   
+  // Campos comunes
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [description, setDescription] = useState('');
 
+  // Campos para modo Dinero
   const [fromAccount, setFromAccount] = useState('');
   const [toAccount, setToAccount] = useState('');
   
+  // Campos para modo Cruce Contable
   const [debitAccount, setDebitAccount] = useState('');
   const [creditAccount, setCreditAccount] = useState('');
 
@@ -120,13 +126,9 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
     })),
   ];
 
-  // 🚀 PROTECCIÓN CONTRA ERRORES DE ORDENAMIENTO (Garantiza que siempre sea texto)
-  const sortedAccounts = [...(chartOfAccounts || [])].sort((a, b) => String(a.number).localeCompare(String(b.number)));
-  
-  const searchableAccountOptions = sortedAccounts.map(acc => ({
-      value: acc.name,
-      label: `${acc.number} - ${acc.name}`
-  }));
+  const sortedAccounts = React.useMemo(() => {
+      return [...(chartOfAccounts || [])].sort((a, b) => String(a.number).localeCompare(String(b.number)));
+  }, [chartOfAccounts]);
 
   useEffect(() => {
     if (open) {
@@ -173,6 +175,7 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
           <DialogTitle className="text-2xl font-bold">Nueva Transferencia / Cruce</DialogTitle>
         </DialogHeader>
         
+        {/* Selector de Modo */}
         <div className="flex gap-2 mb-2 bg-slate-100 p-1 rounded-lg">
             <button type="button" onClick={() => setMode('money')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors flex items-center justify-center ${mode === 'money' ? 'bg-white shadow text-blue-600' : 'text-slate-600 hover:text-slate-900'}`}>
                 <ArrowRightLeft className="w-4 h-4 mr-2"/>Movimiento Dinero
@@ -215,23 +218,23 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
               <div className="grid grid-cols-1 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
                 <div className="space-y-2 relative">
                   <Label className="text-purple-700">Cuenta Débito (Aumenta)</Label>
-                  <SearchableSelect 
-                      options={searchableAccountOptions}
+                  <AccountSelector 
+                      accounts={sortedAccounts}
                       value={debitAccount}
                       onChange={setDebitAccount}
-                      placeholder="Buscar cuenta..."
-                      className="border-purple-200 focus:ring-purple-500"
+                      placeholder="Buscar cuenta Débito..."
+                      borderColorClass="border-purple-300"
                   />
                   <p className="text-[10px] text-slate-500">Ej: Escribe '1524' o 'Muebles'</p>
                 </div>
                 <div className="space-y-2 relative">
                   <Label className="text-orange-700">Cuenta Crédito (Disminuye)</Label>
-                  <SearchableSelect 
-                      options={searchableAccountOptions}
+                  <AccountSelector 
+                      accounts={sortedAccounts}
                       value={creditAccount}
                       onChange={setCreditAccount}
-                      placeholder="Buscar cuenta..."
-                      className="border-orange-200 focus:ring-orange-500"
+                      placeholder="Buscar cuenta Crédito..."
+                      borderColorClass="border-orange-300"
                   />
                   <p className="text-[10px] text-slate-500">Ej: Escribe '4245' o 'Donaciones'</p>
                 </div>
