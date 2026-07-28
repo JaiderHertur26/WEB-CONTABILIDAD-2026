@@ -40,7 +40,7 @@ const FixedAssets = () => {
         const assetsToRestore = assets.filter(a => 
             a.status === 'Dado de Baja' && 
             a.retireTransactionId && 
-            !transactions.some(t => t.id === a.retireTransactionId)
+            !transactions.some(t => String(t.id) === String(a.retireTransactionId))
         );
 
         if (assetsToRestore.length > 0) {
@@ -57,9 +57,9 @@ const FixedAssets = () => {
                 return a;
             });
             saveAssets(updatedAssets);
-            toast({ title: "Activo Reintegrado", description: "Se detectó la eliminación del comprobante contable y el activo regresó al inventario automáticamente." });
+            toast({ title: "Activo Reintegrado", description: "Se detectó la eliminación del comprobante contable y el activo regresó al inventario." });
         }
-    }, [transactions]); // Se ejecuta automáticamente si se borra una transacción
+    }, [transactions, assets]); // 🚀 LA CLAVE: Añadir 'assets' a las dependencias
 
     const handleSaveAsset = (assetData) => {
         if (!canAdd && !editingAsset) return;
@@ -250,6 +250,7 @@ const handleOpenRetireDialog = (asset) => {
             usage: 'Desuso', 
             retireTransactionId: retireTxId, // Guardamos el rastro del comprobante
             notes: `${a.notes || ''} [Dado de baja: ${retireReason}]` 
+            // 🚀 Quitamos value: 0 y netBookValue: 0 para conservar el historial
         } : a);
         saveAssets(updatedAssets);
 
@@ -296,7 +297,7 @@ const handleOpenRetireDialog = (asset) => {
 
         let totalValue = 0;
         const excelData = filteredAssets.map(a => {
-            const val = a.status === 'Dado de Baja' ? 0 : (parseFloat(a.value) || 0);
+            const val = parseFloat(a.value) || 0;
             totalValue += val;
             return {
                 'CANT.': a.quantity || 1, 
@@ -383,7 +384,7 @@ const handleOpenRetireDialog = (asset) => {
 
             let totalValue = 0;
             filteredAssets.forEach(asset => {
-                const val = asset.status === 'Dado de Baja' ? 0 : (parseFloat(asset.value) || 0);
+                const val = parseFloat(asset.value) || 0;
                 totalValue += val;
                 tableRows.push(
                     new TableRow({
@@ -565,10 +566,9 @@ const handleOpenRetireDialog = (asset) => {
                 <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
                     <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
                     <tbody className="divide-y">{filteredAssets.map(asset => {
-                        const isRetired = asset.status === 'Dado de Baja';
-                        const origVal = isRetired ? 0 : (parseFloat(asset.value) || 0);
-                        const acumDepr = isRetired ? 0 : (parseFloat(asset.accumulatedDepreciation || 0));
-                        const netVal = origVal - acumDepr;
+                        const origVal = parseFloat(asset.value) || 0;
+			const acumDepr = parseFloat(asset.accumulatedDepreciation || 0);
+			const netVal = origVal - acumDepr;
                         return (
                             <tr key={asset.id} className={`hover:bg-slate-50 ${asset.status === 'Dado de Baja' ? 'opacity-50 bg-slate-100' : ''}`}>
                                 <td className="p-3">{asset.quantity || 1}</td>
