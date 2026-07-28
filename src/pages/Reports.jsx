@@ -75,8 +75,6 @@ const Reports = () => {
 
     // ============================================================================
     // 🚀 SOLUCIÓN DE DUPLICIDAD: Unificamos el catálogo de cuentas (PUC)
-    // Si la Capilla y Parroquia tienen cuentas con el mismo nombre, las fusionamos 
-    // para evitar que se repitan en el Estado de Resultados al consolidar.
     // ============================================================================
     const uniqueAccountsMap = new Map();
     (accounts || []).forEach(acc => {
@@ -114,7 +112,6 @@ const Reports = () => {
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // Ingresos (4): Suman con income, RESTAN con expense (devoluciones)
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
         if (getAccountPrefix(t.category) === '4') {
@@ -123,7 +120,6 @@ const Reports = () => {
         return sum;
     }, 0);
 
-    // Costos (6, 7): Suman con expense, RESTAN con income (anulaciones)
     const totalCosts = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
         if (['6', '7'].includes(getAccountPrefix(t.category))) {
@@ -132,7 +128,6 @@ const Reports = () => {
         return sum;
     }, 0);
 
-    // Gastos (5): Suman con expense, RESTAN con income (reembolsos)
     const totalExpenses = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
         if (getAccountPrefix(t.category) === '5') {
@@ -145,7 +140,6 @@ const Reports = () => {
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
-    // Desglose individual de cada categoría
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
         if (t.category !== categoryName || t.isFixedAsset || t.isInternalTransfer || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
         const amount = safeParseFloat(t.amount);
@@ -190,7 +184,6 @@ const Reports = () => {
         return false;
     };
 
-    // 1. Caja Principal
     const initialCash = fInitialBalance.reduce((sum, item) => {
         if (!item.date || getSafeYear(item.date) <= parseInt(currentYear)) {
             return sum + safeParseFloat(item.balance);
@@ -225,7 +218,6 @@ const Reports = () => {
     });
     const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
 
-    // 2. Custom Cash Accounts
     let customCashBalance = 0;
     if (fCashAccounts.length > 0) {
         customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
@@ -250,7 +242,6 @@ const Reports = () => {
     }
     const totalCashBalance = cajaPrincipalBalance + customCashBalance;
 
-    // 3. Bank Accounts
     let totalBankBalances = 0, totalInvestmentBalances = 0;
     fBankAccounts.forEach(acc => {
         let currentBankBalance = 0, currentInvestmentBalance = 0;
@@ -290,46 +281,35 @@ const Reports = () => {
         return !originalAcc?.date || getSafeYear(originalAcc.date) <= parseInt(currentYear);
     });
 
-    // 4. Activos y Pasivos
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0;
 
     bsTransactions.forEach(t => {
-        // Obtenemos la cuenta asociada a la categoría o destino
-        const acc = allAccounts.find(a => a.name === t.category);
-        if (!acc) return;
-        const num = String(acc.number);
+        if (t.debitAccount && t.creditAccount) {
+            const amount = safeParseFloat(t.amount);
+            const drCode = String(t.debitAccount.code);
+            const crCode = String(t.creditAccount.code);
 
-        const amount = safeParseFloat(t.amount);
+            if (drCode.startsWith('1330')) anticiposValue += amount;
+            else if (drCode.startsWith('1508')) construccionesValue += amount;
+            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) otherAssetsValue += amount;
+            else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-        // Impacto según la naturaleza de la transacción
-        // Si es gasto o transferencia de salida resta/suma según corresponda, 
-        // pero para cuentas de Activo (1) y Pasivo (2), evaluamos su clase y tipo:
-        let impact = 0;
-        if (num.startsWith('1')) {
-            // En activo: Ingresos/Débitos suman, Gastos/Créditos restan (o viceversa según el tipo)
-            impact = (t.type === 'income' || t.type === 'transfer') ? amount : -amount;
-        } else if (num.startsWith('2')) {
-            // En pasivo: Ingresos/Créditos suman, Egresos/Débitos restan
-            impact = (t.type === 'income' || t.type === 'transfer') ? amount : -amount;
-        }
-
-        // Caso especial para los cruces contables internos (Amortizaciones T-0004, T-0006, T-0008)
-        // Como el cruce genera un par (expense/income), la transacción de tipo 'expense' 
-        // con cuenta 1508 está sumando al activo, y la de tipo 'income' con cuenta 1330 está restando al anticipo.
-        if (t.isInternalTransfer) {
-            if (t.type === 'expense') {
-                if (num.startsWith('1330')) anticiposValue -= amount;
-                else if (num.startsWith('1508')) construccionesValue += amount;
-            } else if (t.type === 'income') {
-                if (num.startsWith('1330')) anticiposValue -= amount;
-                else if (num.startsWith('1508')) construccionesValue += amount;
-            }
+            if (crCode.startsWith('1330')) anticiposValue -= amount;
+            else if (crCode.startsWith('1508')) construccionesValue -= amount;
+            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) otherAssetsValue -= amount;
+            else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
+            
             return;
         }
 
-        // Flujo normal para transacciones estándar
-        const assetImpact = t.type === 'expense' ? amount : -amount;
-        const liabilityImpact = t.type === 'income' ? amount : -amount;
+        if (t.isInternalTransfer) return;
+
+        const acc = allAccounts.find(a => a.name === t.category);
+        if (!acc) return;
+        const num = String(acc.number);
+        
+        const assetImpact = t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount);
+        const liabilityImpact = t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount);
 
         if (num.startsWith('1330')) anticiposValue += assetImpact;
         else if (num.startsWith('1508')) construccionesValue += assetImpact;
@@ -395,16 +375,30 @@ const Reports = () => {
     setReportData({ summary: summaryData, incomeStatement, balanceSheet });
   };
   
-  // 🚀 EXPORTACIÓN EXCEL BLINDADA: Filtra los subtotales para evitar que la "Autosuma" duplique los valores
+  // 🚀 EXPORTACIÓN SERIA Y PROFESIONAL DEL ESTADO DE RESULTADOS
   const handleExportReport = (data, name) => { 
-      const cleanData = data
-          .filter(row => !row.isSubtotal && !row.isTotal)
-          .map(({ item, amount }) => ({ 
-              'Concepto': item.trim(), 
-              'Monto': amount != null ? amount : '' 
-          }));
-      exportToExcel(cleanData, `${name}_${selectedYear}`); 
-      toast({ title: 'Exportado a Excel', description: 'Exportado sin subtotales para facilitar la Autosuma.' }); 
+      const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
+
+      const dataToExport = [
+          { 'Concepto': companyName, 'Monto': '' },
+          { 'Concepto': companyNit, 'Monto': '' },
+          { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
+          { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
+          { 'Concepto': '', 'Monto': '' }, // Fila separadora
+          { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
+          { 'Concepto': '', 'Monto': '' } // Fila separadora
+      ];
+
+      data.forEach(row => {
+          dataToExport.push({
+              'Concepto': row.item.trim(),
+              'Monto': row.amount != null ? row.amount : ''
+          });
+      });
+
+      exportToExcel(dataToExport, `Estado_de_Resultados_${selectedYear}`); 
+      toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
   };
 
   const handleExportBalanceSheet = () => { const { assets, liabilities, equity, totals } = reportData.balanceSheet; const dataToExport = [ ...assets.map(a => ({ Categoria: a.item, Monto: a.amount != null ? a.amount : '' })), { Categoria: 'TOTAL ACTIVOS', Monto: totals.assets }, {}, ...liabilities.map(l => ({ Categoria: l.item, Monto: l.amount != null ? l.amount : '' })), { Categoria: 'TOTAL PASIVOS', Monto: totals.liabilities }, {}, ...equity.map(e => ({ Categoria: e.item, Monto: e.amount != null ? e.amount : '' })), { Categoria: 'TOTAL PATRIMONIO', Monto: totals.equity }, {}, { Categoria: 'TOTAL PASIVO + PATRIMONIO', Monto: totals.liabilitiesAndEquity } ]; exportToExcel(dataToExport, `Balance_General_${selectedYear}`); }
