@@ -355,18 +355,12 @@ const TaxReports = () => {
         });
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
-        
-        // 🚀 FILTRADO EXACTO POR EL AÑO SELECCIONADO
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
-            const assetYear = asset.year ? String(asset.year) : (asset.date ? String(getSafeYear(asset.date)) : '');
-            return assetYear === selectedYear;
+            if (asset.year) return parseInt(asset.year) <= parseInt(selectedYear);
+            if (asset.date) return getSafeYear(asset.date) <= parseInt(selectedYear);
+            return false;
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
-        
-        const realEstatesValue = fRealEstates.filter(estate => {
-            const estateYear = estate.year ? String(estate.year) : (estate.date ? String(getSafeYear(estate.date)) : '');
-            return estateYear === selectedYear;
-        }).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
         
