@@ -9,77 +9,78 @@ import { ArrowRightLeft, BookOpen, Search, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ============================================================================
-// COMPONENTE: Buscador Inteligente para Cuentas Contables (Combobox)
+// COMPONENTE: Buscador Inteligente para Cuentas Contables (Autocomplete Seguro)
 // ============================================================================
 const SearchableSelect = ({ options, value, onChange, placeholder, className }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const wrapperRef = useRef(null);
 
-    // Cerrar el menú si se hace clic afuera
+    // Cerrar al hacer clic afuera y restaurar el texto seleccionado
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
                 setIsOpen(false);
+                const selected = options.find(o => o.value === value);
+                if (selected) setSearch(selected.label);
+                else setSearch('');
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+    }, [value, options]);
 
-    const selectedOption = options.find(opt => opt.value === value);
-    const filteredOptions = options.filter(opt => 
+    // Sincronizar texto inicial cuando se abre el modal o cambia el valor externamente
+    useEffect(() => {
+        if (!isOpen) {
+            const selected = options.find(o => o.value === value);
+            setSearch(selected ? selected.label : '');
+        }
+    }, [value, options, isOpen]);
+
+    const filteredOptions = options.filter(opt =>
         opt.label.toLowerCase().includes(search.toLowerCase())
     );
 
     return (
         <div ref={wrapperRef} className="relative w-full">
-            <div 
-                className={cn("w-full px-3 py-2 border rounded-lg bg-white cursor-pointer flex justify-between items-center text-sm transition-colors hover:bg-slate-50", className)}
-                onClick={() => setIsOpen(!isOpen)}
-            >
-                <span className={selectedOption ? "text-slate-900 font-medium" : "text-slate-500 truncate"}>
-                    {selectedOption ? selectedOption.label : placeholder}
-                </span>
-                <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            <div className="relative">
+                {/* 🚀 EL INPUT AHORA ES NATIVO Y VISIBLE SIEMPRE, EVITANDO EL BLOQUEO DEL MODAL */}
+                <input
+                    type="text"
+                    className={cn("w-full px-3 py-2 pr-8 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm", className)}
+                    placeholder={placeholder}
+                    value={search}
+                    onChange={(e) => {
+                        setSearch(e.target.value);
+                        setIsOpen(true);
+                        if (e.target.value === '') onChange(''); // Limpiar valor si borra todo
+                    }}
+                    onFocus={() => setIsOpen(true)}
+                />
+                <ChevronDown className="w-4 h-4 absolute right-3 top-2.5 text-slate-400 pointer-events-none" />
             </div>
-            
+
             {isOpen && (
-                <div className="absolute z-[9999] w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl flex flex-col" style={{ maxHeight: '250px' }}>
-                    <div className="p-2 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
-                        <div className="relative">
-                            <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-slate-400" />
-                            <input
-                                type="text"
-                                autoFocus
-                                className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                                placeholder="Buscar por número o nombre..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                onClick={(e) => e.stopPropagation()}
-                            />
+                <div className="absolute z-[9999] w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl overflow-y-auto" style={{ maxHeight: '200px' }}>
+                    {filteredOptions.length > 0 ? filteredOptions.map(opt => (
+                        <div
+                            key={opt.value}
+                            className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition-colors border-b border-slate-50 last:border-0"
+                            onClick={() => {
+                                onChange(opt.value);
+                                setSearch(opt.label);
+                                setIsOpen(false);
+                            }}
+                        >
+                            {opt.label}
                         </div>
-                    </div>
-                    <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
-                        {filteredOptions.length > 0 ? filteredOptions.map(opt => (
-                            <div 
-                                key={opt.value}
-                                className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 text-slate-700 hover:text-blue-700 transition-colors border-b border-slate-50 last:border-0"
-                                onClick={() => {
-                                    onChange(opt.value);
-                                    setIsOpen(false);
-                                    setSearch('');
-                                }}
-                            >
-                                {opt.label}
-                            </div>
-                        )) : (
-                            <div className="px-3 py-6 text-sm text-slate-500 text-center flex flex-col items-center">
-                                <Search className="w-6 h-6 text-slate-300 mb-2" />
-                                No se encontraron cuentas
-                            </div>
-                        )}
-                    </div>
+                    )) : (
+                        <div className="px-3 py-4 text-sm text-slate-500 text-center flex flex-col items-center">
+                            <Search className="w-5 h-5 text-slate-300 mb-1" />
+                            No se encontraron cuentas
+                        </div>
+                    )}
                 </div>
             )}
         </div>
@@ -90,18 +91,15 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className }) 
 // COMPONENTE PRINCIPAL: InternalTransferDialog
 // ============================================================================
 const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
-  const [mode, setMode] = useState('money'); // 'money' o 'accounting'
+  const [mode, setMode] = useState('money'); 
   
-  // Campos comunes
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [description, setDescription] = useState('');
 
-  // Campos para modo Dinero
   const [fromAccount, setFromAccount] = useState('');
   const [toAccount, setToAccount] = useState('');
   
-  // Campos para modo Cruce Contable
   const [debitAccount, setDebitAccount] = useState('');
   const [creditAccount, setCreditAccount] = useState('');
 
@@ -122,9 +120,9 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
     })),
   ];
 
-  const sortedAccounts = [...(chartOfAccounts || [])].sort((a, b) => a.number.localeCompare(b.number));
+  // 🚀 PROTECCIÓN CONTRA ERRORES DE ORDENAMIENTO (Garantiza que siempre sea texto)
+  const sortedAccounts = [...(chartOfAccounts || [])].sort((a, b) => String(a.number).localeCompare(String(b.number)));
   
-  // Preparar opciones para el buscador inteligente
   const searchableAccountOptions = sortedAccounts.map(acc => ({
       value: acc.name,
       label: `${acc.number} - ${acc.name}`
@@ -170,13 +168,11 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* 🚀 EL className "overflow-visible" SOLUCIONA EL RECORTE DEL MENÚ */}
       <DialogContent className="sm:max-w-lg overflow-visible">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">Nueva Transferencia / Cruce</DialogTitle>
         </DialogHeader>
         
-        {/* Selector de Modo */}
         <div className="flex gap-2 mb-2 bg-slate-100 p-1 rounded-lg">
             <button type="button" onClick={() => setMode('money')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors flex items-center justify-center ${mode === 'money' ? 'bg-white shadow text-blue-600' : 'text-slate-600 hover:text-slate-900'}`}>
                 <ArrowRightLeft className="w-4 h-4 mr-2"/>Movimiento Dinero
