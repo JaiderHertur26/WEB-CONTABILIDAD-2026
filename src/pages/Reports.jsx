@@ -294,7 +294,31 @@ const Reports = () => {
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0;
 
     bsTransactions.forEach(t => {
-        if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return;
+        // 1. PROCESAR CRUCES CONTABLES (Amortizaciones de Anticipos, etc.)
+        if (t.debitAccount && t.creditAccount) {
+            const amount = safeParseFloat(t.amount);
+            const drCode = String(t.debitAccount.code);
+            const crCode = String(t.creditAccount.code);
+
+            // Evaluar el Débito (Suma Activos, Resta Pasivos)
+            if (drCode.startsWith('1330')) anticiposValue += amount;
+            else if (drCode.startsWith('1508')) construccionesValue += amount;
+            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) otherAssetsValue += amount;
+            else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
+
+            // Evaluar el Crédito (Resta Activos, Suma Pasivos)
+            if (crCode.startsWith('1330')) anticiposValue -= amount;
+            else if (crCode.startsWith('1508')) construccionesValue -= amount;
+            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) otherAssetsValue -= amount;
+            else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
+            
+            return; // Termina con esta transacción y pasa a la siguiente
+        }
+
+        // 2. IGNORAR TRANSFERENCIAS SIMPLES DE EFECTIVO
+        if (t.isInternalTransfer) return;
+
+        // 3. FLUJO NORMAL PARA INGRESOS Y EGRESOS
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
