@@ -291,6 +291,7 @@ const TaxReports = () => {
         const cajaGeneral = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
 
         let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0;
+
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
@@ -299,43 +300,52 @@ const TaxReports = () => {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
 
+                // Débitos
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
-                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('1592')) otherAssetsValue += amount;
+                else if (drCode.startsWith('1592')) otherAssetsValue += amount; // Depreciación Acumulada
+                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+                    otherAssetsValue += amount;
+                }
                 else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
+                // Créditos
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
-                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('1592')) otherAssetsValue -= amount;
+                else if (crCode.startsWith('1592')) otherAssetsValue -= amount; // Depreciación Acumulada
+                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+                    otherAssetsValue -= amount;
+                }
                 else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
 
                 return;
             }
 
-            // B. Cruces contables internos / Amortizaciones (T-0004, T-0006, T-0008)
+            // B. Cruces contables internos (Amortizaciones)
             if (t.isInternalTransfer) {
-                const acc = allAccounts.find(a => a.name === t.category);
-                if (!acc) return;
-                const num = String(acc.number);
-
-                if (num.startsWith('1330')) {
-                    anticiposValue -= amount;
-                } else if (num.startsWith('1508')) {
-                    construccionesValue += amount;
+                if (t.type === 'expense') {
+                    const acc = allAccounts.find(a => a.name === t.category);
+                    if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
+                    else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
+                } else if (t.type === 'income') {
+                    const acc = allAccounts.find(a => a.name === t.category);
+                    if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
+                    else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
                 }
                 return;
             }
 
-            // C. Flujo normal estándar
+            // C. Flujo normal
             const acc = allAccounts.find(a => a.name === t.category);
             if (!acc) return;
             const num = String(acc.number);
-            
+
             const assetImpact = t.type === 'expense' ? amount : -amount;
             const liabilityImpact = t.type === 'income' ? amount : -amount;
 
             if (num.startsWith('1330')) anticiposValue += assetImpact;
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
+            else if (num.startsWith('1592')) otherAssetsValue += (t.type === 'expense' ? amount : -amount);
             else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
                 otherAssetsValue += assetImpact;
             }
