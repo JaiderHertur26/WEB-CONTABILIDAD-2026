@@ -294,26 +294,39 @@ const Reports = () => {
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0;
 
     bsTransactions.forEach(t => {
-        // Obtenemos la cuenta asociada a la categoría o destino
-        const acc = allAccounts.find(a => a.name === t.category);
-        if (!acc) return;
-        const num = String(acc.number);
-
         const amount = safeParseFloat(t.amount);
 
-        // Impacto según la naturaleza de la transacción
-        // Si es gasto o transferencia de salida resta/suma según corresponda, 
-        // pero para cuentas de Activo (1) y Pasivo (2), evaluamos su clase y tipo:
-        let impact = 0;
-        if (num.startsWith('1')) {
-            // En activo: Ingresos/Débitos suman, Gastos/Créditos restan (o viceversa según el tipo)
-            impact = (t.type === 'income' || t.type === 'transfer') ? amount : -amount;
-        } else if (num.startsWith('2')) {
-            // En pasivo: Ingresos/Créditos suman, Egresos/Débitos restan
-            impact = (t.type === 'income' || t.type === 'transfer') ? amount : -amount;
+        // A. Transacciones de partida doble explícitas
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            const crCode = String(t.creditAccount.code || '');
+
+            // Procesar Débitos (Suma activos, resta pasivos)
+            if (drCode.startsWith('1330')) anticiposValue += amount;
+            else if (drCode.startsWith('1508')) construccionesValue += amount;
+            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('1592')) otherAssetsValue += amount;
+            else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
+
+            // Procesar Créditos (Resta activos, suma pasivos)
+            if (crCode.startsWith('1330')) anticiposValue -= amount;
+            else if (crCode.startsWith('1508')) construccionesValue -= amount;
+            else if (crCode.startsWith('1540') || crCode.startsWith('1520') || crCode.startsWith('1524') || crCode.startsWith('1528')) {
+                // Al dar de baja un activo, el sistema de inventario (manualFixedAssetsValue) 
+                // ya descuenta el valor físico. Si además lo restamos aquí, se descontaría doble.
+                // Sin embargo, si es una cuenta de activo diferente a inventario/baja directa:
+                 otherAssetsValue -= amount; 
+            }
+            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('1592') && !crCode.startsWith('1540') && !crCode.startsWith('1520') && !crCode.startsWith('1524') && !crCode.startsWith('1528')) {
+                 otherAssetsValue -= amount;
+            }
+            else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
+
+            return;
         }
 
-        // Caso especial para los cruces contables internos (Amortizaciones T-0004, T-0006, T-0008)
+        // B. Cruces contables internos / Transferencias (Ej: Amortizaciones T-0004, T-0006, T-0008)
+
+        
         // Como el cruce genera un par (expense/income), la transacción de tipo 'expense' 
         // con cuenta 1508 está sumando al activo, y la de tipo 'income' con cuenta 1330 está restando al anticipo.
         if (t.isInternalTransfer) {
@@ -350,7 +363,7 @@ const Reports = () => {
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
-    const totalFixedAssetsValue = manualFixedAssetsValue + realEstatesValue + inventoryValue + anticiposValue + construccionesValue + otherAssetsValue;
+    const totalFixedAssetsValue = manualFixedAssetsValue + realEstatesValue + inventoryValue + anticiposValue + construccionesValue;
 
     const accountsReceivableValue = fAccountsReceivable.filter(r => {
         const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(currentYear));
