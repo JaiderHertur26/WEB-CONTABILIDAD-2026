@@ -32,6 +32,35 @@ const FixedAssets = () => {
     const [selectedAssetForRetire, setSelectedAssetForRetire] = useState(null);
     const [retireReason, setRetireReason] = useState('Obsolescencia / Daño');
 
+	// --- AUTO-REINTEGRAR ACTIVO SI SE ELIMINA EL COMPROBANTE ---
+    useEffect(() => {
+        if (!transactions || !assets) return;
+        
+        // Buscamos activos dados de baja cuyo comprobante ya no exista en contabilidad
+        const assetsToRestore = assets.filter(a => 
+            a.status === 'Dado de Baja' && 
+            a.retireTransactionId && 
+            !transactions.some(t => t.id === a.retireTransactionId)
+        );
+
+        if (assetsToRestore.length > 0) {
+            const updatedAssets = assets.map(a => {
+                if (assetsToRestore.some(res => res.id === a.id)) {
+                    return {
+                        ...a,
+                        status: 'Bueno',
+                        usage: 'Uso',
+                        retireTransactionId: null, // Limpiamos el rastro
+                        notes: (a.notes || '').replace(/ \[Dado de baja: .*?\]/g, '').trim()
+                    };
+                }
+                return a;
+            });
+            saveAssets(updatedAssets);
+            toast({ title: "Activo Reintegrado", description: "Se detectó la eliminación del comprobante contable y el activo regresó al inventario automáticamente." });
+        }
+    }, [transactions]); // Se ejecuta automáticamente si se borra una transacción
+
     const handleSaveAsset = (assetData) => {
         if (!canAdd && !editingAsset) return;
         if (!canEdit && editingAsset) return;
@@ -106,8 +135,18 @@ const handleOpenRetireDialog = (asset) => {
             'general': 0.10          
         };
 
+        // 1. Verificamos si ya existe una depreciación para este año
+        const dateStr = `${yearFilter}-12-31`;
+        const existingDeprTransaction = (transactions || []).find(t => 
+            t.description === `Depreciación anual acumulada - Vigencia ${yearFilter}` &&
+            t.category === 'Depreciación Acumulada Activos Fijos'
+        );
+
         let totalDepreciationGenerated = 0;
+        
+        // 2. Recalculamos los activos
         const updatedAssets = assets.map(asset => {
+            // Ignoramos los dados de baja y los que no son del año
             if (asset.year !== yearFilter || asset.status === 'Dado de Baja') return asset;
             
             const cat = (asset.category || '').toLowerCase();
@@ -119,10 +158,15 @@ const handleOpenRetireDialog = (asset) => {
             else if (cat.includes('mueble') || cat.includes('enrser') || cat.includes('oficina')) rate = taxRates.muebles;
 
             const originalValue = parseFloat(asset.value) || 0;
-            const accumulated = parseFloat(asset.accumulatedDepreciation || 0);
+            
+            // 🚀 CORRECCIÓN: La depreciación anual SIEMPRE se calcula sobre el valor original.
             const yearlyDepr = originalValue * rate;
 
-            const newAccumulated = Math.min(originalValue, accumulated + yearlyDepr);
+            // 🚀 CORRECCIÓN: Reseteamos y recalculamos el acumulado real para evitar sumas infinitas
+            // Si estuviéramos leyendo activos de años pasados, sumaríamos la de este año a las anteriores, 
+            // pero como este módulo maneja "inventario anual clonado", el valor acumulado para este año es fijo.
+            const newAccumulated = Math.min(originalValue, yearlyDepr); 
+            
             totalDepreciationGenerated += yearlyDepr;
 
             return {
@@ -132,23 +176,40 @@ const handleOpenRetireDialog = (asset) => {
             };
         });
 
+        if (totalDepreciationGenerated === 0) {
+            toast({ variant: 'destructive', title: "Sin activos", description: "No hay activos fijos válidos para depreciar en este año." });
+            setDepreciationDialogOpen(false);
+            return;
+        }
+
         saveAssets(updatedAssets);
 
-        if (totalDepreciationGenerated > 0) {
+        // 3. Manejo del Comprobante (Actualizar si existe, crear si no)
+        if (existingDeprTransaction) {
+            // Si ya existe el comprobante, lo actualizamos con el nuevo valor en vez de crear otro
+            const updatedTransactions = transactions.map(t => 
+                t.id === existingDeprTransaction.id 
+                    ? { ...t, amount: totalDepreciationGenerated } 
+                    : t
+            );
+            saveTransactions(updatedTransactions);
+            toast({ title: "Depreciación Actualizada", description: `El comprobante T-${String(existingDeprTransaction.voucherNumber).padStart(4,'0')} fue actualizado.` });
+        } else {
+            // Si no existe, creamos el comprobante nuevo
             const now = Date.now();
-            const dateStr = `${yearFilter}-12-31`;
 
-            // Calcular el siguiente número de comprobante de transferencia (T-...)
             const yearTransactions = (transactions || []).filter(t => {
                 let tType = t.type;
                 if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
                 const tYear = (typeof t.date === 'string' && t.date.includes('-')) ? t.date.split('-')[0] : new Date(t.date).getFullYear().toString();
                 return tType === 'transfer' && tYear === yearFilter;
             });
+            
             const maxNum = yearTransactions.reduce((max, t) => {
                 const currentVnum = parseInt(t.voucherNumber, 10) || 0;
                 return currentVnum > max ? currentVnum : max;
             }, 0);
+            
             const voucherNumber = maxNum + 1;
 
             const deprTransaction = {
@@ -166,9 +227,9 @@ const handleOpenRetireDialog = (asset) => {
                 companyId: activeCompany?.id
             };
             saveTransactions([...(transactions || []), deprTransaction]);
+            toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación fiscal y se asignó el comprobante T-${String(voucherNumber).padStart(4,'0')}` });
         }
 
-        toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación fiscal y se asignó el comprobante T-...` });
         setDepreciationDialogOpen(false);
     };
 
@@ -180,13 +241,14 @@ const handleOpenRetireDialog = (asset) => {
         const assetValue = parseFloat(selectedAssetForRetire.value) || 0;
         const currentDate = new Date().toISOString().split('T')[0];
         const currentYear = new Date().getFullYear().toString();
+        const now = Date.now();
+        const retireTxId = `${now}-retire`; // ID único para rastrearlo
 
         const updatedAssets = assets.map(a => a.id === assetId ? { 
             ...a, 
             status: 'Dado de Baja', 
             usage: 'Desuso', 
-            value: 0, 
-            netBookValue: 0,
+            retireTransactionId: retireTxId, // Guardamos el rastro del comprobante
             notes: `${a.notes || ''} [Dado de baja: ${retireReason}]` 
         } : a);
         saveAssets(updatedAssets);
@@ -204,9 +266,8 @@ const handleOpenRetireDialog = (asset) => {
         }, 0);
         const voucherNumber = maxNum + 1;
 
-        const now = Date.now();
         const retireTransaction = {
-            id: `${now}-retire`,
+            id: retireTxId,
             type: 'expense',
             description: `Baja de activo fijo: ${selectedAssetForRetire.name} (${retireReason})`,
             amount: assetValue,
@@ -235,7 +296,7 @@ const handleOpenRetireDialog = (asset) => {
 
         let totalValue = 0;
         const excelData = filteredAssets.map(a => {
-            const val = parseFloat(a.value) || 0;
+            const val = a.status === 'Dado de Baja' ? 0 : (parseFloat(a.value) || 0);
             totalValue += val;
             return {
                 'CANT.': a.quantity || 1, 
@@ -322,7 +383,7 @@ const handleOpenRetireDialog = (asset) => {
 
             let totalValue = 0;
             filteredAssets.forEach(asset => {
-                const val = parseFloat(asset.value) || 0;
+                const val = asset.status === 'Dado de Baja' ? 0 : (parseFloat(asset.value) || 0);
                 totalValue += val;
                 tableRows.push(
                     new TableRow({
@@ -504,8 +565,9 @@ const handleOpenRetireDialog = (asset) => {
                 <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
                     <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
                     <tbody className="divide-y">{filteredAssets.map(asset => {
-                        const origVal = parseFloat(asset.value) || 0;
-                        const acumDepr = parseFloat(asset.accumulatedDepreciation || 0);
+                        const isRetired = asset.status === 'Dado de Baja';
+                        const origVal = isRetired ? 0 : (parseFloat(asset.value) || 0);
+                        const acumDepr = isRetired ? 0 : (parseFloat(asset.accumulatedDepreciation || 0));
                         const netVal = origVal - acumDepr;
                         return (
                             <tr key={asset.id} className={`hover:bg-slate-50 ${asset.status === 'Dado de Baja' ? 'opacity-50 bg-slate-100' : ''}`}>
