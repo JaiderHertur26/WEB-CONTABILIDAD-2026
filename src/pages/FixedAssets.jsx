@@ -27,6 +27,10 @@ const FixedAssets = () => {
     const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString());
     const [searchTerm, setSearchTerm] = useState('');
     const { toast } = useToast();
+    const [depreciationDialogOpen, setDepreciationDialogOpen] = useState(false);
+    const [retireDialogOpen, setRetireDialogOpen] = useState(false);
+    const [selectedAssetForRetire, setSelectedAssetForRetire] = useState(null);
+    const [retireReason, setRetireReason] = useState('Obsolescencia / Daño');
 
     const handleSaveAsset = (assetData) => {
         if (!canAdd && !editingAsset) return;
@@ -80,6 +84,105 @@ const FixedAssets = () => {
         saveAssets([...assets, ...clonedAssets]);
         setYearFilter(currentYear.toString());
         toast({ title: "Inventario Clonado", description: `Se creó el inventario para ${currentYear} basado en ${yearFilter}.` });
+    };
+
+    
+// --- DEPRECIACIÓN AUTOMÁTICA (Ley colombiana / Estatuto Tributario) ---
+    const handleRunDepreciation = () => {
+        if (!canEdit && !canAdd) return;
+        
+        const taxRates = {
+            'edificaciones': 0.0222, // 2.22% (~45 años)
+            'maquinaria': 0.10,      // 10%
+            'computo': 0.20,         // 20%
+            'vehiculos': 0.20,         // 20%
+            'muebles': 0.10,         // 10%
+            'general': 0.10          
+        };
+
+        let totalDepreciationGenerated = 0;
+        const updatedAssets = assets.map(asset => {
+            if (asset.year !== yearFilter || asset.status === 'Dado de Baja') return asset;
+            
+            const cat = (asset.category || '').toLowerCase();
+            let rate = taxRates.general;
+            if (cat.includes('edificio') || cat.includes('construccion') || cat.includes('mejora')) rate = taxRates.edificaciones;
+            else if (cat.includes('maquinaria') || cat.includes('equipo')) rate = taxRates.maquinaria;
+            else if (cat.includes('comput') || cat.includes('tecno') || cat.includes('celular')) rate = taxRates.computo;
+            else if (cat.includes('vehiculo') || cat.includes('transporte') || cat.includes('moto')) rate = taxRates.vehiculos;
+            else if (cat.includes('mueble') || cat.includes('enrser') || cat.includes('oficina')) rate = taxRates.muebles;
+
+            const originalValue = parseFloat(asset.value) || 0;
+            const accumulated = parseFloat(asset.accumulatedDepreciation || 0);
+            const yearlyDepr = originalValue * rate;
+
+            const newAccumulated = Math.min(originalValue, accumulated + yearlyDepr);
+            totalDepreciationGenerated += yearlyDepr;
+
+            return {
+                ...asset,
+                accumulatedDepreciation: newAccumulated,
+                netBookValue: originalValue - newAccumulated
+            };
+        });
+
+        saveAssets(updatedAssets);
+
+        if (totalDepreciationGenerated > 0) {
+            const now = Date.now();
+            const deprTransaction = {
+                id: `${now}-depr`,
+                type: 'expense',
+                description: `Depreciación anual acumulada - Vigencia ${yearFilter}`,
+                amount: totalDepreciationGenerated,
+                category: 'Depreciación Acumulada Activos Fijos',
+                date: `${yearFilter}-12-31`,
+                destination: '159205|DEPRECIACION ACUMULADA',
+                isInternalTransfer: true,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
+            };
+            saveTransactions([...(transactions || []), deprTransaction]);
+        }
+
+        toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación fiscal. Gasto registrado sin afectar efectivo.` });
+        setDepreciationDialogOpen(false);
+    };
+
+    // --- DAR DE BAJA ACTIVO ---
+    const handleOpenRetireDialog = (asset) => {
+        setSelectedAssetForRetire(asset);
+        setRetireReason('Obsolescencia / Daño');
+        setRetireDialogOpen(true);
+    };
+
+    const handleConfirmRetire = () => {
+        if (!selectedAssetForRetire || !canEdit) return;
+
+        const assetId = selectedAssetForRetire.id;
+        const assetValue = parseFloat(selectedAssetForRetire.value) || 0;
+
+        const updatedAssets = assets.map(a => a.id === assetId ? { ...a, status: 'Dado de Baja', usage: 'Desuso', notes: `${a.notes || ''} [Dado de baja: ${retireReason}]` } : a);
+        saveAssets(updatedAssets);
+
+        const now = Date.now();
+        const retireTransaction = {
+            id: `${now}-retire`,
+            type: 'expense',
+            description: `Baja de activo fijo: ${selectedAssetForRetire.name} (${retireReason})`,
+            amount: assetValue,
+            category: 'Retiro o Baja de Activos Fijos',
+            date: new Date().toISOString().split('T')[0],
+            destination: '540505|BAJA DE ACTIVOS',
+            isInternalTransfer: true,
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id
+        };
+        saveTransactions([...(transactions || []), retireTransaction]);
+
+        toast({ title: "Activo Dado de Baja", description: "Se ha retirado el activo y generado el comprobante contable sin afectar efectivo." });
+        setRetireDialogOpen(false);
+        setSelectedAssetForRetire(null);
     };
     
     // --- EXPORTAR EXCEL ---
@@ -345,7 +448,10 @@ const FixedAssets = () => {
                     <Button onClick={handleExportWord} variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50"><FileText className="w-4 h-4 mr-2" /> Word</Button>
                     
                     {canAdd && <Button onClick={handleCloneYear} variant="outline">Clonar a Año Actual</Button>}
+		     {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
                 </div>
+
+
             </motion.div>
 
             {filteredAssets.length === 0 ? (
@@ -355,21 +461,37 @@ const FixedAssets = () => {
                 </motion.div>
             ) : (
                 <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
-                    <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Marca/Modelo', 'Categoría', 'Uso', 'Estado', 'Lugar', 'Valor Total', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
-                    <tbody className="divide-y">{filteredAssets.map(asset => (<tr key={asset.id} className="hover:bg-slate-50">
-                        <td className="p-3">{asset.quantity || 1}</td><td className="p-3 font-medium">{asset.name}</td><td className="p-3">{asset.model}</td><td className="p-3">{asset.category}</td><td className="p-3">{asset.usage}</td><td className="p-3">{asset.status}</td><td className="p-3">{asset.location}</td><td className="p-3 font-mono">${parseFloat(asset.value).toLocaleString('es-ES')}</td>
-                        <td className="p-3"><div className="flex gap-1">
-                            {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingAsset(asset); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                            {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteAsset(asset.id)}><Trash2 className="w-4 h-4" /></Button>}
-                        </div></td>
-                    </tr>))}</tbody>
+                    <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
+                    <tbody className="divide-y">{filteredAssets.map(asset => {
+                        const origVal = parseFloat(asset.value) || 0;
+                        const acumDepr = parseFloat(asset.accumulatedDepreciation || 0);
+                        const netVal = origVal - acumDepr;
+                        return (
+                            <tr key={asset.id} className={`hover:bg-slate-50 ${asset.status === 'Dado de Baja' ? 'opacity-50 bg-slate-100' : ''}`}>
+                                <td className="p-3">{asset.quantity || 1}</td>
+                                <td className={`p-3 font-medium ${asset.status === 'Dado de Baja' ? 'line-through text-slate-400' : ''}`}>{asset.name}</td>
+                                <td className="p-3">{asset.category}</td>
+                                <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${asset.status === 'Bueno' ? 'bg-green-100 text-green-800' : asset.status === 'Dado de Baja' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>{asset.status}</span></td>
+                                <td className="p-3 font-mono">${origVal.toLocaleString('es-ES')}</td>
+                                <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES')}</td>
+                                <td className="p-3 font-mono font-bold text-blue-600">${netVal.toLocaleString('es-ES')}</td>
+                                <td className="p-3"><div className="flex gap-1">
+                                    {canEdit && asset.status !== 'Dado de Baja' && <Button size="icon" variant="ghost" onClick={() => handleOpenRetireDialog(asset)} title="Dar de baja"><Archive className="w-4 h-4 text-orange-600" /></Button>}
+                                    {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingAsset(asset); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
+                                    {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteAsset(asset.id)}><Trash2 className="w-4 h-4" /></Button>}
+                                </div></td>
+                            </tr>
+                        );
+                    })}</tbody>
                 </table></div>
             )}
         </div>
         <AssetDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSaveAsset} asset={editingAsset} />
         <NewYearDialog open={newYearDialogOpen} onOpenChange={setNewYearDialogOpen} onAdd={handleAddYear} />
         <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} onImport={handleImport} />
-        </>
+	<DepreciationDialog open={depreciationDialogOpen} onOpenChange={setDepreciationDialogOpen} onRun={handleRunDepreciation} />
+        <RetireDialog open={retireDialogOpen} onOpenChange={setRetireDialogOpen} asset={selectedAssetForRetire} reason={retireReason} setReason={setRetireReason} onConfirm={handleConfirmRetire} />        
+</>
     );
 }
 
@@ -491,5 +613,44 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
         </Dialog>
     );
 };
+
+const DepreciationDialog = ({ open, onOpenChange, onRun }) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader><DialogTitle>Depreciación Automática (Normas COLGAAP / DIAN)</DialogTitle></DialogHeader>
+            <DialogDescription>
+                Este proceso calculará la depreciación anual en línea recta de todos los activos del año actual aplicando las tasas fiscales permitidas. Se generará un comprobante interno en transferencias sin afectar cuentas de efectivo o bancos.
+            </DialogDescription>
+            <div className="flex justify-end gap-2 pt-4">
+                <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+                <Button onClick={onRun} className="bg-purple-600 hover:bg-purple-700">Calcular y Registrar</Button>
+            </div>
+        </DialogContent>
+    </Dialog>
+);
+
+const RetireDialog = ({ open, onOpenChange, asset, reason, setReason, onConfirm }) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader><DialogTitle>Dar de Baja Activo Fijo</DialogTitle></DialogHeader>
+            <div className="space-y-4 pt-2">
+                <p className="text-sm text-slate-600">Estás a punto de retirar del inventario activo: <b>{asset?.name}</b>. Esto generará un comprobante de baja contable automático sin alterar el efectivo.</p>
+                <div>
+                    <Label>Motivo de la Baja</Label>
+                    <select value={reason} onChange={e => setReason(e.target.value)} className="w-full mt-1 p-2 border rounded-lg">
+                        <option>Obsolescencia / Daño</option>
+                        <option>Robo / Pérdida</option>
+                        <option>Venta / Retiro</option>
+                        <option>Donación</option>
+                    </select>
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+                <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+                <Button onClick={onConfirm} className="bg-red-600 hover:bg-red-700">Confirmar Baja</Button>
+            </div>
+        </DialogContent>
+    </Dialog>
+);
 
 export default FixedAssets;
