@@ -86,6 +86,12 @@ const FixedAssets = () => {
         toast({ title: "Inventario Clonado", description: `Se creó el inventario para ${currentYear} basado en ${yearFilter}.` });
     };
 
+const handleOpenRetireDialog = (asset) => {
+        setSelectedAssetForRetire(asset);
+        setRetireReason('Obsolescencia / Daño');
+        setRetireDialogOpen(true);
+    };
+
     
 // --- DEPRECIACIÓN AUTOMÁTICA CON CONSECUTIVO DE TRANSFERENCIA ---
     const handleRunDepreciation = () => {
