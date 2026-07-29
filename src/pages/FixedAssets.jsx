@@ -32,7 +32,7 @@ const FixedAssets = () => {
     const [selectedAssetForRetire, setSelectedAssetForRetire] = useState(null);
     const [retireReason, setRetireReason] = useState('Obsolescencia / Daño');
 
-	// --- AUTO-REINTEGRAR ACTIVO SI SE ELIMINA EL COMPROBANTE ---
+    // --- AUTO-REINTEGRAR ACTIVO SI SE ELIMINA EL COMPROBANTE ---
     useEffect(() => {
         if (!transactions || !assets) return;
         
@@ -59,7 +59,7 @@ const FixedAssets = () => {
             saveAssets(updatedAssets);
             toast({ title: "Activo Reintegrado", description: "Se detectó la eliminación del comprobante contable y el activo regresó al inventario." });
         }
-    }, [transactions, assets]); // 🚀 LA CLAVE: Añadir 'assets' a las dependencias
+    }, [transactions, assets]);
 
     const handleSaveAsset = (assetData) => {
         if (!canAdd && !editingAsset) return;
@@ -115,14 +115,14 @@ const FixedAssets = () => {
         toast({ title: "Inventario Clonado", description: `Se creó el inventario para ${currentYear} basado en ${yearFilter}.` });
     };
 
-const handleOpenRetireDialog = (asset) => {
+    const handleOpenRetireDialog = (asset) => {
         setSelectedAssetForRetire(asset);
         setRetireReason('Obsolescencia / Daño');
         setRetireDialogOpen(true);
     };
 
     
-// --- DEPRECIACIÓN AUTOMÁTICA CON CONSECUTIVO DE TRANSFERENCIA ---
+    // --- DEPRECIACIÓN AUTOMÁTICA CON CONSECUTIVO DE TRANSFERENCIA ---
     const handleRunDepreciation = () => {
         if (!canEdit && !canAdd) return;
         
@@ -304,6 +304,7 @@ const handleOpenRetireDialog = (asset) => {
                 'NOMBRE DEL ACTIVO': a.name, 
                 'MARCA / MODELO / SERIE': a.model || '', 
                 'CATEGORIA DEL ACTIVO': a.category || '',
+                'LUGAR A INVENTARIAR': a.location || '', // NUEVO: Columna añadida al Excel
                 'USO/DESUSO/ PRESTAMO': a.usage || '', 
                 'ESTADO Bueno/Malo/Regular': a.status, 
                 'VALOR NETO': val, 
@@ -313,6 +314,7 @@ const handleOpenRetireDialog = (asset) => {
 
         excelData.push({
             'CANT.': '', 'NOMBRE DEL ACTIVO': '', 'MARCA / MODELO / SERIE': '', 'CATEGORIA DEL ACTIVO': '',
+            'LUGAR A INVENTARIAR': '', // NUEVO: Espacio para alinear la fila de total en Excel
             'USO/DESUSO/ PRESTAMO': '', 'ESTADO Bueno/Malo/Regular': 'TOTAL', 'VALOR NETO': totalValue, 'OBSERVACIONES': ''
         });
 
@@ -374,6 +376,7 @@ const handleOpenRetireDialog = (asset) => {
                         new TableCell({ children: [new Paragraph({ text: "NOMBRE DEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "MARCA/MODELO /\nSERIE", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "CATEGORIA\nDEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "LUGAR", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }), // NUEVO: Columna Lugar en Word
                         new TableCell({ children: [new Paragraph({ text: "USO/DESUSO/\nPRESTAMO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "ESTADO\nBueno/Malo/Regular", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "VALOR NETO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
@@ -393,6 +396,7 @@ const handleOpenRetireDialog = (asset) => {
                             new TableCell({ children: [new Paragraph({ text: asset.name || '' })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.model || '' })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.category || '' })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.location || '' })] }), // NUEVO: Dato de Lugar en Word
                             new TableCell({ children: [new Paragraph({ text: asset.usage || '', alignment: AlignmentType.CENTER })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.status || '', alignment: AlignmentType.CENTER })] }),
                             new TableCell({ children: [new Paragraph({ text: `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, alignment: AlignmentType.RIGHT })] }),
@@ -410,6 +414,7 @@ const handleOpenRetireDialog = (asset) => {
                         new TableCell({ children: [new Paragraph("")] }),
                         new TableCell({ children: [new Paragraph("")] }),
                         new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph("")] }), // NUEVO: Celda vacía extra para alinear el Total en Word
                         new TableCell({ children: [new Paragraph("")] }),
                         new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "TOTAL", bold: true })], alignment: AlignmentType.CENTER })], shading: { fill: "F5F5F5" } }),
                         new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, bold: true })], alignment: AlignmentType.RIGHT })], shading: { fill: "F5F5F5" } }),
@@ -529,7 +534,7 @@ const handleOpenRetireDialog = (asset) => {
 
     return (
         <>
-        <Helmet><title>Activos Fijos - JaiderHerTur26</title></Helmet>
+        <Helmet><title>Activos Fijos - Sistema de Contabilidad</title></Helmet>
         <div className="space-y-6">
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center">
                 <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Activos Fijos</h1></div>
@@ -551,7 +556,7 @@ const handleOpenRetireDialog = (asset) => {
                     <Button onClick={handleExportWord} variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50"><FileText className="w-4 h-4 mr-2" /> Word</Button>
                     
                     {canAdd && <Button onClick={handleCloneYear} variant="outline">Clonar a Año Actual</Button>}
-		     {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
+             {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
                 </div>
 
 
@@ -564,7 +569,8 @@ const handleOpenRetireDialog = (asset) => {
                 </motion.div>
             ) : (
                 <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
-                    <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
+                    {/* NUEVO: Se agregó 'Lugar' al array del Header de la tabla principal */}
+                    <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Lugar', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
                     <tbody className="divide-y">{filteredAssets.map(asset => {
                         const isRetired = asset.status === 'Dado de Baja';
                         const origVal = isRetired ? 0 : (parseFloat(asset.value) || 0);
@@ -574,6 +580,8 @@ const handleOpenRetireDialog = (asset) => {
                             <tr key={asset.id} className={`hover:bg-slate-50 ${asset.status === 'Dado de Baja' ? 'opacity-50 bg-slate-100' : ''}`}>
                                 <td className="p-3">{asset.quantity || 1}</td>
                                 <td className={`p-3 font-medium ${asset.status === 'Dado de Baja' ? 'line-through text-slate-400' : ''}`}>{asset.name}</td>
+                                {/* NUEVO: Se agregó el <td> renderizando el location en la tabla principal */}
+                                <td className="p-3">{asset.location || ''}</td>
                                 <td className="p-3">{asset.category}</td>
                                 <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${asset.status === 'Bueno' ? 'bg-green-100 text-green-800' : asset.status === 'Dado de Baja' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>{asset.status}</span></td>
                                 <td className="p-3 font-mono">${origVal.toLocaleString('es-ES')}</td>
@@ -593,7 +601,7 @@ const handleOpenRetireDialog = (asset) => {
         <AssetDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSaveAsset} asset={editingAsset} />
         <NewYearDialog open={newYearDialogOpen} onOpenChange={setNewYearDialogOpen} onAdd={handleAddYear} />
         <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} onImport={handleImport} />
-	<DepreciationDialog open={depreciationDialogOpen} onOpenChange={setDepreciationDialogOpen} onRun={handleRunDepreciation} />
+    <DepreciationDialog open={depreciationDialogOpen} onOpenChange={setDepreciationDialogOpen} onRun={handleRunDepreciation} />
         <RetireDialog open={retireDialogOpen} onOpenChange={setRetireDialogOpen} asset={selectedAssetForRetire} reason={retireReason} setReason={setRetireReason} onConfirm={handleConfirmRetire} />        
 </>
     );
