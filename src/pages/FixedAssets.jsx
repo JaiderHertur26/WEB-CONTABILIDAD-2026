@@ -159,12 +159,10 @@ const FixedAssets = () => {
 
             const originalValue = parseFloat(asset.value) || 0;
             
-            // 🚀 CORRECCIÓN: La depreciación anual SIEMPRE se calcula sobre el valor original.
+            // La depreciación anual SIEMPRE se calcula sobre el valor original.
             const yearlyDepr = originalValue * rate;
 
-            // 🚀 CORRECCIÓN: Reseteamos y recalculamos el acumulado real para evitar sumas infinitas
-            // Si estuviéramos leyendo activos de años pasados, sumaríamos la de este año a las anteriores, 
-            // pero como este módulo maneja "inventario anual clonado", el valor acumulado para este año es fijo.
+            // Reseteamos y recalculamos el acumulado real para evitar sumas infinitas
             const newAccumulated = Math.min(originalValue, yearlyDepr); 
             
             totalDepreciationGenerated += yearlyDepr;
@@ -186,7 +184,6 @@ const FixedAssets = () => {
 
         // 3. Manejo del Comprobante (Actualizar si existe, crear si no)
         if (existingDeprTransaction) {
-            // Si ya existe el comprobante, lo actualizamos con el nuevo valor en vez de crear otro
             const updatedTransactions = transactions.map(t => 
                 t.id === existingDeprTransaction.id 
                     ? { ...t, amount: totalDepreciationGenerated } 
@@ -195,9 +192,7 @@ const FixedAssets = () => {
             saveTransactions(updatedTransactions);
             toast({ title: "Depreciación Actualizada", description: `El comprobante T-${String(existingDeprTransaction.voucherNumber).padStart(4,'0')} fue actualizado.` });
         } else {
-            // Si no existe, creamos el comprobante nuevo
             const now = Date.now();
-
             const yearTransactions = (transactions || []).filter(t => {
                 let tType = t.type;
                 if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
@@ -248,13 +243,11 @@ const FixedAssets = () => {
             ...a, 
             status: 'Dado de Baja', 
             usage: 'Desuso', 
-            retireTransactionId: retireTxId, // Guardamos el rastro del comprobante
+            retireTransactionId: retireTxId, 
             notes: `${a.notes || ''} [Dado de baja: ${retireReason}]` 
-            // 🚀 Quitamos value: 0 y netBookValue: 0 para conservar el historial
         } : a);
         saveAssets(updatedAssets);
 
-        // Calcular el siguiente número de comprobante de transferencia (T-...)
         const yearTransactions = (transactions || []).filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
@@ -306,7 +299,7 @@ const FixedAssets = () => {
                 'CATEGORIA DEL ACTIVO': a.category || '',
                 'USO/DESUSO/ PRESTAMO': a.usage || '', 
                 'ESTADO Bueno/Malo/Regular': a.status, 
-                'LUGAR A INVENTARIAR': a.location || '', // LUGAR REUBICADO DESPUÉS DE ESTADO
+                'LUGAR A INVENTARIAR': a.location || '', 
                 'VALOR NETO': val, 
                 'OBSERVACIONES': a.notes || ''
             };
@@ -315,7 +308,7 @@ const FixedAssets = () => {
         excelData.push({
             'CANT.': '', 'NOMBRE DEL ACTIVO': '', 'MARCA / MODELO / SERIE': '', 'CATEGORIA DEL ACTIVO': '',
             'USO/DESUSO/ PRESTAMO': '', 'ESTADO Bueno/Malo/Regular': 'TOTAL', 
-            'LUGAR A INVENTARIAR': '', // CELDA VACÍA PARA LUGAR
+            'LUGAR A INVENTARIAR': '', 
             'VALOR NETO': totalValue, 'OBSERVACIONES': ''
         });
 
@@ -335,14 +328,12 @@ const FixedAssets = () => {
             const telefono = activeCompany?.phone || '___________________________';
             const fecha = new Date().toLocaleDateString();
 
-            // Configurar los bordes invisibles para el encabezado y firmas
             const noBorders = {
                 top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
                 left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
                 insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE },
             };
 
-            // 1. Tabla de Encabezado (Sin bordes)
             const headerTable = new Table({
                 borders: noBorders,
                 width: { size: 100, type: WidthType.PERCENTAGE },
@@ -366,10 +357,9 @@ const FixedAssets = () => {
                 ]
             });
 
-            // 2. Tabla Principal de Inventario
             const tableRows = [];
 
-            // Fila de Títulos (Reordenados)
+            // Fila de Títulos
             tableRows.push(
                 new TableRow({
                     children: [
@@ -379,7 +369,7 @@ const FixedAssets = () => {
                         new TableCell({ children: [new Paragraph({ text: "CATEGORIA\nDEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "USO/DESUSO/\nPRESTAMO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "ESTADO\nBueno/Malo/Regular", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
-                        new TableCell({ children: [new Paragraph({ text: "LUGAR", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }), // LUGAR REUBICADO
+                        new TableCell({ children: [new Paragraph({ text: "LUGAR", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }), 
                         new TableCell({ children: [new Paragraph({ text: "VALOR NETO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "OBSERVACIONES", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                     ]
@@ -399,7 +389,7 @@ const FixedAssets = () => {
                             new TableCell({ children: [new Paragraph({ text: asset.category || '' })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.usage || '', alignment: AlignmentType.CENTER })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.status || '', alignment: AlignmentType.CENTER })] }),
-                            new TableCell({ children: [new Paragraph({ text: asset.location || '' })] }), // LUGAR REUBICADO
+                            new TableCell({ children: [new Paragraph({ text: asset.location || '' })] }), 
                             new TableCell({ children: [new Paragraph({ text: `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, alignment: AlignmentType.RIGHT })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.notes || '' })] }),
                         ]
@@ -407,19 +397,19 @@ const FixedAssets = () => {
                 );
             });
 
-            // Fila de Totales (Ajustada a las 9 columnas)
+            // Fila de Totales
             tableRows.push(
                 new TableRow({
                     children: [
-                        new TableCell({ children: [new Paragraph("")] }), // CANT
-                        new TableCell({ children: [new Paragraph("")] }), // NOMBRE
-                        new TableCell({ children: [new Paragraph("")] }), // MARCA
-                        new TableCell({ children: [new Paragraph("")] }), // CATEGORIA
-                        new TableCell({ children: [new Paragraph("")] }), // USO
-                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "TOTAL", bold: true })], alignment: AlignmentType.CENTER })], shading: { fill: "F5F5F5" } }), // ESTADO
-                        new TableCell({ children: [new Paragraph("")] }), // LUGAR (Celda vacía para que no se descuadre)
-                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, bold: true })], alignment: AlignmentType.RIGHT })], shading: { fill: "F5F5F5" } }), // VALOR NETO
-                        new TableCell({ children: [new Paragraph("")] }), // OBSERVACIONES
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "TOTAL", bold: true })], alignment: AlignmentType.CENTER })], shading: { fill: "F5F5F5" } }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, bold: true })], alignment: AlignmentType.RIGHT })], shading: { fill: "F5F5F5" } }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
                     ]
                 })
             );
@@ -429,7 +419,6 @@ const FixedAssets = () => {
                 width: { size: 100, type: WidthType.PERCENTAGE },
             });
 
-            // 3. Tabla de Firmas (Sin bordes)
             const signaturesTable = new Table({
                 borders: noBorders,
                 width: { size: 100, type: WidthType.PERCENTAGE },
@@ -449,13 +438,12 @@ const FixedAssets = () => {
                 ]
             });
 
-            // Ensamblar el Documento Word
             const doc = new Document({
                 sections: [{
                     properties: {
                         page: {
-                            size: { orientation: PageOrientation.LANDSCAPE }, // APAISADO
-                            margin: { top: 720, right: 720, bottom: 720, left: 720 }, // Márgenes estrechos
+                            size: { orientation: PageOrientation.LANDSCAPE }, 
+                            margin: { top: 720, right: 720, bottom: 720, left: 720 }, 
                         },
                     },
                     children: [
@@ -478,7 +466,6 @@ const FixedAssets = () => {
                 }]
             });
 
-            // Generar y descargar el archivo de forma nativa
             const blob = await Packer.toBlob(doc);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -570,7 +557,14 @@ const FixedAssets = () => {
                 </motion.div>
             ) : (
                 <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
-                    <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Lugar', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
+                    {/* NUEVO: REORDEN DEL HEADER DE LA TABLA PARA COINCIDIR CON EL DOCUMENTO EXPORTADO */}
+                    <thead className="bg-slate-50">
+                        <tr>
+                            {['Cant.', 'Activo', 'Categoría', 'Uso', 'Estado', 'Lugar', 'V. Original', 'Deprec.', 'V. Neto', 'Acciones'].map(h => 
+                                <th key={h} className="p-3 text-left font-semibold whitespace-nowrap">{h}</th>
+                            )}
+                        </tr>
+                    </thead>
                     <tbody className="divide-y">{filteredAssets.map(asset => {
                         const isRetired = asset.status === 'Dado de Baja';
                         const origVal = isRetired ? 0 : (parseFloat(asset.value) || 0);
@@ -580,9 +574,10 @@ const FixedAssets = () => {
                             <tr key={asset.id} className={`hover:bg-slate-50 ${asset.status === 'Dado de Baja' ? 'opacity-50 bg-slate-100' : ''}`}>
                                 <td className="p-3">{asset.quantity || 1}</td>
                                 <td className={`p-3 font-medium ${asset.status === 'Dado de Baja' ? 'line-through text-slate-400' : ''}`}>{asset.name}</td>
-                                <td className="p-3">{asset.location || ''}</td>
                                 <td className="p-3">{asset.category}</td>
+                                <td className="p-3">{asset.usage}</td>
                                 <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${asset.status === 'Bueno' ? 'bg-green-100 text-green-800' : asset.status === 'Dado de Baja' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>{asset.status}</span></td>
+                                <td className="p-3">{asset.location || ''}</td>
                                 <td className="p-3 font-mono">${origVal.toLocaleString('es-ES')}</td>
                                 <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES')}</td>
                                 <td className="p-3 font-mono font-bold text-blue-600">${netVal.toLocaleString('es-ES')}</td>
@@ -670,33 +665,62 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
                 const worksheet = workbook.Sheets[sheetName];
                 const json = XLSX.utils.sheet_to_json(worksheet);
 
-                const requiredHeaders = ['Nombre del Activo', 'Valor Total', 'Cantidad'];
-                const headers = Object.keys(json[0] || {});
-                
-                const valColumn = headers.find(h => h.includes('Valor'));
-                
-                if (!headers.includes('Nombre del Activo') || !valColumn) {
-                    toast({ variant: 'destructive', title: 'Formato incorrecto', description: `El archivo debe contener las columnas: Nombre del Activo, Valor Total.` });
+                if (!json || json.length === 0) {
+                    toast({ variant: 'destructive', title: 'Archivo vacío', description: 'El archivo Excel no contiene datos.' });
                     return;
                 }
 
-                const assets = json.map(row => ({
-                    name: row['Nombre del Activo'],
-                    value: parseFloat(row[valColumn]),
-                    quantity: parseInt(row['Cantidad']) || 1,
-                    model: row['Marca/Modelo/Serie'] || '',
-                    category: row['Categoría'] || '',
-                    usage: row['Uso'] || 'Uso',
-                    status: row['Estado'] || 'Bueno',
-                    location: row['Lugar'] || '',
-                    notes: row['Observaciones'] || '',
-                }));
+                const headers = Object.keys(json[0] || {}).map(h => h.trim().toUpperCase());
+                
+                // Validación flexible
+                const hasName = headers.some(h => h.includes('NOMBRE') || h.includes('ACTIVO'));
+                const hasValue = headers.some(h => h.includes('VALOR'));
+                
+                if (!hasName || !hasValue) {
+                    toast({ variant: 'destructive', title: 'Formato incorrecto', description: `El archivo debe contener al menos las columnas de 'Nombre del Activo' y 'Valor Neto'.` });
+                    return;
+                }
+
+                // NUEVO: Mapeo inteligente y flexible. Lee tanto la plantilla exportada como nombres simplificados.
+                const assets = json.map(row => {
+                    const getVal = (possibleKeys) => {
+                        const rowKeys = Object.keys(row);
+                        for (let k of possibleKeys) {
+                            const foundKey = rowKeys.find(rk => rk.trim().toUpperCase() === k.toUpperCase());
+                            if (foundKey && row[foundKey] !== undefined) return row[foundKey];
+                        }
+                        return null;
+                    };
+
+                    const name = getVal(['NOMBRE DEL ACTIVO', 'Nombre del Activo', 'Activo', 'Nombre']) || 'Activo sin nombre';
+                    const val = getVal(['VALOR NETO', 'Valor Total', 'Valor Original', 'Valor']) || 0;
+                    const qty = getVal(['CANT.', 'CANT', 'CANTIDAD', 'Cantidad']) || 1;
+                    const model = getVal(['MARCA / MODELO / SERIE', 'MARCA/MODELO/SERIE', 'Marca/Modelo/Serie', 'Marca', 'Modelo']) || '';
+                    const cat = getVal(['CATEGORIA DEL ACTIVO', 'CATEGORIA', 'Categoría', 'Categoria']) || '';
+                    const usage = getVal(['USO/DESUSO/ PRESTAMO', 'USO/DESUSO/PRESTAMO', 'Uso']) || 'Uso';
+                    const status = getVal(['ESTADO Bueno/Malo/Regular', 'ESTADO BUENO/MALO/REGULAR', 'ESTADO', 'Estado']) || 'Bueno';
+                    const location = getVal(['LUGAR A INVENTARIAR', 'LUGAR', 'Lugar a inventariar', 'Lugar']) || '';
+                    const notes = getVal(['OBSERVACIONES', 'Observaciones']) || '';
+
+                    return {
+                        name: name,
+                        value: parseFloat(val) || 0,
+                        quantity: parseInt(qty) || 1,
+                        model: model,
+                        category: cat,
+                        usage: usage,
+                        status: status,
+                        location: location,
+                        notes: notes,
+                    };
+                });
 
                 onImport(assets);
                 setFile(null);
                 if(fileInputRef.current) fileInputRef.current.value = '';
 
             } catch (error) {
+                console.error(error);
                 toast({ variant: 'destructive', title: 'Error al procesar', description: 'No se pudo leer el archivo Excel. Asegúrate de que el formato sea correcto.' });
             }
         };
@@ -709,7 +733,7 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
                 <DialogHeader>
                     <DialogTitle>Importar Activos Fijos desde Excel</DialogTitle>
                     <DialogDescription>
-                        Selecciona un archivo .xlsx. Asegúrate de que tenga las columnas: 'Nombre del Activo', 'Valor Total', 'Cantidad'. El Valor Total se sumará tal cual viene.
+                        Selecciona un archivo .xlsx. Es recomendable descargar primero el archivo Excel vacío o con datos, llenarlo y subirlo nuevamente.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4">
