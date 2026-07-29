@@ -65,6 +65,18 @@ const numeroALetras = (num) => {
     return result.trim() + ' PESOS';
 };
 
+// 🚀 FUNCIÓN SEGURA PARA FORMATEAR FECHAS SIN DESFASE DE TIMEZONE
+const formatSafeDate = (dateStr) => {
+    if (!dateStr) return '-';
+    if (dateStr.includes('T')) {
+        const d = parseISO(dateStr);
+        return isValid(d) ? format(d, 'dd/MM/yyyy') : '-';
+    }
+    const parts = dateStr.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    return dateStr;
+};
+
 const Transactions = () => {
     const { activeCompany, isConsolidated, companies } = useCompany();
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
@@ -109,7 +121,6 @@ const Transactions = () => {
     const billingRef = useRef(null);
     const receiptRef = useRef(null); 
 
-    // 🚀 FILTRO MAESTRO: Extraído y Memoizado para seguridad global
     const isRelevant = useMemo(() => (item) => {
         if (!item) return false;
         const cid = item.company_id || item._companyId || item.companyId;
@@ -125,7 +136,6 @@ const Transactions = () => {
     }, [transactions]);
 
     const availableYears = useMemo(() => {
-        // 🚀 Aplicar el filtro a los años disponibles
         const filteredTrans = (transactions || []).filter(isRelevant);
         const years = new Set(filteredTrans.map(t => {
             return (typeof t.date === 'string' && t.date.includes('-')) 
@@ -218,7 +228,6 @@ const Transactions = () => {
         (initialBalances || []).forEach(ib => { if (isRelevant(ib)) startCash += (parseFloat(ib.balance) || 0); });
         (bankAccounts || []).forEach(ba => { if (isRelevant(ba)) { startBanks += (parseFloat(ba.initialBalance) || 0); startAportes += (parseFloat(ba.initialInvestmentBalance) || 0); } });
 
-        // 🚀 CRÍTICO: Las transacciones deben filtrarse ANTES de hacer la sumatoria acumulada
         const sorted = [...transactions].filter(isRelevant).sort((a, b) => new Date(a.date) - new Date(b.date));
 
         let runningCash = startCash;
@@ -364,7 +373,6 @@ const Transactions = () => {
 
     const groupedBillingDocuments = useMemo(() => {
         if (!billingDocuments) return {};
-        // 🚀 Filtramos las cuentas de cobro para que no muestre las de la sub-empresa
         const fBillingDocs = (billingDocuments || []).filter(isRelevant);
         const yearDocs = fBillingDocs.filter(d => {
             const y = (typeof d.date === 'string' && d.date.includes('-')) ? d.date.split('-')[0] : new Date(d.date).getFullYear().toString();
@@ -393,7 +401,6 @@ const Transactions = () => {
             ? dateStr.split('-')[0] 
             : new Date(dateStr).getFullYear().toString();
         
-        // 🚀 Contar el consecutivo SOLO basado en la empresa actual
         const typeTransactions = transactions.filter(isRelevant).filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
@@ -446,7 +453,6 @@ const Transactions = () => {
             beneficiary: beneficiaryName,
             docNumber: docNumber || 'A actualizar',
             voucherNumber: transaction.voucherNumber,
-            // 🚀 SELLO DE EMPRESA
             company_id: activeCompany?.id,
             companyId: activeCompany?.id
         };
@@ -520,7 +526,6 @@ const Transactions = () => {
             transactionId = `${Date.now()}`;
             const voucherNumber = getNextVoucherNumber(transactionData.type, transactionData.date);
             
-            // 🚀 SELLO DE EMPRESA
             const newTransaction = { 
                 ...transactionData, 
                 id: transactionId, 
@@ -551,7 +556,7 @@ const Transactions = () => {
                     beneficiary: beneficiaryName,
                     docNumber: docNum,
                     voucherNumber: voucherNumber,
-                    company_id: activeCompany?.id, // Sello
+                    company_id: activeCompany?.id,
                     companyId: activeCompany?.id
                 });
             }
@@ -653,7 +658,6 @@ const Transactions = () => {
             const debitAccObj = (accounts || []).find(a => a.name === transferData.debitAccount) || { number: '150805', name: transferData.debitAccount };
             const creditAccObj = (accounts || []).find(a => a.name === transferData.creditAccount) || { number: '133005', name: transferData.creditAccount };
 
-            // 🚀 SELLO DE EMPRESA EN CRUCE
             const expenseTransaction = {
                 id: `${now}-exp`,
                 type: 'expense',
@@ -714,7 +718,6 @@ const Transactions = () => {
         const [fromId, fromName] = fromAccount.split('|');
         const [toId, toName] = toAccount.split('|');
 
-        // 🚀 SELLO DE EMPRESA EN TRANSFERENCIA
         const expenseTransaction = { id: `${now}-exp`, type: 'expense', description: `Transferencia a ${toName}: ${description}`, amount: parseFloat(amount), category: 'Transferencia Interna', date, destination: fromAccount, isInternalTransfer: true, voucherNumber, company_id: activeCompany?.id, companyId: activeCompany?.id };
         const incomeTransaction = { id: `${now}-inc`, type: 'income', description: `Transferencia desde ${fromName}: ${description}`, amount: parseFloat(amount), category: 'Transferencia Interna', date, destination: toAccount, isInternalTransfer: true, voucherNumber, company_id: activeCompany?.id, companyId: activeCompany?.id };
 
@@ -723,35 +726,60 @@ const Transactions = () => {
         setTransferDialogOpen(false);
     };
 
+    // 🚀 CORRECCIÓN CRÍTICA EXPORTACIÓN: "CONTROL SALDOS"
     const handleExport = () => {
         if (displayTransactions.length === 0) return;
         const dataToExport = displayTransactions.map(t => {
-            const date = parseISO(t.date);
             let typeLabel = (t.isInternalTransfer || t.type === 'transfer') ? 'Transferencia' : (t.type === 'income' ? 'Ingreso' : 'Egreso');
             if (t._isPending) typeLabel += ' (Pendiente)';
             let voucherPrefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
             let displayVoucher = t.voucherNumber ? `${voucherPrefix}-${String(t.voucherNumber).padStart(4, '0')}` : 'N/A';
-            const amountValue = t._mergedAmount ? `'${t._mergedAmount}` : parseFloat(t.amount);
-            return { 'Comprobante': displayVoucher, 'Fecha': isValid(date) ? format(date, 'dd/MM/yyyy') : 'Fecha inválida', 'Descripción': t.description, 'Tipo': typeLabel, 'Nº Cuenta': t._accountNumber, 'Categoría': t.category, 'Monto': amountValue, 'Destino': t._destName, 'Saldo Caja': t._calculatedCash, 'Saldo Bancos': t._calculatedBanks, 'Saldo Aportes': t._calculatedAportes }
+            
+            // Corrige la autosuma en Excel (Los egresos reales deben salir negativos)
+            let amountValue = parseFloat(t.amount) || 0;
+            if (t._mergedAmount) {
+                amountValue = t._mergedAmount; // Como String para Transferencias
+            } else if (t.type === 'expense' && !t.isInternalTransfer && t.type !== 'transfer') {
+                amountValue = -Math.abs(amountValue); // Egresos como Negativos!
+            }
+
+            return { 
+                'Comprobante': displayVoucher, 
+                'Fecha': formatSafeDate(t.date), 
+                'Descripción': t.description, 
+                'Tipo': typeLabel, 
+                'Nº Cuenta': t._accountNumber || 'N/A', 
+                'Categoría': t.category || '-', 
+                'Monto': amountValue, 
+                'Destino': t._destName || '-', 
+                'Saldo Caja': t._calculatedCash || 0, 
+                'Saldo Bancos': t._calculatedBanks || 0, 
+                'Saldo Aportes': t._calculatedAportes || 0 
+            }
         });
         exportToExcel(dataToExport, `Transacciones_Control_${selectedYear}`, {});
         toast({ title: "¡Exportado!", description: "Informe exportado a Excel." });
     };
 
+    // 🚀 CORRECCIÓN CRÍTICA EXPORTACIÓN: "PARTIDA DOBLE"
     const handleExportAccounting = () => {
         if (displayTransactions.length === 0) { toast({ variant: 'destructive', title: "No hay datos para exportar" }); return; }
         const dataToExport = [];
         displayTransactions.forEach(t => {
-            const date = parseISO(t.date);
             let prefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
+            if (t.type === 'adjustment') prefix = 'A';
             let vId = t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+            const displayDate = formatSafeDate(t.date);
+
             if (t._isMerged && t.isInternalTransfer) {
-                dataToExport.push({ 'Fecha': isValid(date) ? format(date, 'dd/MM/yyyy') : '-', 'Comprobante': vId, 'Código': t._destAccount.code, 'Cuenta': t._destAccount.name, 'Descripción': t.description, 'Débito': t._rawAmount, 'Crédito': 0 });
-                dataToExport.push({ 'Fecha': isValid(date) ? format(date, 'dd/MM/yyyy') : '-', 'Comprobante': vId, 'Código': t._sourceAccount.code, 'Cuenta': t._sourceAccount.name, 'Descripción': t.description, 'Débito': 0, 'Crédito': t._rawAmount });
+                // Transferencias internas combinadas
+                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': t._destAccount?.code || 'N/A', 'Cuenta': t._destAccount?.name || 'N/A', 'Descripción': t.description, 'Débito': t._rawAmount || 0, 'Crédito': 0 });
+                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': t._sourceAccount?.code || 'N/A', 'Cuenta': t._sourceAccount?.name || 'N/A', 'Descripción': t.description, 'Débito': 0, 'Crédito': t._rawAmount || 0 });
             } else {
+                // Asientos normales de doble partida
                 const { debit, credit } = resolveAccountingRow(t);
-                dataToExport.push({ 'Fecha': isValid(date) ? format(date, 'dd/MM/yyyy') : '-', 'Comprobante': vId, 'Código': debit.code, 'Cuenta': debit.name, 'Descripción': t.description, 'Débito': debit.value, 'Crédito': 0 });
-                dataToExport.push({ 'Fecha': isValid(date) ? format(date, 'dd/MM/yyyy') : '-', 'Comprobante': vId, 'Código': credit.code, 'Cuenta': credit.name, 'Descripción': t.description, 'Débito': 0, 'Crédito': credit.value });
+                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': debit?.code || 'N/A', 'Cuenta': debit?.name || (t.category || 'SIN CATEGORÍA'), 'Descripción': t.description, 'Débito': debit?.value || 0, 'Crédito': 0 });
+                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': credit?.code || 'N/A', 'Cuenta': credit?.name || (t.category || 'SIN CATEGORÍA'), 'Descripción': t.description, 'Débito': 0, 'Crédito': credit?.value || 0 });
             }
         });
         exportToExcel(dataToExport, `Contabilidad_Partida_Doble_${selectedYear}`, {});
@@ -761,8 +789,8 @@ const Transactions = () => {
     const handlePrint = (t) => {
         let debit, credit;
         if (t._isMerged) {
-            debit = { code: t._destAccount.code, name: t._destAccount.name, value: t._rawAmount };
-            credit = { code: t._sourceAccount.code, name: t._sourceAccount.name, value: t._rawAmount };
+            debit = { code: t._destAccount?.code, name: t._destAccount?.name, value: t._rawAmount };
+            credit = { code: t._sourceAccount?.code, name: t._sourceAccount?.name, value: t._rawAmount };
         } else {
             const resolved = resolveAccountingRow(t);
             debit = resolved.debit;
@@ -832,7 +860,6 @@ const Transactions = () => {
         }, 500);
     };
 
-    // IMPRESIÓN CUENTA DE COBRO (Media Carta Perfecta)
     const handlePrintBillingDocPdf = () => {
         if (!billingRef.current) return;
         setIsPrinting(true);
@@ -876,7 +903,6 @@ const Transactions = () => {
         }, 500);
     };
 
-    // IMPRESIÓN RECIBO CAJA / DONACIÓN (Media Carta Perfecta)
     const handlePrintReceiptPdf = () => {
         if (!receiptRef.current) return;
         setIsPrinting(true);
@@ -966,12 +992,11 @@ const Transactions = () => {
                                 <thead className="bg-slate-50 text-slate-700 font-medium border-b"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Monto</th><th className="px-4 py-3 text-right bg-blue-50/50">Saldo Caja</th><th className="px-4 py-3 text-right bg-purple-50/50">Saldo Bancos</th><th className="px-4 py-3 text-right bg-green-50/50">Saldo Aportes</th><th className="px-4 py-3 text-center">Acciones</th></tr></thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {displayTransactions.map((t) => {
-                                        const date = parseISO(t.date);
                                         const isIncome = t.type === 'income';
                                         let prefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (isIncome ? 'I' : 'E');
                                         return (
                                             <tr key={t.id} className="hover:bg-slate-50 group">
-                                                <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{isValid(date) ? format(date, 'dd/MM/yyyy') : '-'}</td>
+                                                <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatSafeDate(t.date)}</td>
                                                 <td className="px-4 py-3 font-mono text-xs text-slate-500">{t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-'}</td>
                                                 <td className="px-4 py-3 text-slate-700 font-medium max-w-[200px] truncate" title={t.description}>{t.description}{t._isPending && <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">Pendiente</span>}</td>
 
@@ -1026,14 +1051,14 @@ const Transactions = () => {
                                 <thead className="bg-slate-800 text-slate-200 font-medium"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comp.</th><th className="px-4 py-3 w-1/3">Cuenta (PUC)</th><th className="px-4 py-3 w-1/3">Detalle</th><th className="px-4 py-3 text-right w-32">Débito</th><th className="px-4 py-3 text-right w-32">Crédito</th></tr></thead>
                                 <tbody className="bg-white">
                                     {displayTransactions.map(t => {
-                                        const date = parseISO(t.date);
                                         let prefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
                                         let vId = t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+                                        
                                         if (t._isMerged && t.isInternalTransfer) {
                                             return (
                                                 <React.Fragment key={t.id}>
-                                                    <tr className="border-t border-slate-100 bg-blue-50"><td className="px-4 py-2 text-slate-500">{isValid(date) ? format(date, 'dd/MM/yyyy') : '-'}</td><td className="px-4 py-2 font-mono text-xs text-slate-400">{vId}</td><td className="px-4 py-2"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{t._destAccount.code}</span><span className="text-slate-600 text-xs uppercase">{t._destAccount.name}</span></div></td><td className="px-4 py-2 text-slate-500 italic text-xs">{t.description}</td><td className="px-4 py-2 text-right font-mono text-slate-800">{t._rawAmount.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td><td className="px-4 py-2 text-right font-mono text-slate-300">-</td></tr>
-                                                    <tr className="bg-blue-50"><td className="px-4 py-1 border-none"></td><td className="px-4 py-1 border-none"></td><td className="px-4 py-2 border-none pl-8"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{t._sourceAccount.code}</span><span className="text-slate-600 text-xs uppercase">{t._sourceAccount.name}</span></div></td><td className="px-4 py-2 border-none"></td><td className="px-4 py-2 border-none text-right font-mono text-slate-300">-</td><td className="px-4 py-2 border-none text-right font-mono text-slate-800">{t._rawAmount.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td></tr>
+                                                    <tr className="border-t border-slate-100 bg-blue-50"><td className="px-4 py-2 text-slate-500">{formatSafeDate(t.date)}</td><td className="px-4 py-2 font-mono text-xs text-slate-400">{vId}</td><td className="px-4 py-2"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{t._destAccount?.code || 'N/A'}</span><span className="text-slate-600 text-xs uppercase">{t._destAccount?.name || '-'}</span></div></td><td className="px-4 py-2 text-slate-500 italic text-xs">{t.description}</td><td className="px-4 py-2 text-right font-mono text-slate-800">{(t._rawAmount || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td><td className="px-4 py-2 text-right font-mono text-slate-300">-</td></tr>
+                                                    <tr className="bg-blue-50"><td className="px-4 py-1 border-none"></td><td className="px-4 py-1 border-none"></td><td className="px-4 py-2 border-none pl-8"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{t._sourceAccount?.code || 'N/A'}</span><span className="text-slate-600 text-xs uppercase">{t._sourceAccount?.name || '-'}</span></div></td><td className="px-4 py-2 border-none"></td><td className="px-4 py-2 border-none text-right font-mono text-slate-300">-</td><td className="px-4 py-2 border-none text-right font-mono text-slate-800">{(t._rawAmount || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td></tr>
                                                     <tr><td colSpan="6" className="h-1 bg-slate-50 border-b border-slate-200"></td></tr>
                                                 </React.Fragment>
                                             );
@@ -1042,8 +1067,8 @@ const Transactions = () => {
                                         let rowColorClass = t.type === 'income' ? 'bg-green-50' : (t.type === 'transfer' ? 'bg-orange-50' : 'bg-red-50');
                                         return (
                                             <React.Fragment key={t.id}>
-                                                <tr className={`border-t border-slate-100 ${rowColorClass}`}><td className="px-4 py-2 text-slate-500">{isValid(date) ? format(date, 'dd/MM/yyyy') : '-'}</td><td className="px-4 py-2 font-mono text-xs text-slate-400">{vId}</td><td className="px-4 py-2"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{debitRow.code}</span><span className="text-slate-600 text-xs uppercase">{debitRow.name}</span></div></td><td className="px-4 py-2 text-slate-500 italic text-xs">{t.description}</td><td className="px-4 py-2 text-right font-mono text-slate-800">{debitRow.value.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td><td className="px-4 py-2 text-right font-mono text-slate-300">-</td></tr>
-                                                <tr className={`${rowColorClass}`}><td className="px-4 py-1 border-none"></td><td className="px-4 py-1 border-none"></td><td className="px-4 py-2 border-none pl-8"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{creditRow.code}</span><span className="text-slate-600 text-xs uppercase">{creditRow.name}</span></div></td><td className="px-4 py-2 border-none"></td><td className="px-4 py-2 border-none text-right font-mono text-slate-300">-</td><td className="px-4 py-2 border-none text-right font-mono text-slate-800">{creditRow.value.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td></tr>
+                                                <tr className={`border-t border-slate-100 ${rowColorClass}`}><td className="px-4 py-2 text-slate-500">{formatSafeDate(t.date)}</td><td className="px-4 py-2 font-mono text-xs text-slate-400">{vId}</td><td className="px-4 py-2"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{debitRow?.code || 'N/A'}</span><span className="text-slate-600 text-xs uppercase">{debitRow?.name || (t.category || '-')}</span></div></td><td className="px-4 py-2 text-slate-500 italic text-xs">{t.description}</td><td className="px-4 py-2 text-right font-mono text-slate-800">{(debitRow?.value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td><td className="px-4 py-2 text-right font-mono text-slate-300">-</td></tr>
+                                                <tr className={`${rowColorClass}`}><td className="px-4 py-1 border-none"></td><td className="px-4 py-1 border-none"></td><td className="px-4 py-2 border-none pl-8"><div className="flex flex-col"><span className="font-bold text-slate-700 text-xs">{creditRow?.code || 'N/A'}</span><span className="text-slate-600 text-xs uppercase">{creditRow?.name || (t.category || '-')}</span></div></td><td className="px-4 py-2 border-none"></td><td className="px-4 py-2 border-none text-right font-mono text-slate-300">-</td><td className="px-4 py-2 border-none text-right font-mono text-slate-800">{(creditRow?.value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td></tr>
                                                 <tr><td colSpan="6" className="h-1 bg-slate-50 border-b border-slate-200"></td></tr>
                                             </React.Fragment>
                                         );
@@ -1129,7 +1154,6 @@ const Transactions = () => {
                 activeCompany={activeCompany}
             />
 
-            {/* Configuración Auto-Cobros */}
             <AutoBillingConfigDialog
                 open={configBillingOpen}
                 onOpenChange={setConfigBillingOpen}
@@ -1138,7 +1162,7 @@ const Transactions = () => {
                 onSave={setAutoBillingCategories}
             />
 
-            {/* RECIBO DE CAJA / DONACIÓN EN MEDIA CARTA Y DISEÑO ELEGANTE */}
+{/* RECIBO DE CAJA / DONACIÓN EN MEDIA CARTA Y DISEÑO ELEGANTE */}
 <Dialog open={printReceiptOpen} onOpenChange={setPrintReceiptOpen}>
     <DialogContent className="max-w-4xl p-0 border-none bg-transparent shadow-none">
         <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
@@ -1317,7 +1341,7 @@ const Transactions = () => {
     </DialogContent>
 </Dialog>
 
-            {/* CUENTA DE COBRO EN MEDIA CARTA Y DISEÑO ELEGANTE */}
+{/* CUENTA DE COBRO EN MEDIA CARTA Y DISEÑO ELEGANTE */}
 <Dialog open={printBillingOpen} onOpenChange={setPrintBillingOpen}>
     <DialogContent className="max-w-4xl p-0 border-none bg-transparent shadow-none">
         <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
@@ -1767,7 +1791,6 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                 destination: selectedBank,
                 isInternalTransfer: false,
                 voucherNumber: voucherNumber,
-                // 🚀 SELLO DE EMPRESA EN CONCILIACIÓN
                 company_id: activeCompany?.id,
                 companyId: activeCompany?.id
             });
@@ -1860,10 +1883,10 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                                                         className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
                                                     />
                                                 </td>
-                                                <td className="p-3 text-slate-600 whitespace-nowrap">{row.date}</td>
+                                                <td className="p-3 text-slate-600 whitespace-nowrap">{formatSafeDate(row.date)}</td>
                                                 <td className="p-3 font-medium text-slate-800">{row.description}</td>
                                                 <td className={`p-3 text-right font-mono font-bold ${row.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {row.type === 'income' ? '+' : '-'}${row.amount.toLocaleString('es-ES', {minimumFractionDigits: 2})}
+                                                    {row.type === 'income' ? '+' : '-'}{row.amount.toLocaleString('es-ES', {minimumFractionDigits: 2})}
                                                 </td>
                                                 <td className="p-3">
                                                     <select 
