@@ -170,53 +170,77 @@ const Transactions = () => {
         return { code: '1120', name: name || 'BANCO DESCONOCIDO' };
     };
 
-    const resolveAccountingRow = (t) => {
-        const amount = parseFloat(t.amount);
+    // Dentro de Transactions.jsx
+const resolveAccountingJournal = (t) => {
+    const journalEntries = [];
+    const amount = parseFloat(t.amount);
+    const date = formatSafeDate(t.date);
+    
+    // Determinar prefijo de comprobante
+    let prefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
+    if (t.type === 'adjustment') prefix = 'A';
+    let vId = t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
 
-        if (t.debitAccount && t.creditAccount) {
-            return {
-                debit: { ...t.debitAccount, value: amount },
-                credit: { ...t.creditAccount, value: amount }
-            };
+    // 1. Caso: Transacciones explícitas de partida doble (Cuando usas un selector avanzado)
+    if (t.debitAccount && t.creditAccount) {
+        journalEntries.push({ date, vId, code: t.debitAccount.code, name: t.debitAccount.name, description: t.description, debit: amount, credit: 0 });
+        journalEntries.push({ date, vId, code: t.creditAccount.code, name: t.creditAccount.name, description: t.description, debit: 0, credit: amount });
+        return journalEntries;
+    }
+
+    // 2. Caso: Transferencias Internas (Movimiento entre bancos/cajas)
+    if (t.type === 'transfer' && t.fromAccount && t.toAccount) {
+        const debit = getAssetDetails(t.toAccount, t.category);
+        const credit = getAssetDetails(t.fromAccount, t.category);
+        journalEntries.push({ date, vId, code: debit.code, name: debit.name, description: t.description, debit: amount, credit: 0 });
+        journalEntries.push({ date, vId, code: credit.code, name: credit.name, description: t.description, debit: 0, credit: amount });
+        return journalEntries;
+    }
+
+    // 3. Caso: Ingresos y Egresos (Caja/Bancos vs Gasto/Ingreso)
+    const assetAcc = getAssetDetails(t.destination, t.category);
+    const catObj = (accounts || []).find(a => a.name === t.category);
+    const catAcc = { code: t._accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')), name: t.category || 'SIN CATEGORÍA' };
+
+    // --- LÓGICA DE ASIENTOS COMPUESTOS (Ej: Actas con retenciones y amortizaciones) ---
+    // Si la transacción tiene metadatos de retención o amortización guardados
+    const retention = t.retentionAmount ? parseFloat(t.retentionAmount) : 0;
+    const amortization = t.amortizationAmount ? parseFloat(t.amortizationAmount) : 0;
+    
+    if (t.type === 'income') {
+        // Para ingresos (Como el Acta de la parroquia)
+        const grossAmount = amount + retention + amortization; // Reconstruimos el valor bruto
+        
+        // Débitos (Lo que entra o disminuye la deuda del cliente)
+        journalEntries.push({ date, vId, code: assetAcc.code, name: assetAcc.name, description: `${t.description} (Pago Neto)`, debit: amount, credit: 0 });
+        
+        if (retention > 0) {
+            journalEntries.push({ date, vId, code: '135515', name: 'RETENCIÓN EN LA FUENTE', description: `${t.description} (Retefuente)`, debit: retention, credit: 0 });
         }
-
-        if (t.type === 'transfer' && t.fromAccount && t.toAccount) {
-            const debit = getAssetDetails(t.toAccount, t.category);
-            const credit = getAssetDetails(t.fromAccount, t.category);
-            return { debit: { ...debit, value: amount }, credit: { ...credit, value: amount } };
+        if (amortization > 0) {
+            journalEntries.push({ date, vId, code: '280505', name: 'ANTICIPOS RECIBIDOS', description: `${t.description} (Amortización)`, debit: amortization, credit: 0 });
         }
-
-        const assetAcc = getAssetDetails(t.destination, t.category);
-        let debit = { code: '', name: '', value: 0 };
-        let credit = { code: '', name: '', value: 0 };
-
-        if (t.isInternalTransfer) {
-            let siblingId = '';
-            if (t.id.endsWith('-exp')) siblingId = t.id.replace('-exp', '-inc');
-            else if (t.id.endsWith('-inc')) siblingId = t.id.replace('-inc', '-exp');
-            const sibling = transactionsMap.get(siblingId);
-            const contraAcc = sibling ? getAssetDetails(sibling.destination, sibling.category) : { code: '111005', name: 'TRANSFERENCIA EN TRÁNSITO' };
-
-            if (t.type === 'income') {
-                debit = { ...assetAcc, value: amount };
-                credit = { ...contraAcc, value: amount };
-            } else {
-                debit = { ...contraAcc, value: amount };
-                credit = { ...assetAcc, value: amount };
-            }
-        } else {
-            const catObj = (accounts || []).find(a => a.name === t.category);
-            const catAcc = { code: t._accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')), name: t.category };
-            if (t.type === 'income') {
-                debit = { ...assetAcc, value: amount };
-                credit = { ...catAcc, value: amount };
-            } else {
-                debit = { ...catAcc, value: amount };
-                credit = { ...assetAcc, value: amount };
-            }
+        
+        // Créditos (El ingreso bruto por el servicio/obra)
+        journalEntries.push({ date, vId, code: catAcc.code, name: catAcc.name, description: `${t.description} (Valor Bruto)`, debit: 0, credit: grossAmount });
+        
+    } else {
+        // Para egresos
+        const grossExpense = amount + retention; // Si retenemos plata a un proveedor
+        
+        // Débito (Gasto bruto)
+        journalEntries.push({ date, vId, code: catAcc.code, name: catAcc.name, description: `${t.description} (Costo/Gasto Bruto)`, debit: grossExpense, credit: 0 });
+        
+        // Créditos (Caja/Bancos y Retenciones por pagar)
+        journalEntries.push({ date, vId, code: assetAcc.code, name: assetAcc.name, description: `${t.description} (Pago Neto)`, debit: 0, credit: amount });
+        
+        if (retention > 0) {
+            journalEntries.push({ date, vId, code: '236540', name: 'RETENCIÓN EN LA FUENTE POR PAGAR', description: `${t.description} (Retención Practicada)`, debit: 0, credit: retention });
         }
-        return { debit, credit };
-    };
+    }
+
+    return journalEntries;
+};
 
     useEffect(() => {
         if (!transactions || !initialBalances) return;
@@ -763,28 +787,45 @@ const Transactions = () => {
 
     // 🚀 CORRECCIÓN CRÍTICA EXPORTACIÓN: "PARTIDA DOBLE"
     const handleExportAccounting = () => {
-        if (displayTransactions.length === 0) { toast({ variant: 'destructive', title: "No hay datos para exportar" }); return; }
-        const dataToExport = [];
-        displayTransactions.forEach(t => {
-            let prefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
-            if (t.type === 'adjustment') prefix = 'A';
-            let vId = t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
-            const displayDate = formatSafeDate(t.date);
-
-            if (t._isMerged && t.isInternalTransfer) {
-                // Transferencias internas combinadas
-                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': t._destAccount?.code || 'N/A', 'Cuenta': t._destAccount?.name || 'N/A', 'Descripción': t.description, 'Débito': t._rawAmount || 0, 'Crédito': 0 });
-                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': t._sourceAccount?.code || 'N/A', 'Cuenta': t._sourceAccount?.name || 'N/A', 'Descripción': t.description, 'Débito': 0, 'Crédito': t._rawAmount || 0 });
-            } else {
-                // Asientos normales de doble partida
-                const { debit, credit } = resolveAccountingRow(t);
-                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': debit?.code || 'N/A', 'Cuenta': debit?.name || (t.category || 'SIN CATEGORÍA'), 'Descripción': t.description, 'Débito': debit?.value || 0, 'Crédito': 0 });
-                dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código': credit?.code || 'N/A', 'Cuenta': credit?.name || (t.category || 'SIN CATEGORÍA'), 'Descripción': t.description, 'Débito': 0, 'Crédito': credit?.value || 0 });
-            }
+    if (displayTransactions.length === 0) { 
+        toast({ variant: 'destructive', title: "No hay datos para exportar" }); 
+        return; 
+    }
+    
+    const dataToExport = [];
+    
+    // Generar el Libro Diario Plano
+    displayTransactions.forEach(t => {
+        // Si es un "merge" virtual de la UI, ignoramos el virtual y procesamos el original
+        if (t._isMerged) return; 
+        
+        const journalEntries = resolveAccountingJournal(t);
+        
+        journalEntries.forEach(entry => {
+            dataToExport.push({
+                'Fecha': entry.date,
+                'Comprobante': entry.vId,
+                'Código PUC': entry.code || 'N/A',
+                'Nombre de Cuenta': entry.name || 'N/A',
+                'Descripción': entry.description,
+                'Débito': entry.debit || 0,
+                'Crédito': entry.credit || 0
+            });
         });
-        exportToExcel(dataToExport, `Contabilidad_Partida_Doble_${selectedYear}`, {});
-        toast({ title: "¡Exportado!", description: "Informe contable exportado a Excel." });
-    };
+    });
+
+    // Validar sumas iguales antes de exportar (Control de calidad interno)
+    const totalDebit = dataToExport.reduce((sum, row) => sum + row['Débito'], 0);
+    const totalCredit = dataToExport.reduce((sum, row) => sum + row['Crédito'], 0);
+    
+    if (Math.abs(totalDebit - totalCredit) > 1) {
+        console.warn(`Alerta de descuadre: Débitos ${totalDebit} vs Créditos ${totalCredit}`);
+        // Incluso si hay descuadre, lo exportamos, pero el log ayuda a depurar.
+    }
+
+    exportToExcel(dataToExport, `Libro_Diario_${selectedYear}`, {});
+    toast({ title: "¡Libro Diario Exportado!", description: "Formato plano listo para auditoría y tablas dinámicas." });
+};
 
     const handlePrint = (t) => {
         let debit, credit;
