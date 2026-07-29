@@ -73,11 +73,6 @@ const Reports = () => {
     const fAccountsPayable = filterByCompany(accountsPayable);
     const fInventory = filterByCompany(inventory);
 
-    // ============================================================================
-    // 🚀 SOLUCIÓN DE DUPLICIDAD: Unificamos el catálogo de cuentas (PUC)
-    // Si la Capilla y Parroquia tienen cuentas con el mismo nombre, las fusionamos 
-    // para evitar que se repitan en el Estado de Resultados al consolidar.
-    // ============================================================================
     const uniqueAccountsMap = new Map();
     (accounts || []).forEach(acc => {
         if (!acc || !acc.name) return;
@@ -106,15 +101,11 @@ const Reports = () => {
     const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
     const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
 
-    // ============================================================================
-    // 🚀 ESTADO DE RESULTADOS (P&L) CON REGLAS DE PREFIJO PUC ESTRICTAS Y DEVOLUCIONES
-    // ============================================================================
     const getAccountPrefix = (categoryName) => {
         const account = allAccounts.find(a => a.name === categoryName);
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // Ingresos (4): Suman con income, RESTAN con expense (devoluciones)
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
         if (getAccountPrefix(t.category) === '4') {
@@ -123,7 +114,6 @@ const Reports = () => {
         return sum;
     }, 0);
 
-    // Costos (6, 7): Suman con expense, RESTAN con income (anulaciones)
     const totalCosts = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
         if (['6', '7'].includes(getAccountPrefix(t.category))) {
@@ -132,7 +122,6 @@ const Reports = () => {
         return sum;
     }, 0);
 
-    // Gastos (5): Suman con expense, RESTAN con income (reembolsos)
     const totalExpenses = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
         if (getAccountPrefix(t.category) === '5') {
@@ -145,7 +134,6 @@ const Reports = () => {
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
-    // Desglose individual de cada categoría
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
         if (t.category !== categoryName || t.isFixedAsset || t.isInternalTransfer || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
         const amount = safeParseFloat(t.amount);
@@ -178,10 +166,7 @@ const Reports = () => {
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
     ];
     
-    // ============================================================================
     // --- BALANCE SHEET CALCULATIONS ---
-    // ============================================================================
-
     const isAccountMatch = (targetId, accountIdOrString) => {
         if (!accountIdOrString) return false;
         if (accountIdOrString === targetId) return true;
@@ -190,7 +175,6 @@ const Reports = () => {
         return false;
     };
 
-    // 1. Caja Principal
     const initialCash = fInitialBalance.reduce((sum, item) => {
         if (!item.date || getSafeYear(item.date) <= parseInt(currentYear)) {
             return sum + safeParseFloat(item.balance);
@@ -225,7 +209,6 @@ const Reports = () => {
     });
     const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
 
-    // 2. Custom Cash Accounts
     let customCashBalance = 0;
     if (fCashAccounts.length > 0) {
         customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
@@ -250,7 +233,6 @@ const Reports = () => {
     }
     const totalCashBalance = cajaPrincipalBalance + customCashBalance;
 
-    // 3. Bank Accounts
     let totalBankBalances = 0, totalInvestmentBalances = 0;
     fBankAccounts.forEach(acc => {
         let currentBankBalance = 0, currentInvestmentBalance = 0;
@@ -290,18 +272,15 @@ const Reports = () => {
         return !originalAcc?.date || getSafeYear(originalAcc.date) <= parseInt(currentYear);
     });
 
-    // 4. Activos y Pasivos
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
 
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
-        // A. Transacciones de partida doble explícitas
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
 
-            // Débitos (Suma Activos, Resta Pasivos)
             if (drCode.startsWith('1330')) anticiposValue += amount;
             else if (drCode.startsWith('1508')) construccionesValue += amount;
             else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
@@ -310,7 +289,6 @@ const Reports = () => {
             }
             else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-            // Créditos (Resta Activos, Suma Pasivos)
             if (crCode.startsWith('1330')) anticiposValue -= amount;
             else if (crCode.startsWith('1508')) construccionesValue -= amount;
             else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
@@ -322,7 +300,6 @@ const Reports = () => {
             return;
         }
 
-        // B. Cruces contables internos (Amortizaciones y Bajas)
         if (t.isInternalTransfer) {
             if (t.type === 'expense') {
                 const acc = allAccounts.find(a => a.name === t.category);
@@ -336,7 +313,6 @@ const Reports = () => {
             return;
         }
 
-        // C. Flujo normal
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
@@ -356,10 +332,12 @@ const Reports = () => {
     });
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
+    
+    // 🚀 CORRECCIÓN: Filtrar Activos Fijos estrictamente por el año seleccionado para evitar duplicidad
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
-        if (asset.year) return parseInt(asset.year) <= parseInt(currentYear);
-        if (asset.date) return getSafeYear(asset.date) <= parseInt(currentYear);
+        if (asset.year) return asset.year.toString() === currentYear.toString();
+        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
@@ -396,7 +374,6 @@ const Reports = () => {
     
     const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
     
-    // Suma exacta de todas las líneas separadas
     const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
     const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
     const totalEquity = totalAssets - totalLiabilities; 
@@ -413,7 +390,6 @@ const Reports = () => {
     setReportData({ summary: summaryData, incomeStatement, balanceSheet });
   };
   
-  // 🚀 EXPORTACIÓN SERIA Y PROFESIONAL DEL ESTADO DE RESULTADOS
   const handleExportReport = (data, name) => { 
       const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
       const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
@@ -439,7 +415,6 @@ const Reports = () => {
       toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
   };
 
-  // 🚀 EXPORTACIÓN SERIA Y PROFESIONAL DEL BALANCE GENERAL
   const handleExportBalanceSheet = () => { 
       const { assets, liabilities, equity, totals } = reportData.balanceSheet; 
       const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';

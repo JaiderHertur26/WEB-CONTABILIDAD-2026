@@ -29,7 +29,6 @@ const TaxReports = () => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const { toast } = useToast();
 
-    // HELPER PARA EVITAR EL BUG DE ZONA HORARIA (UTC vs Hora Colombia)
     const getSafeYear = (dateStr) => {
         if (!dateStr) return 0;
         if (typeof dateStr === 'string' && dateStr.includes('-')) {
@@ -74,9 +73,7 @@ const TaxReports = () => {
     
     const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
 
-    // ============================================================================
     // --- LÓGICA DE EXÓGENA ---
-    // ============================================================================
     const generateExogenaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
         const paymentsByContact = {};
@@ -118,9 +115,7 @@ const TaxReports = () => {
         toast({ title: "¡Exportado!", description: `El Reporte de Exógena para ${selectedYear} ha sido generado.` });
     };
 
-    // ============================================================================
     // --- LÓGICA DE RENTA (TAX RETURN) ---
-    // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
 
@@ -134,7 +129,6 @@ const TaxReports = () => {
         const fAccountsPayable = filterByCompany(accountsPayable);
         const fInventory = filterByCompany(inventory);
 
-        // 🚀 SOLUCIÓN DE DUPLICIDAD PUC: Unificamos el catálogo al consolidar
         const uniqueAccountsMap = new Map();
         (accounts || []).forEach(acc => {
             if (!acc || !acc.name) return;
@@ -147,7 +141,6 @@ const TaxReports = () => {
             !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
         );
 
-        // Filter transactions for calculations
         const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === selectedYear);
         const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(selectedYear));
 
@@ -156,7 +149,6 @@ const TaxReports = () => {
             return account ? String(account.number).charAt(0) : null;
         };
 
-        // 1. P&L Logic
         const totalIncomes = pnlTransactions.reduce((sum, t) => {
             if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
             if (getAccountPrefix(t.category) === '4') {
@@ -184,7 +176,6 @@ const TaxReports = () => {
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
-        // 2. Balance Sheet Logic
         const cashAccountIds = new Set();
         cashAccountIds.add('caja_principal');
         if (allAccounts) { 
@@ -295,12 +286,10 @@ const TaxReports = () => {
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
-            // A. Transacciones de partida doble explícitas
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
 
-                // Débitos
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
                 else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount;
@@ -309,7 +298,6 @@ const TaxReports = () => {
                 }
                 else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-                // Créditos
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
                 else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount;
@@ -321,7 +309,6 @@ const TaxReports = () => {
                 return;
             }
 
-            // B. Cruces contables internos
             if (t.isInternalTransfer) {
                 if (t.type === 'expense') {
                     const acc = allAccounts.find(a => a.name === t.category);
@@ -335,7 +322,6 @@ const TaxReports = () => {
                 return;
             }
 
-            // C. Flujo normal
             const acc = allAccounts.find(a => a.name === t.category);
             if (!acc) return;
             const num = String(acc.number);
@@ -355,10 +341,12 @@ const TaxReports = () => {
         });
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
+        
+        // 🚀 CORRECCIÓN: Filtrar Activos Fijos estrictamente por el año seleccionado para evitar duplicidad
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
-            if (asset.year) return parseInt(asset.year) <= parseInt(selectedYear);
-            if (asset.date) return getSafeYear(asset.date) <= parseInt(selectedYear);
+            if (asset.year) return asset.year.toString() === selectedYear.toString();
+            if (asset.date) return getSafeYear(asset.date).toString() === selectedYear.toString();
             return false;
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
         
@@ -376,7 +364,6 @@ const TaxReports = () => {
             return p.status === 'Pendiente' && pYear <= parseInt(selectedYear);
         }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
         
-        // Sumamos todas las variables por separado para el total
         const totalAssets = cajaGeneral + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
         const netWorth = totalAssets - totalDebts;
@@ -386,7 +373,6 @@ const TaxReports = () => {
             return !originalAcc?.date || getSafeYear(originalAcc.date) <= parseInt(selectedYear);
         });
 
-        // 🚀 Banderas 'isTotal', 'isSubtotal', 'isDetail' para formatear y exportar limpiamente
         const assetsSection = [
             { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
             { Concepto: '  Efectivo y Equivalentes (Caja General)', Valor: cajaGeneral, isSubtotal: true },
@@ -427,7 +413,6 @@ const TaxReports = () => {
         const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
         const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
-        // 1. Añadimos el encabezado elegante
         const dataToExport = [
             { 'Concepto': companyName, 'Valor': '' },
             { 'Concepto': companyNit, 'Valor': '' },
@@ -438,7 +423,6 @@ const TaxReports = () => {
             { 'Concepto': '', 'Valor': '' } 
         ];
 
-        // 2. Mapeamos toda la estructura (incluyendo subtotales y totales)
         data.forEach(({ Concepto, Valor, isSpacer }) => {
             if (isSpacer) {
                 dataToExport.push({ 'Concepto': '', 'Valor': '' });
