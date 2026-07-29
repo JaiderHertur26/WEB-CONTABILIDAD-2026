@@ -304,9 +304,9 @@ const FixedAssets = () => {
                 'NOMBRE DEL ACTIVO': a.name, 
                 'MARCA / MODELO / SERIE': a.model || '', 
                 'CATEGORIA DEL ACTIVO': a.category || '',
-                'LUGAR A INVENTARIAR': a.location || '', // NUEVO: Columna añadida al Excel
                 'USO/DESUSO/ PRESTAMO': a.usage || '', 
                 'ESTADO Bueno/Malo/Regular': a.status, 
+                'LUGAR A INVENTARIAR': a.location || '', // LUGAR REUBICADO DESPUÉS DE ESTADO
                 'VALOR NETO': val, 
                 'OBSERVACIONES': a.notes || ''
             };
@@ -314,8 +314,9 @@ const FixedAssets = () => {
 
         excelData.push({
             'CANT.': '', 'NOMBRE DEL ACTIVO': '', 'MARCA / MODELO / SERIE': '', 'CATEGORIA DEL ACTIVO': '',
-            'LUGAR A INVENTARIAR': '', // NUEVO: Espacio para alinear la fila de total en Excel
-            'USO/DESUSO/ PRESTAMO': '', 'ESTADO Bueno/Malo/Regular': 'TOTAL', 'VALOR NETO': totalValue, 'OBSERVACIONES': ''
+            'USO/DESUSO/ PRESTAMO': '', 'ESTADO Bueno/Malo/Regular': 'TOTAL', 
+            'LUGAR A INVENTARIAR': '', // CELDA VACÍA PARA LUGAR
+            'VALOR NETO': totalValue, 'OBSERVACIONES': ''
         });
 
         exportToExcel(excelData, `Inventario_Activos_Fijos_${yearFilter}`);
@@ -368,7 +369,7 @@ const FixedAssets = () => {
             // 2. Tabla Principal de Inventario
             const tableRows = [];
 
-            // Fila de Títulos
+            // Fila de Títulos (Reordenados)
             tableRows.push(
                 new TableRow({
                     children: [
@@ -376,9 +377,9 @@ const FixedAssets = () => {
                         new TableCell({ children: [new Paragraph({ text: "NOMBRE DEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "MARCA/MODELO /\nSERIE", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "CATEGORIA\nDEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
-                        new TableCell({ children: [new Paragraph({ text: "LUGAR", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }), // NUEVO: Columna Lugar en Word
                         new TableCell({ children: [new Paragraph({ text: "USO/DESUSO/\nPRESTAMO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "ESTADO\nBueno/Malo/Regular", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "LUGAR", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }), // LUGAR REUBICADO
                         new TableCell({ children: [new Paragraph({ text: "VALOR NETO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                         new TableCell({ children: [new Paragraph({ text: "OBSERVACIONES", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
                     ]
@@ -396,9 +397,9 @@ const FixedAssets = () => {
                             new TableCell({ children: [new Paragraph({ text: asset.name || '' })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.model || '' })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.category || '' })] }),
-                            new TableCell({ children: [new Paragraph({ text: asset.location || '' })] }), // NUEVO: Dato de Lugar en Word
                             new TableCell({ children: [new Paragraph({ text: asset.usage || '', alignment: AlignmentType.CENTER })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.status || '', alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.location || '' })] }), // LUGAR REUBICADO
                             new TableCell({ children: [new Paragraph({ text: `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, alignment: AlignmentType.RIGHT })] }),
                             new TableCell({ children: [new Paragraph({ text: asset.notes || '' })] }),
                         ]
@@ -406,19 +407,19 @@ const FixedAssets = () => {
                 );
             });
 
-            // Fila de Totales
+            // Fila de Totales (Ajustada a las 9 columnas)
             tableRows.push(
                 new TableRow({
                     children: [
-                        new TableCell({ children: [new Paragraph("")] }),
-                        new TableCell({ children: [new Paragraph("")] }),
-                        new TableCell({ children: [new Paragraph("")] }),
-                        new TableCell({ children: [new Paragraph("")] }),
-                        new TableCell({ children: [new Paragraph("")] }), // NUEVO: Celda vacía extra para alinear el Total en Word
-                        new TableCell({ children: [new Paragraph("")] }),
-                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "TOTAL", bold: true })], alignment: AlignmentType.CENTER })], shading: { fill: "F5F5F5" } }),
-                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, bold: true })], alignment: AlignmentType.RIGHT })], shading: { fill: "F5F5F5" } }),
-                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph("")] }), // CANT
+                        new TableCell({ children: [new Paragraph("")] }), // NOMBRE
+                        new TableCell({ children: [new Paragraph("")] }), // MARCA
+                        new TableCell({ children: [new Paragraph("")] }), // CATEGORIA
+                        new TableCell({ children: [new Paragraph("")] }), // USO
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "TOTAL", bold: true })], alignment: AlignmentType.CENTER })], shading: { fill: "F5F5F5" } }), // ESTADO
+                        new TableCell({ children: [new Paragraph("")] }), // LUGAR (Celda vacía para que no se descuadre)
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, bold: true })], alignment: AlignmentType.RIGHT })], shading: { fill: "F5F5F5" } }), // VALOR NETO
+                        new TableCell({ children: [new Paragraph("")] }), // OBSERVACIONES
                     ]
                 })
             );
@@ -569,7 +570,6 @@ const FixedAssets = () => {
                 </motion.div>
             ) : (
                 <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
-                    {/* NUEVO: Se agregó 'Lugar' al array del Header de la tabla principal */}
                     <thead className="bg-slate-50"><tr>{['Cant.', 'Activo', 'Lugar', 'Categoría', 'Estado', 'Valor Original', 'Deprec. Acum.', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
                     <tbody className="divide-y">{filteredAssets.map(asset => {
                         const isRetired = asset.status === 'Dado de Baja';
@@ -580,7 +580,6 @@ const FixedAssets = () => {
                             <tr key={asset.id} className={`hover:bg-slate-50 ${asset.status === 'Dado de Baja' ? 'opacity-50 bg-slate-100' : ''}`}>
                                 <td className="p-3">{asset.quantity || 1}</td>
                                 <td className={`p-3 font-medium ${asset.status === 'Dado de Baja' ? 'line-through text-slate-400' : ''}`}>{asset.name}</td>
-                                {/* NUEVO: Se agregó el <td> renderizando el location en la tabla principal */}
                                 <td className="p-3">{asset.location || ''}</td>
                                 <td className="p-3">{asset.category}</td>
                                 <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${asset.status === 'Bueno' ? 'bg-green-100 text-green-800' : asset.status === 'Dado de Baja' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>{asset.status}</span></td>
