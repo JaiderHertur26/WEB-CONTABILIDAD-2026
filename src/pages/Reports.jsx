@@ -10,6 +10,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
+import { isValid, parseISO } from 'date-fns';
 
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
