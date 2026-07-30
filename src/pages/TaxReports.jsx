@@ -203,7 +203,8 @@ const TaxReports = () => {
         };
 
         const initialCash = fInitialBalance.reduce((sum, item) => {
-            if (!item.date || getSafeYear(item.date) <= parseInt(currentYear)) {
+            const creationYear = item.date ? getSafeYear(item.date) : 9999;
+            if (creationYear <= parseInt(selectedYear)) {
                 return sum + safeParseFloat(item.balance);
             }
             return sum;
