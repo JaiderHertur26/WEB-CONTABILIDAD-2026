@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Plus, Edit2, Trash2, Wallet, Banknote, TrendingUp, TrendingDown, AlertCircle, Landmark, Lock, Info, AlertTriangle } from 'lucide-react';
+import { Plus, Edit2, Trash2, Wallet, Banknote, TrendingUp, TrendingDown, Landmark, Lock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -17,8 +17,8 @@ const CashAccounts = () => {
   const [cashAccounts, saveCashAccounts] = useCompanyData('cash_accounts');
   const [initialBalance, saveInitialBalance] = useCompanyData('initialBalance');
   const [accounts, saveAccounts] = useCompanyData('accounts');
-  const [bankAccounts] = useCompanyData('bankAccounts');
   const [transactions, saveTransactions] = useCompanyData('transactions');
+  const [bankAccounts] = useCompanyData('bankAccounts');
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
@@ -31,7 +31,7 @@ const CashAccounts = () => {
     accounting_account: '',
     accounting_concept: '',
     initial_balance: 0,
-    date: format(new Date(), 'yyyy-MM-dd'), // NUEVO: Fecha obligatoria
+    date: format(new Date(), 'yyyy-MM-dd'),
     is_opening_balance: true
   });
   const [fundingSource, setFundingSource] = useState('');
@@ -39,10 +39,7 @@ const CashAccounts = () => {
   const allAccounts = useMemo(() => {
     const list = [];
     if (initialBalance && initialBalance.length > 0) {
-      const totalInitialBalance = initialBalance.reduce((acc, curr) => {
-        return acc + (parseFloat(curr.balance) || 0);
-      }, 0);
-
+      const totalInitialBalance = initialBalance.reduce((acc, curr) => acc + (parseFloat(curr.balance) || 0), 0);
       const main = initialBalance[0];
       list.push({
         id: 'caja_principal',
@@ -80,7 +77,7 @@ const CashAccounts = () => {
         accounting_account: account.accounting_account || '',
         accounting_concept: existingAcc ? existingAcc.name : (account.accounting_concept || account.name),
         initial_balance: account.initial_balance,
-        date: account.date || format(new Date(), 'yyyy-MM-dd'), // Cargar fecha si existe
+        date: account.date || format(new Date(), 'yyyy-MM-dd'),
         is_opening_balance: true
       });
     } else {
@@ -127,7 +124,6 @@ const CashAccounts = () => {
       const oldCode = editingAccount.accounting_account;
       const newCode = formData.accounting_account;
       const newConcept = formData.accounting_concept;
-      // NUEVO: Guardar la fecha en la caja principal
       const newBalanceData = [{ balance: formData.initial_balance, date: formData.date, accountingCode: newCode, accountingName: newConcept }];
       saveInitialBalance(newBalanceData);
 
@@ -158,14 +154,11 @@ const CashAccounts = () => {
         toast({ variant: 'destructive', title: 'Error', description: 'Debes seleccionar la fuente de los fondos.' });
         return;
       }
-
       finalInitialBalance = 0;
-
       const transferVoucherNumber = getNextVoucherNumber('transfer');
-
       newTransactions.push({
         id: `txn-init-inc-${newId}`,
-        date: formData.date, // Usar fecha seleccionada
+        date: formData.date,
         description: `Fondeo Inicial - Caja ${formData.name}`,
         amount: formData.initial_balance,
         type: 'income',
@@ -174,10 +167,9 @@ const CashAccounts = () => {
         voucherNumber: transferVoucherNumber,
         isInternalTransfer: true
       });
-
       newTransactions.push({
         id: `txn-init-exp-${newId}`,
-        date: formData.date, // Usar fecha seleccionada
+        date: formData.date,
         description: `Apertura Caja ${formData.name}`,
         amount: formData.initial_balance,
         type: 'expense',
@@ -186,12 +178,10 @@ const CashAccounts = () => {
         voucherNumber: transferVoucherNumber,
         isInternalTransfer: true
       });
-
       toast({ title: 'Transferencia generada', description: `Se descontaron $${formData.initial_balance} de ${fundingSource.split('|')[1]}` });
     }
 
     if (editingAccount) {
-      // NUEVO: Actualizar con la fecha
       const updatedCashAccounts = cashAccounts.map(acc => acc.id === editingAccount.id ? { ...acc, ...formData, initial_balance: finalInitialBalance, date: formData.date } : acc);
       saveCashAccounts(updatedCashAccounts);
       const originalAccInChart = (accounts || []).find(a => a.number === editingAccount.accounting_account);
@@ -204,7 +194,6 @@ const CashAccounts = () => {
       }
       toast({ title: 'Caja actualizada' });
     } else {
-      // NUEVO: Guardar con la fecha
       const newCashAccount = { ...formData, date: formData.date, id: newId, initial_balance: finalInitialBalance, created_at: new Date().toISOString() };
       saveCashAccounts([...(cashAccounts || []), newCashAccount]);
 
@@ -212,10 +201,7 @@ const CashAccounts = () => {
       const updatedAccounts = [...(accounts || []), newChartAccount].sort((a, b) => a.number.localeCompare(b.number));
       saveAccounts(updatedAccounts);
 
-      if (newTransactions.length > (transactions || []).length) {
-        saveTransactions(newTransactions);
-      }
-
+      if (newTransactions.length > (transactions || []).length) saveTransactions(newTransactions);
       toast({ title: 'Caja creada' });
     }
     setIsDialogOpen(false);
@@ -234,14 +220,46 @@ const CashAccounts = () => {
     }
   };
 
+  // 🚀 CORRECCIÓN: Cálculo perfecto para las tarjetas que incluye doble partida y transferencias
   const calculateCurrentBalance = (account) => {
     let balance = parseFloat(account.initial_balance) || 0;
     if (!transactions) return balance;
+    
     transactions.forEach(t => {
-      if (t.destination && t.destination.startsWith(account.id)) {
-        const amount = parseFloat(t.amount) || 0;
-        if (t.type === 'income') balance += amount;
-        else if (t.type === 'expense') balance -= amount;
+      const amount = parseFloat(t.amount) || 0;
+      
+      const isMatch = (idStr) => idStr && (idStr.startsWith(account.id) || (account.id === 'caja_principal' && idStr.includes('caja_principal')));
+
+      // Caso Asiento Avanzado
+      if (t.debitAccount && t.creditAccount) {
+          const drCode = String(t.debitAccount.code || '');
+          const crCode = String(t.creditAccount.code || '');
+          const drName = (t.debitAccount.name || '').toUpperCase();
+          const crName = (t.creditAccount.name || '').toUpperCase();
+          
+          if (account.id === 'caja_principal') {
+              if (drCode === '11050501' || drName.includes('CAJA PRINCIPAL')) balance += amount;
+              if (crCode === '11050501' || crName.includes('CAJA PRINCIPAL')) balance -= amount;
+          } else {
+              if (account.accounting_account) {
+                  if (drCode === String(account.accounting_account)) balance += amount;
+                  if (crCode === String(account.accounting_account)) balance -= amount;
+              }
+          }
+          return;
+      }
+
+      // Ingresos / Egresos
+      if (t.type === 'income' || t.type === 'expense') {
+          if (isMatch(t.destination)) {
+              if (t.type === 'income') balance += amount; else balance -= amount;
+          }
+      }
+
+      // Transferencias
+      if (t.type === 'transfer') {
+          if (isMatch(t.fromAccount)) balance -= amount;
+          if (isMatch(t.toAccount)) balance += amount;
       }
     });
     return balance;
@@ -300,7 +318,6 @@ const CashAccounts = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Tipo</Label><select className="w-full px-3 py-2 border rounded-md bg-white disabled:bg-slate-100" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} disabled={editingAccount?.isMain || isReadOnly}>{editingAccount?.isMain && <option value="Principal">Caja Principal</option>}<option value="Menor">Caja Menor</option><option value="Mayor">Caja Mayor</option></select></div>
-              {/* NUEVO CAMPO FECHA */}
               <div className="space-y-2"><Label>Fecha de Apertura / Saldo</Label><input type="date" required disabled={isReadOnly} className="w-full px-3 py-2 border rounded-md disabled:bg-slate-100" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
             </div>
 
