@@ -194,16 +194,8 @@ const TaxReports = () => {
             }); 
         }
 
-        const isAccountMatch = (targetId, accountIdOrString) => {
-            if (!accountIdOrString) return false;
-            if (accountIdOrString === targetId) return true;
-            if (accountIdOrString.startsWith(`${targetId}|`)) return true;
-            if (targetId === 'caja_principal' && accountIdOrString.toLowerCase().includes('caja principal')) return true;
-            return false;
-        };
-
         const initialCash = fInitialBalance.reduce((sum, item) => {
-            const creationYear = item.date ? getSafeYear(item.date) : 9999;
+            const creationYear = getAccountCreationYear('caja_principal', item.date);
             if (creationYear <= parseInt(currentYear)) {
                 return sum + safeParseFloat(item.balance);
             }
@@ -242,10 +234,11 @@ const TaxReports = () => {
         if (fCashAccounts.length > 0) {
             customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
                 let currentBal = 0;
-                const creationYear = cashAcc.date ? getSafeYear(cashAcc.date) : 9999;
+                const creationYear = getAccountCreationYear(cashAcc.id, cashAcc.date);
                 if (creationYear <= parseInt(currentYear)) {
                     currentBal = safeParseFloat(cashAcc.initial_balance);
                 }
+
                 bsTransactions.forEach(t => {
                     const amount = safeParseFloat(t.amount);
                     if (t.debitAccount && t.creditAccount) return;
@@ -266,7 +259,7 @@ const TaxReports = () => {
         let totalBankBalances = 0, totalInvestmentBalances = 0;
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
-            const creationYear = acc.date ? getSafeYear(acc.date) : 9999;
+            const creationYear = getAccountCreationYear(acc.id, acc.date);
             if (creationYear <= parseInt(currentYear)) {
                 currentBankBalance = safeParseFloat(acc.initialBalance);
                 currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
@@ -286,7 +279,7 @@ const TaxReports = () => {
                 }
 
                 if (t.type !== 'transfer' && t.destination && t.destination.startsWith(acc.id)) {
-                     if (t.type === 'income') { if (t.description && t.description.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
+                     if (t.type === 'income') { if (t.description?.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
                      else currentBankBalance -= amount;
                 }
                 if (t.type === 'transfer') {
