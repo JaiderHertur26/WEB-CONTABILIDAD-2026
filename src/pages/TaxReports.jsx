@@ -119,7 +119,7 @@ const TaxReports = () => {
     };
 
     // ============================================================================
-    // --- LÓGICA DE RENTA (TAX RETURN) UNIFICADA CON EL BALANCE GENERAL ---
+    // --- LÓGICA DE RENTA (TAX RETURN) EXACTAMENTE IGUAL A REPORTS.JSX ---
     // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
@@ -183,7 +183,7 @@ const TaxReports = () => {
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
-        // 2. Balance Sheet Logic (Sincronizado 100% con Reports.jsx)
+        // 2. Balance Sheet Logic (Espejo exacto de Reports.jsx)
         const cashAccountIds = new Set();
         cashAccountIds.add('caja_principal');
         if (allAccounts) { 
@@ -217,7 +217,7 @@ const TaxReports = () => {
             
             if (t.debitAccount && t.creditAccount) {
                 const drCode = t.debitAccount.code;
-                const crCode = t.debitAccount.code ? t.debitAccount.code : '';
+                const crCode = t.creditAccount.code;
                 const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
                 const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
                 
@@ -267,10 +267,10 @@ const TaxReports = () => {
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
             const creationYear = acc.date ? getSafeYear(acc.date) : 9999;
-            if (creationYear > parseInt(currentYear)) return;
-
-            currentBankBalance = safeParseFloat(acc.initialBalance);
-            currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
+            if (creationYear <= parseInt(currentYear)) {
+                currentBankBalance = safeParseFloat(acc.initialBalance);
+                currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
+            }
             
             bsTransactions.forEach(t => {
                 const amount = safeParseFloat(t.amount);
@@ -286,7 +286,7 @@ const TaxReports = () => {
                 }
 
                 if (t.type !== 'transfer' && t.destination && t.destination.startsWith(acc.id)) {
-                     if (t.type === 'income') { if (t.description?.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
+                     if (t.type === 'income') { if (t.description && t.description.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
                      else currentBankBalance -= amount;
                 }
                 if (t.type === 'transfer') {
@@ -366,6 +366,7 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
+        // Activos Fijos estrictamente por ciclo/año seleccionado
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
             const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
@@ -414,7 +415,7 @@ const TaxReports = () => {
             { isSpacer: true },
             { Concepto: 'INGRESOS TOTALES (P&L del año)', Valor: totalIncomes, isDetail: true },
             { Concepto: 'COSTOS Y GASTOS TOTALES (P&L del año)', Valor: totalCostsAndExpenses, isDetail: true },
-            { Concepto: 'RENTA LÍQUIDA (Ingresos - Gastos)', Valor: netProfit, isDetail: true },
+            { Concepto: 'RENTA LÍQUIDA (Ingresos - Gastos)', Valor: netProfit, isTotal: true },
         ];
     }, [transactions, bankAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, accounts, initialBalance, cashAccounts, inventory, selectedYear, areAllDataLoaded, filterByCompany]);
 
