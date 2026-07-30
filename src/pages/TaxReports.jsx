@@ -183,7 +183,7 @@ const TaxReports = () => {
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
-        // 2. Balance Sheet Logic (Idéntico a Reports.jsx)
+        // 2. Balance Sheet Logic (Sincronizado 100% con Reports.jsx)
         const cashAccountIds = new Set();
         cashAccountIds.add('caja_principal');
         if (allAccounts) { 
@@ -204,7 +204,7 @@ const TaxReports = () => {
 
         const initialCash = fInitialBalance.reduce((sum, item) => {
             const creationYear = item.date ? getSafeYear(item.date) : 9999;
-            if (creationYear <= parseInt(selectedYear)) {
+            if (creationYear <= parseInt(currentYear)) {
                 return sum + safeParseFloat(item.balance);
             }
             return sum;
@@ -217,7 +217,7 @@ const TaxReports = () => {
             
             if (t.debitAccount && t.creditAccount) {
                 const drCode = t.debitAccount.code;
-                const crCode = t.creditAccount.code;
+                const crCode = t.debitAccount.code ? t.debitAccount.code : '';
                 const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
                 const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
                 
@@ -242,7 +242,8 @@ const TaxReports = () => {
         if (fCashAccounts.length > 0) {
             customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
                 let currentBal = 0;
-                if (!cashAcc.date || getSafeYear(cashAcc.date) <= parseInt(currentYear)) {
+                const creationYear = cashAcc.date ? getSafeYear(cashAcc.date) : 9999;
+                if (creationYear <= parseInt(currentYear)) {
                     currentBal = safeParseFloat(cashAcc.initial_balance);
                 }
                 bsTransactions.forEach(t => {
@@ -265,10 +266,11 @@ const TaxReports = () => {
         let totalBankBalances = 0, totalInvestmentBalances = 0;
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
-            if (!acc.date || getSafeYear(acc.date) <= parseInt(currentYear)) {
-                currentBankBalance = safeParseFloat(acc.initialBalance);
-                currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
-            }
+            const creationYear = acc.date ? getSafeYear(acc.date) : 9999;
+            if (creationYear > parseInt(currentYear)) return;
+
+            currentBankBalance = safeParseFloat(acc.initialBalance);
+            currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
             
             bsTransactions.forEach(t => {
                 const amount = safeParseFloat(t.amount);
@@ -284,7 +286,7 @@ const TaxReports = () => {
                 }
 
                 if (t.type !== 'transfer' && t.destination && t.destination.startsWith(acc.id)) {
-                     if (t.type === 'income') { if (t.description && t.description.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
+                     if (t.type === 'income') { if (t.description?.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
                      else currentBankBalance -= amount;
                 }
                 if (t.type === 'transfer') {
@@ -299,7 +301,8 @@ const TaxReports = () => {
         const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
         const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, currentYear).filter(acc => {
             const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
-            return !originalAcc?.date || getSafeYear(originalAcc.date) <= parseInt(currentYear);
+            const creationYear = originalAcc && originalAcc.date ? getSafeYear(originalAcc.date) : 9999;
+            return creationYear <= parseInt(currentYear);
         });
 
         let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
@@ -363,7 +366,6 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
-        // Activos Fijos estrictamente por ciclo/año seleccionado
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
             const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
@@ -412,7 +414,7 @@ const TaxReports = () => {
             { isSpacer: true },
             { Concepto: 'INGRESOS TOTALES (P&L del año)', Valor: totalIncomes, isDetail: true },
             { Concepto: 'COSTOS Y GASTOS TOTALES (P&L del año)', Valor: totalCostsAndExpenses, isDetail: true },
-            { Concepto: 'RENTA LÍQUIDA (Ingresos - Gastos)', Valor: netProfit, isTotal: true },
+            { Concepto: 'RENTA LÍQUIDA (Ingresos - Gastos)', Valor: netProfit, isDetail: true },
         ];
     }, [transactions, bankAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, accounts, initialBalance, cashAccounts, inventory, selectedYear, areAllDataLoaded, filterByCompany]);
 
@@ -426,7 +428,6 @@ const TaxReports = () => {
         const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
         const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
-        // 1. Añadimos el encabezado elegante
         const dataToExport = [
             { 'Concepto': companyName, 'Valor': '' },
             { 'Concepto': companyNit, 'Valor': '' },
@@ -437,7 +438,6 @@ const TaxReports = () => {
             { 'Concepto': '', 'Valor': '' } 
         ];
 
-        // 2. Mapeamos toda la estructura (incluyendo subtotales y totales)
         data.forEach(({ Concepto, Valor, isSpacer }) => {
             if (isSpacer) {
                 dataToExport.push({ 'Concepto': '', 'Valor': '' });
