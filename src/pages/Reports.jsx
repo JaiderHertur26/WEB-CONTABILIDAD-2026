@@ -100,12 +100,12 @@ const Reports = () => {
 
     const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
     const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
+
     // 🚀 NUEVA LÓGICA: Encontrar el año real de creación de una cuenta
     const getAccountCreationYear = (accountId, defaultDate) => {
-        if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
+        if (defaultDate) return getSafeYear(defaultDate);
         
-        // Si no hay fecha, buscamos la transacción más vieja de esta cuenta
-        const accountTransactions = allTransactions.filter(t => 
+        const accountTransactions = validTransactions.filter(t => 
             t.destination?.startsWith(accountId) || 
             t.fromAccount?.startsWith(accountId) || 
             t.toAccount?.startsWith(accountId) ||
@@ -117,8 +117,6 @@ const Reports = () => {
             const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
             return getSafeYear(oldestDate);
         }
-        
-        // Si no hay transacciones ni fecha, asumimos el año actual para que no afecte el pasado
         return new Date().getFullYear();
     };
 
@@ -196,8 +194,8 @@ const Reports = () => {
         return false;
     };
 
+    // 🚀 CORRECCIÓN CAJA PRINCIPAL
     const initialCash = fInitialBalance.reduce((sum, item) => {
-        // Usamos la nueva función inteligente para saber si la caja existía en este año
         const creationYear = getAccountCreationYear('caja_principal', item.date);
         if (creationYear <= parseInt(currentYear)) {
             return sum + safeParseFloat(item.balance);
@@ -296,7 +294,8 @@ const Reports = () => {
     const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
     const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, currentYear).filter(acc => {
         const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
-        return !originalAcc?.date || getSafeYear(originalAcc.date) <= parseInt(currentYear);
+        const creationYear = originalAcc ? getAccountCreationYear(originalAcc.id, originalAcc.date) : new Date().getFullYear();
+        return creationYear <= parseInt(currentYear);
     });
 
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
@@ -360,12 +359,11 @@ const Reports = () => {
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
-    // 🚀 CORRECCIÓN: Filtrar Activos Fijos estrictamente por el año seleccionado para evitar duplicidad
+    // 🚀 CORRECCIÓN ACTIVOS FIJOS: Acumular los creados HASTA el año seleccionado
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
-        if (asset.year) return asset.year.toString() === currentYear.toString();
-        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
-        return false;
+        const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
+        return assetYear <= parseInt(currentYear);
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
