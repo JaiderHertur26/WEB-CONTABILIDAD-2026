@@ -9,6 +9,7 @@ import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext'; 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { isValid, parseISO } from 'date-fns';
 
 const Reports = () => {
@@ -87,9 +88,23 @@ const Reports = () => {
     const validTransactions = allTransactions.filter(t => 
         !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
     );
+    
+    const cashAccountIds = new Set();
+    cashAccountIds.add('caja_principal');
+    if (allAccounts) { 
+        allAccounts.forEach(acc => { 
+            if (acc.number === '11050501' || acc.name.toUpperCase() === 'CAJA PRINCIPAL') { 
+                cashAccountIds.add(acc.id); 
+            } 
+        }); 
+    }
 
+    const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
+    const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
+    // --- LÓGICA DE AÑO DE VIGENCIA ---
     const getAccountCreationYear = (accountId, defaultDate) => {
         if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
+        
         const accountTransactions = validTransactions.filter(t => 
             t.destination?.startsWith(accountId) || 
             t.fromAccount?.startsWith(accountId) || 
@@ -97,15 +112,13 @@ const Reports = () => {
             (t.debitAccount && t.debitAccount.code === accountId) ||
             (t.creditAccount && t.creditAccount.code === accountId)
         );
+        
         if (accountTransactions.length > 0) {
             const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
             return getSafeYear(oldestDate);
         }
         return new Date().getFullYear();
     };
-
-    const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
-    const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
 
     const getAccountPrefix = (categoryName) => {
         const account = allAccounts.find(a => a.name === categoryName);
@@ -172,33 +185,117 @@ const Reports = () => {
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
     ];
     
-    // --- LÓGICA DE BALANCE UNIFICADA (Para cuadre perfecto) ---
+    // --- BALANCE SHEET CALCULATIONS ---
+    const isAccountMatch = (targetId, accountIdOrString) => {
+        if (!accountIdOrString) return false;
+        if (accountIdOrString === targetId) return true;
+        if (accountIdOrString.startsWith(`${targetId}|`)) return true;
+        if (targetId === 'caja_principal' && accountIdOrString.toLowerCase().includes('caja principal')) return true;
+        return false;
+    };
+
     const initialCash = fInitialBalance.reduce((sum, item) => {
-        if (getAccountCreationYear('caja_principal', item.date) <= parseInt(currentYear)) {
+        const creationYear = getAccountCreationYear('caja_principal', item.date);
+        if (creationYear <= parseInt(currentYear)) {
             return sum + safeParseFloat(item.balance);
         }
         return sum;
     }, 0);
 
-    let cajaPrincipalBalance = initialCash;
+
+    let cashIncomes = 0, cashExpenses = 0;
     
-    const dynamicCashBalances = {};
-    fCashAccounts.forEach(ca => {
-        if (getAccountCreationYear(ca.id, ca.date) <= parseInt(currentYear)) {
-            dynamicCashBalances[ca.id] = { name: ca.name, balance: safeParseFloat(ca.initial_balance) };
+    bsTransactions.forEach(t => {
+        const amount = safeParseFloat(t.amount);
+        
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = t.debitAccount.code;
+            const crCode = t.creditAccount.code;
+            const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
+            const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
+            
+            if (drCode === '11050501' || drName.includes('CAJA PRINCIPAL')) cashIncomes += amount;  
+            if (crCode === '11050501' || crName.includes('CAJA PRINCIPAL')) cashExpenses += amount; 
+            return; 
+        }
+
+        if (t.type === 'income' || t.type === 'expense') {
+            if (t.destination && (cashAccountIds.has(t.destination) || t.destination.startsWith('caja_principal'))) {
+                if (t.type === 'income') cashIncomes += amount; else cashExpenses += amount;
+            }
+        }
+        if (t.type === 'transfer') {
+             if (t.fromAccount && (cashAccountIds.has(t.fromAccount) || t.fromAccount.startsWith('caja_principal'))) cashExpenses += amount;
+             if (t.toAccount && (cashAccountIds.has(t.toAccount) || t.toAccount.startsWith('caja_principal'))) cashIncomes += amount;
         }
     });
+    const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
 
-    const bankBalances = {};
-    fBankAccounts.forEach(ba => {
-        if (getAccountCreationYear(ba.id, ba.date) <= parseInt(currentYear)) {
-            bankBalances[ba.id] = { 
-                bankName: ba.bankName, 
-                balance: safeParseFloat(ba.initialBalance), 
-                investment: safeParseFloat(ba.initialInvestmentBalance),
-                accountingCode: ba.accountingCode 
-            };
+    let customCashBalance = 0;
+    if (fCashAccounts.length > 0) {
+        customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
+            let currentBal = 0;
+            const creationYear = getAccountCreationYear(cashAcc.id, cashAcc.date);
+            if (creationYear <= parseInt(currentYear)) {
+                currentBal = safeParseFloat(cashAcc.initial_balance);
+            }
+
+            bsTransactions.forEach(t => {
+                const amount = safeParseFloat(t.amount);
+                if (t.debitAccount && t.creditAccount) return;
+
+                if (t.type !== 'transfer' && t.destination && t.destination.startsWith(cashAcc.id)) {
+                    if (t.type === 'income') currentBal += amount; else if (t.type === 'expense') currentBal -= amount;
+                }
+                if (t.type === 'transfer') {
+                    if (isAccountMatch(cashAcc.id, t.fromAccount)) currentBal -= amount;
+                    if (isAccountMatch(cashAcc.id, t.toAccount)) currentBal += amount;
+                }
+            });
+            return acc + currentBal;
+        }, 0);
+    }
+    const totalCashBalance = cajaPrincipalBalance + customCashBalance;
+
+    let totalBankBalances = 0, totalInvestmentBalances = 0;
+    fBankAccounts.forEach(acc => {
+        let currentBankBalance = 0, currentInvestmentBalance = 0;
+        const creationYear = getAccountCreationYear(acc.id, acc.date);
+        if (creationYear <= parseInt(currentYear)) {
+            currentBankBalance = safeParseFloat(acc.initialBalance);
+            currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
         }
+        
+        bsTransactions.forEach(t => {
+            const amount = safeParseFloat(t.amount);
+            if (t.debitAccount && t.creditAccount) {
+                 const drName = t.debitAccount.name || '';
+                 const crName = t.creditAccount.name || '';
+                 const drCode = t.debitAccount.code || '';
+                 const crCode = t.creditAccount.code || '';
+                 if (drName === acc.bankName || (acc.accountingCode && drCode === acc.accountingCode)) currentBankBalance += amount;
+                 if (crName === acc.bankName || (acc.accountingCode && crCode === acc.accountingCode)) currentBankBalance -= amount;
+                 return;
+            }
+
+            if (t.type !== 'transfer' && t.destination && t.destination.startsWith(acc.id)) {
+                 if (t.type === 'income') { if (t.description && t.description.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
+                 else currentBankBalance -= amount;
+            }
+            if (t.type === 'transfer') {
+                if (isAccountMatch(acc.id, t.fromAccount)) currentBankBalance -= amount;
+                if (isAccountMatch(acc.id, t.toAccount)) currentBankBalance += amount;
+            }
+        });
+        totalBankBalances += currentBankBalance;
+        totalInvestmentBalances += currentInvestmentBalance;
+    });
+
+    const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
+    const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, currentYear).filter(acc => {
+        const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
+        const creationYear = originalAcc ? getAccountCreationYear(originalAcc.id, originalAcc.date) : new Date().getFullYear();
+        return creationYear <= parseInt(currentYear);
     });
 
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
@@ -206,111 +303,68 @@ const Reports = () => {
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
-        // Transacciones Avanzadas (Partida Doble)
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
-            const drName = (t.debitAccount.name || '').toUpperCase();
-            const crName = (t.creditAccount.name || '').toUpperCase();
 
-            // Cajas y Bancos
-            if (drCode === '11050501' || drName.includes('CAJA PRINCIPAL')) cajaPrincipalBalance += amount;
-            if (crCode === '11050501' || crName.includes('CAJA PRINCIPAL')) cajaPrincipalBalance -= amount;
-
-            Object.keys(bankBalances).forEach(bId => {
-                const b = bankBalances[bId];
-                if (drName === b.bankName.toUpperCase() || (b.accountingCode && drCode === b.accountingCode)) b.balance += amount;
-                if (crName === b.bankName.toUpperCase() || (b.accountingCode && crCode === b.accountingCode)) b.balance -= amount;
-            });
-
-            // Patrimonio/Activos
             if (drCode.startsWith('1330')) anticiposValue += amount;
             else if (drCode.startsWith('1508')) construccionesValue += amount;
             else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) otherAssetsValue += amount;
+            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+                otherAssetsValue += amount;
+            }
             else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
             if (crCode.startsWith('1330')) anticiposValue -= amount;
             else if (crCode.startsWith('1508')) construccionesValue -= amount;
             else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
-            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) otherAssetsValue -= amount;
+            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+                otherAssetsValue -= amount;
+            }
             else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
 
             return;
         }
 
-        // Cruces Contables (Amortizaciones)
-        if (t.isInternalTransfer && (t.type === 'expense' || t.type === 'income')) {
-            const acc = allAccounts.find(a => a.name === t.category);
-            if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
-            else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
+        if (t.isInternalTransfer) {
+            if (t.type === 'expense') {
+                const acc = allAccounts.find(a => a.name === t.category);
+                if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
+                else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
+            } else if (t.type === 'income') {
+                const acc = allAccounts.find(a => a.name === t.category);
+                if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
+                else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
+            }
             return;
         }
 
-        // Movimientos simples
-        const isTarget = (idStr, targetId) => idStr && (idStr.startsWith(targetId) || idStr.includes(targetId));
-
-        if (t.type === 'income' || t.type === 'expense') {
-            if (isTarget(t.destination, 'caja_principal')) {
-                if (t.type === 'income') cajaPrincipalBalance += amount; else cajaPrincipalBalance -= amount;
-            }
-            Object.keys(dynamicCashBalances).forEach(cId => {
-                if (isTarget(t.destination, cId)) {
-                    if (t.type === 'income') dynamicCashBalances[cId].balance += amount; else dynamicCashBalances[cId].balance -= amount;
-                }
-            });
-            Object.keys(bankBalances).forEach(bId => {
-                if (isTarget(t.destination, bId)) {
-                    if (t.type === 'income') {
-                        if (t.description && t.description.includes('Aporte Ordinario')) bankBalances[bId].investment += amount;
-                        else bankBalances[bId].balance += amount;
-                    } else bankBalances[bId].balance -= amount;
-                }
-            });
-        }
-
-        // Transferencias
-        if (t.type === 'transfer') {
-            if (isTarget(t.fromAccount, 'caja_principal')) cajaPrincipalBalance -= amount;
-            Object.keys(dynamicCashBalances).forEach(cId => { if (isTarget(t.fromAccount, cId)) dynamicCashBalances[cId].balance -= amount; });
-            Object.keys(bankBalances).forEach(bId => { if (isTarget(t.fromAccount, bId)) bankBalances[bId].balance -= amount; });
-
-            if (isTarget(t.toAccount, 'caja_principal')) cajaPrincipalBalance += amount;
-            Object.keys(dynamicCashBalances).forEach(cId => { if (isTarget(t.toAccount, cId)) dynamicCashBalances[cId].balance += amount; });
-            Object.keys(bankBalances).forEach(bId => { if (isTarget(t.toAccount, bId)) bankBalances[bId].balance += amount; });
-        }
-
-        // Impacto en Activos/Pasivos para registros que no fueron doble partida explícita
         const acc = allAccounts.find(a => a.name === t.category);
-        if (acc) {
-            const num = String(acc.number);
-            const assetImpact = t.type === 'expense' ? amount : -amount;
-            const liabilityImpact = t.type === 'income' ? amount : -amount;
+        if (!acc) return;
+        const num = String(acc.number);
 
-            if (num.startsWith('1330')) anticiposValue += assetImpact;
-            else if (num.startsWith('1508')) construccionesValue += assetImpact;
-            else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
-            else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
-                otherAssetsValue += assetImpact;
-            }
-            else if (num.startsWith('2') && !num.startsWith('2305')) {
-                otherLiabilitiesValue += liabilityImpact;
-            }
+        const assetImpact = t.type === 'expense' ? amount : -amount;
+        const liabilityImpact = t.type === 'income' ? amount : -amount;
+
+        if (num.startsWith('1330')) anticiposValue += assetImpact;
+        else if (num.startsWith('1508')) construccionesValue += assetImpact;
+        else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
+        else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
+            otherAssetsValue += assetImpact;
+        }
+        else if (num.startsWith('2') && !num.startsWith('2305')) {
+            otherLiabilitiesValue += liabilityImpact;
         }
     });
 
-    const customCashBalance = Object.values(dynamicCashBalances).reduce((sum, c) => sum + c.balance, 0);
-    const totalBankBalances = Object.values(bankBalances).reduce((sum, b) => sum + b.balance, 0);
-    const totalInvestmentBalances = Object.values(bankBalances).reduce((sum, b) => sum + b.investment, 0);
-
-    const cajaGeneralValue = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
-
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
+    // 🚀 CORRECCIÓN: Filtrar Activos Fijos estrictamente por el año seleccionado para evitar duplicidad
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
-        const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-        return assetYear <= parseInt(currentYear);
+        if (asset.year) return asset.year.toString() === currentYear.toString();
+        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
+        return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
@@ -330,7 +384,7 @@ const Reports = () => {
         { item: '  Efectivo y Equivalentes', isSubtotal: true },
         { item: '    Caja General', amount: cajaGeneralValue, isBold: true },
         { item: '      Caja Principal', amount: cajaPrincipalBalance },
-        ...Object.values(dynamicCashBalances).map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
+        ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
         { item: '      Cuentas Bancarias', amount: totalBankBalances },
         { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
         { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
