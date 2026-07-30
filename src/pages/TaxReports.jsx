@@ -10,6 +10,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
+import { isValid, parseISO } from 'date-fns';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -141,6 +142,25 @@ const TaxReports = () => {
             !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
         );
 
+        // 🚀 NUEVA LÓGICA: Encontrar el año real de creación de una cuenta
+        const getAccountCreationYear = (accountId, defaultDate) => {
+            if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
+            
+            const accountTransactions = validTransactions.filter(t => 
+                t.destination?.startsWith(accountId) || 
+                t.fromAccount?.startsWith(accountId) || 
+                t.toAccount?.startsWith(accountId) ||
+                (t.debitAccount && t.debitAccount.code === accountId) ||
+                (t.creditAccount && t.creditAccount.code === accountId)
+            );
+            
+            if (accountTransactions.length > 0) {
+                const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
+                return getSafeYear(oldestDate);
+            }
+            return new Date().getFullYear();
+        };
+
         const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === selectedYear);
         const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(selectedYear));
 
@@ -194,7 +214,15 @@ const TaxReports = () => {
             return false;
         };
 
-        const initialCash = fInitialBalance.filter(item => !item.date || getSafeYear(item.date) <= parseInt(selectedYear)).reduce((sum, item) => sum + safeParseFloat(item.balance), 0);
+        // 🚀 CORRECCIÓN CAJA PRINCIPAL
+        const initialCash = fInitialBalance.reduce((sum, item) => {
+            const creationYear = getAccountCreationYear('caja_principal', item.date);
+            if (creationYear <= parseInt(selectedYear)) {
+                return sum + safeParseFloat(item.balance);
+            }
+            return sum;
+        }, 0);
+
         let cashIncomes = 0, cashExpenses = 0;
         
         bsTransactions.forEach(t => {
@@ -223,11 +251,13 @@ const TaxReports = () => {
         });
         const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
 
+        // 🚀 CORRECCIÓN CAJAS MENORES
         let customCashBalance = 0;
         if (fCashAccounts.length > 0) {
             customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
                 let currentBal = 0;
-                if (!cashAcc.date || getSafeYear(cashAcc.date) <= parseInt(selectedYear)) {
+                const creationYear = getAccountCreationYear(cashAcc.id, cashAcc.date);
+                if (creationYear <= parseInt(selectedYear)) {
                     currentBal = safeParseFloat(cashAcc.initial_balance);
                 }
                 bsTransactions.forEach(t => {
@@ -245,10 +275,13 @@ const TaxReports = () => {
             }, 0);
         }
 
+        // 🚀 CORRECCIÓN CUENTAS BANCARIAS
         let totalBankBalances = 0, totalInvestmentBalances = 0;
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
-            if (!acc.date || getSafeYear(acc.date) <= parseInt(selectedYear)) {
+            const creationYear = getAccountCreationYear(acc.id, acc.date);
+            
+            if (creationYear <= parseInt(selectedYear)) {
                 currentBankBalance = safeParseFloat(acc.initialBalance);
                 currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
             }
@@ -342,18 +375,15 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
-        // 🚀 CORRECCIÓN: Filtrar Activos Fijos estrictamente por el año seleccionado para evitar duplicidad
+        // 🚀 CORRECCIÓN ACTIVOS FIJOS: Solo acumular los creados hasta el año seleccionado
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
-            if (asset.year) return asset.year.toString() === selectedYear.toString();
-            if (asset.date) return getSafeYear(asset.date).toString() === selectedYear.toString();
-            return false;
+            const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
+            return assetYear <= parseInt(selectedYear);
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
         
-        const netInventoryAndFixedAssets = manualFixedAssetsValue + realEstatesValue + inventoryValue;
-
         const accountsReceivableValue = fAccountsReceivable.filter(r => {
             const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
             return r.status === 'Pendiente' && rYear <= parseInt(selectedYear);
@@ -370,7 +400,8 @@ const TaxReports = () => {
 
         const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, selectedYear).filter(acc => {
             const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
-            return !originalAcc?.date || getSafeYear(originalAcc.date) <= parseInt(selectedYear);
+            const creationYear = originalAcc ? getAccountCreationYear(originalAcc.id, originalAcc.date) : new Date().getFullYear();
+            return creationYear <= parseInt(selectedYear);
         });
 
         const assetsSection = [
