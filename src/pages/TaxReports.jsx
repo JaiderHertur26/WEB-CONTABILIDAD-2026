@@ -147,6 +147,25 @@ const TaxReports = () => {
             !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
         );
 
+        // 🚀 NUEVA LÓGICA: Encontrar el año real de creación de una cuenta
+        const getAccountCreationYear = (accountId, defaultDate) => {
+            if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
+            
+            const accountTransactions = validTransactions.filter(t => 
+                t.destination?.startsWith(accountId) || 
+                t.fromAccount?.startsWith(accountId) || 
+                t.toAccount?.startsWith(accountId) ||
+                (t.debitAccount && t.debitAccount.code === accountId) ||
+                (t.creditAccount && t.creditAccount.code === accountId)
+            );
+            
+            if (accountTransactions.length > 0) {
+                const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
+                return getSafeYear(oldestDate);
+            }
+            return new Date().getFullYear();
+        };
+
         // Filter transactions for calculations
         const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === selectedYear);
         const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(selectedYear));
@@ -203,7 +222,14 @@ const TaxReports = () => {
             return false;
         };
 
-        const initialCash = fInitialBalance.filter(item => !item.date || getSafeYear(item.date) <= parseInt(selectedYear)).reduce((sum, item) => sum + safeParseFloat(item.balance), 0);
+        // 🚀 CORRECCIÓN CAJA PRINCIPAL: Respetar año de vigencia
+        const initialCash = fInitialBalance.reduce((sum, item) => {
+            const creationYear = item.date ? getSafeYear(item.date) : 9999;
+            if (creationYear <= parseInt(selectedYear)) {
+                return sum + safeParseFloat(item.balance);
+            }
+            return sum;
+        }, 0);
         let cashIncomes = 0, cashExpenses = 0;
         
         bsTransactions.forEach(t => {
@@ -232,13 +258,11 @@ const TaxReports = () => {
         });
         const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
 
-        let customCashBalance = 0;
-        if (fCashAccounts.length > 0) {
-            customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
-                let currentBal = 0;
-                if (!cashAcc.date || getSafeYear(cashAcc.date) <= parseInt(selectedYear)) {
-                    currentBal = safeParseFloat(cashAcc.initial_balance);
-                }
+        let currentBal = 0;
+            const creationYear = cashAcc.date ? getSafeYear(cashAcc.date) : 9999;
+            if (creationYear <= parseInt(selectedYear)) {
+                currentBal = safeParseFloat(cashAcc.initial_balance);
+            }
                 bsTransactions.forEach(t => {
                     const amount = safeParseFloat(t.amount);
                     if (t.debitAccount && t.creditAccount) return;
@@ -254,10 +278,10 @@ const TaxReports = () => {
             }, 0);
         }
 
-        let totalBankBalances = 0, totalInvestmentBalances = 0;
-        fBankAccounts.forEach(acc => {
-            let currentBankBalance = 0, currentInvestmentBalance = 0;
-            if (!acc.date || getSafeYear(acc.date) <= parseInt(selectedYear)) {
+        let currentBankBalance = 0, currentInvestmentBalance = 0;
+            const creationYear = acc.date ? getSafeYear(acc.date) : 9999;
+            
+            if (creationYear <= parseInt(selectedYear)) {
                 currentBankBalance = safeParseFloat(acc.initialBalance);
                 currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
             }
@@ -355,11 +379,11 @@ const TaxReports = () => {
         });
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
+        // 🚀 CORRECCIÓN ACTIVOS FIJOS: Acumular los activos comprados HASTA el año seleccionado
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
-            if (asset.year) return parseInt(asset.year) <= parseInt(selectedYear);
-            if (asset.date) return getSafeYear(asset.date) <= parseInt(selectedYear);
-            return false;
+            const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
+            return assetYear <= parseInt(selectedYear);
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
@@ -383,7 +407,8 @@ const TaxReports = () => {
 
         const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, selectedYear).filter(acc => {
             const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
-            return !originalAcc?.date || getSafeYear(originalAcc.date) <= parseInt(selectedYear);
+            const creationYear = (originalAcc && originalAcc.date) ? getSafeYear(originalAcc.date) : 9999;
+            return creationYear <= parseInt(selectedYear);
         });
 
         // 🚀 Banderas 'isTotal', 'isSubtotal', 'isDetail' para formatear y exportar limpiamente
