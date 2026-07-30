@@ -219,11 +219,13 @@ const getAccountCreationYear = (accountId, defaultDate) => {
         };
 
         const initialCash = fInitialBalance.reduce((sum, item) => {
-            if (!item.date || getSafeYear(item.date) <= parseInt(selectedYear)) {
+            const creationYear = item.date ? getSafeYear(item.date) : 9999;
+            if (creationYear <= parseInt(selectedYear)) {
                 return sum + safeParseFloat(item.balance);
             }
             return sum;
         }, 0);
+
         let cashIncomes = 0, cashExpenses = 0;
         
         bsTransactions.forEach(t => {
@@ -256,13 +258,15 @@ const getAccountCreationYear = (accountId, defaultDate) => {
         if (fCashAccounts.length > 0) {
             customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
                 let currentBal = 0;
-                if (!cashAcc.date || getSafeYear(cashAcc.date) <= parseInt(selectedYear)) {
+                const creationYear = cashAcc.date ? getSafeYear(cashAcc.date) : 9999;
+                if (creationYear <= parseInt(selectedYear)) {
                     currentBal = safeParseFloat(cashAcc.initial_balance);
                 }
 
                 bsTransactions.forEach(t => {
                     const amount = safeParseFloat(t.amount);
                     if (t.debitAccount && t.creditAccount) return;
+
                     if (t.type !== 'transfer' && t.destination && t.destination.startsWith(cashAcc.id)) {
                         if (t.type === 'income') currentBal += amount; else if (t.type === 'expense') currentBal -= amount;
                     }
@@ -278,7 +282,8 @@ const getAccountCreationYear = (accountId, defaultDate) => {
         let totalBankBalances = 0, totalInvestmentBalances = 0;
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
-            if (!acc.date || getSafeYear(acc.date) <= parseInt(selectedYear)) {
+            const creationYear = acc.date ? getSafeYear(acc.date) : 9999;
+            if (creationYear <= parseInt(selectedYear)) {
                 currentBankBalance = safeParseFloat(acc.initialBalance);
                 currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
             }
