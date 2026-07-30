@@ -378,11 +378,12 @@ const getAccountCreationYear = (accountId, defaultDate) => {
         });
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
-        // 🚀 CORRECCIÓN ACTIVOS FIJOS: Acumular los activos comprados HASTA el año seleccionado
+        
+        // 🚀 CORRECCIÓN ACTIVOS FIJOS: Mostrar estrictamente el saldo del año seleccionado (ciclos cerrados)
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
             const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-            return assetYear <= parseInt(selectedYear);
+            return assetYear === parseInt(selectedYear);
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
@@ -399,10 +400,19 @@ const getAccountCreationYear = (accountId, defaultDate) => {
             return p.status === 'Pendiente' && pYear <= parseInt(selectedYear);
         }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
         
-        // Sumamos todas las variables por separado para el total
-        const totalAssets = cajaGeneral + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
-        const totalDebts = accountsPayableValue + otherLiabilitiesValue;
-        const netWorth = totalAssets - totalDebts;
+        // 🚀 BLINDAJE MATEMÁTICO DE RENTA Y PATRIMONIO
+        const totalAssets = safeParseFloat(cajaGeneral) + 
+                            safeParseFloat(accountsReceivableValue) + 
+                            safeParseFloat(anticiposValue) + 
+                            safeParseFloat(otherAssetsValue) + 
+                            safeParseFloat(construccionesValue) + 
+                            safeParseFloat(realEstatesValue) + 
+                            safeParseFloat(manualFixedAssetsValue) + 
+                            safeParseFloat(inventoryValue) + 
+                            safeParseFloat(depreciacionAcumuladaValue);
+                            
+        const totalDebts = safeParseFloat(accountsPayableValue) + safeParseFloat(otherLiabilitiesValue);
+        const netWorth = safeParseFloat(totalAssets) - safeParseFloat(totalDebts);
 
         const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, selectedYear).filter(acc => {
             const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
