@@ -219,8 +219,7 @@ const getAccountCreationYear = (accountId, defaultDate) => {
         };
 
         const initialCash = fInitialBalance.reduce((sum, item) => {
-            const creationYear = item.date ? getSafeYear(item.date) : 9999;
-            if (creationYear <= parseInt(selectedYear)) {
+            if (!item.date || getSafeYear(item.date) <= parseInt(selectedYear)) {
                 return sum + safeParseFloat(item.balance);
             }
             return sum;
@@ -257,10 +256,10 @@ const getAccountCreationYear = (accountId, defaultDate) => {
         if (fCashAccounts.length > 0) {
             customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
                 let currentBal = 0;
-                const creationYear = cashAcc.date ? getSafeYear(cashAcc.date) : 9999;
-                if (creationYear <= parseInt(selectedYear)) {
+                if (!cashAcc.date || getSafeYear(cashAcc.date) <= parseInt(selectedYear)) {
                     currentBal = safeParseFloat(cashAcc.initial_balance);
                 }
+
                 bsTransactions.forEach(t => {
                     const amount = safeParseFloat(t.amount);
                     if (t.debitAccount && t.creditAccount) return;
@@ -279,8 +278,7 @@ const getAccountCreationYear = (accountId, defaultDate) => {
         let totalBankBalances = 0, totalInvestmentBalances = 0;
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
-            const creationYear = acc.date ? getSafeYear(acc.date) : 9999;
-            if (creationYear <= parseInt(selectedYear)) {
+            if (!acc.date || getSafeYear(acc.date) <= parseInt(selectedYear)) {
                 currentBankBalance = safeParseFloat(acc.initialBalance);
                 currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
             }
