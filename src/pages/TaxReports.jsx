@@ -10,7 +10,6 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
-import { isValid, parseISO } from 'date-fns';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -30,7 +29,7 @@ const TaxReports = () => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const { toast } = useToast();
 
-    // HELPER PARA EVITAR EL BUG DE ZONA HORARIA (UTC vs Hora Colombia)
+    // HELPER PARA EVITAR EL BUG DE ZONA HORARIA
     const getSafeYear = (dateStr) => {
         if (!dateStr) return 0;
         if (typeof dateStr === 'string' && dateStr.includes('-')) {
@@ -120,7 +119,7 @@ const TaxReports = () => {
     };
 
     // ============================================================================
-    // --- LÓGICA DE RENTA (CLON EXACTO DEL BALANCE GENERAL) ---
+    // --- LÓGICA DE RENTA (TAX RETURN) CLONADA AL 100% DE REPORTS.JSX ---
     // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
@@ -152,7 +151,7 @@ const TaxReports = () => {
         const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
 
         const getAccountCreationYear = (accountId, defaultDate) => {
-            if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
+            if (defaultDate) return getSafeYear(defaultDate);
             
             const accountTransactions = validTransactions.filter(t => 
                 t.destination?.startsWith(accountId) || 
@@ -202,7 +201,7 @@ const TaxReports = () => {
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
-        // 2. Balance Sheet Logic (Clon de Reports.jsx)
+        // 2. Balance Sheet Logic
         const cashAccountIds = new Set();
         cashAccountIds.add('caja_principal');
         if (allAccounts) { 
@@ -287,7 +286,6 @@ const TaxReports = () => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
             const creationYear = getAccountCreationYear(acc.id, acc.date);
             
-            // LA CLAVE: No retornar, solo condicional inicial (Igual al Balance General)
             if (creationYear <= parseInt(currentYear)) {
                 currentBankBalance = safeParseFloat(acc.initialBalance);
                 currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
@@ -307,7 +305,7 @@ const TaxReports = () => {
                 }
 
                 if (t.type !== 'transfer' && t.destination && t.destination.startsWith(acc.id)) {
-                     if (t.type === 'income') { if (t.description?.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
+                     if (t.type === 'income') { if (t.description && t.description.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
                      else currentBankBalance -= amount;
                 }
                 if (t.type === 'transfer') {
@@ -331,6 +329,7 @@ const TaxReports = () => {
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
+            // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
@@ -354,19 +353,7 @@ const TaxReports = () => {
                 return;
             }
 
-            if (t.isInternalTransfer) {
-                if (t.type === 'expense') {
-                    const acc = allAccounts.find(a => a.name === t.category);
-                    if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
-                    else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
-                } else if (t.type === 'income') {
-                    const acc = allAccounts.find(a => a.name === t.category);
-                    if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
-                    else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
-                }
-                return;
-            }
-
+            // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
             const acc = allAccounts.find(a => a.name === t.category);
             if (!acc) return;
             const num = String(acc.number);

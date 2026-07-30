@@ -101,7 +101,7 @@ const Reports = () => {
 
     const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
     const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
-    // --- LÓGICA DE AÑO DE VIGENCIA ---
+
     const getAccountCreationYear = (accountId, defaultDate) => {
         if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
         
@@ -303,6 +303,7 @@ const Reports = () => {
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
+        // Bloque Partida Doble Manual
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
@@ -326,19 +327,7 @@ const Reports = () => {
             return;
         }
 
-        if (t.isInternalTransfer) {
-            if (t.type === 'expense') {
-                const acc = allAccounts.find(a => a.name === t.category);
-                if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
-                else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
-            } else if (t.type === 'income') {
-                const acc = allAccounts.find(a => a.name === t.category);
-                if (acc && String(acc.number).startsWith('1330')) anticiposValue -= amount;
-                else if (acc && String(acc.number).startsWith('1508')) construccionesValue += amount;
-            }
-            return;
-        }
-
+        // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
@@ -359,7 +348,6 @@ const Reports = () => {
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
-    // 🚀 CORRECCIÓN: Filtrar Activos Fijos estrictamente por el año seleccionado para evitar duplicidad
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
         if (asset.year) return asset.year.toString() === currentYear.toString();
