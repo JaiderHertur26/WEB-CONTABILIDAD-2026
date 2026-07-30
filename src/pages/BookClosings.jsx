@@ -14,7 +14,8 @@ import {
     FileSpreadsheet,
     Printer,
     BookOpen,
-    AlertCircle
+    AlertCircle,
+    ArrowUpRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
@@ -118,98 +119,134 @@ const BookClosings = () => {
             return isWithinInterval(adjustedDate, { start, end }) && isValidStatus;
         });
 
-        const pnlTransactions = allRelevant.filter(t => !t.isInternalTransfer);
         allRelevant.sort((a, b) => new Date(a.date) - new Date(b.date));
+        const pnlTransactions = allRelevant.filter(t => !t.isInternalTransfer);
 
-        const isInvestmentCategory = (cat) => {
-            const category = (cat || '').toUpperCase();
-            return category.includes('CONSTRUCCIONES') || category.includes('ANTICIPOS');
+        const getAccountPrefix = (categoryName) => {
+            const account = (accounts || []).find(a => a.name === categoryName);
+            return account ? String(account.number).charAt(0) : null;
         };
 
-        const isLiabilityAccount = (t) => {
-            const acc = (accounts || []).find(a => a.id === t.accountId || a.name === t.category);
-            return acc && acc.number && String(acc.number).startsWith('2');
-        };
+        let totalIncome = 0;
+        let totalExpense = 0;
+        let tercerosIn = 0;
+        let tercerosOut = 0;
+        let capitalizacion = 0;
 
-        const incomes = pnlTransactions.filter(t =>
-            t.type === 'income' &&
-            !isLiabilityAccount(t) &&
-            !isInvestmentCategory(t.category)
-        );
+        const incomeMap = {};
+        const expenseMap = {};
 
-        const expenses = pnlTransactions.filter(t =>
-            t.type === 'expense' &&
-            !isLiabilityAccount(t) &&
-            !isInvestmentCategory(t.category)
-        );
-
-        let excludedIncome = 0;
-        let excludedExpense = 0;
-
+        // 1. CLASIFICACIÓN DEL ESTADO DE RESULTADOS (P&L) Y CONCILIACIONES
         pnlTransactions.forEach(t => {
-            if (isLiabilityAccount(t) || isInvestmentCategory(t.category)) {
-                if (t.type === 'income') excludedIncome += parseFloat(t.amount || 0);
-                if (t.type === 'expense') excludedExpense += parseFloat(t.amount || 0);
+            const amount = parseFloat(t.amount || 0);
+
+            // Si es un asiento manual de Partida Doble
+            if (t.debitAccount && t.creditAccount) {
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                const drPrefix = drCode.charAt(0);
+                const crPrefix = crCode.charAt(0);
+
+                if (crPrefix === '4') { 
+                    totalIncome += amount; 
+                    incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount; 
+                }
+                if (['5', '6', '7'].includes(drPrefix)) { 
+                    totalExpense += amount; 
+                    expenseMap[t.debitAccount.name] = (expenseMap[t.debitAccount.name] || 0) + amount; 
+                }
+
+                // Fondos de Terceros (Pasivos - 2)
+                if (crPrefix === '2') tercerosIn += amount;
+                if (drPrefix === '2') tercerosOut += amount;
+
+                // Capitalizaciones e Inversiones (Activos - 1, excluyendo Cajas 11)
+                if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
+                    capitalizacion += amount;
+                }
+                return;
+            }
+
+            // Si es una transacción normal
+            const prefix = getAccountPrefix(t.category) || (t.type === 'income' ? '4' : '5');
+            
+            if (prefix === '4') {
+                totalIncome += amount;
+                incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
+            } else if (['5', '6', '7'].includes(prefix)) {
+                totalExpense += amount;
+                expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
+            } else if (prefix === '2') {
+                if (t.type === 'income') tercerosIn += amount;
+                if (t.type === 'expense') tercerosOut += amount;
+            } else if (prefix === '1' || prefix === '3') {
+                if (t.type === 'expense') capitalizacion += amount;
             }
         });
 
-        const groupByCategory = (list) => {
-            const groups = {};
-            list.forEach(t => {
-                const catName = t.category || 'Sin Categoría asignada';
-                groups[catName] = (groups[catName] || 0) + parseFloat(t.amount);
-            });
-            return Object.entries(groups).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
-        };
+        const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
+        // 2. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos)
         const flowIn = {};
         const flowOut = {};
 
         allRelevant.forEach(t => {
-            const amount = parseFloat(t.amount);
-            const getCleanName = (accStr) => {
-                if (!accStr) return 'CAJA PRINCIPAL';
-                const parts = accStr.split('|');
-                const name = (parts.length > 1 ? parts[1] : parts[0]).toUpperCase();
-                return name === 'CAJA_PRINCIPAL' ? 'CAJA PRINCIPAL' : name;
+            const amount = parseFloat(t.amount || 0);
+
+            // A. Partida Doble Manual
+            if (t.debitAccount && t.creditAccount) {
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                const drName = (t.debitAccount.name || '').toUpperCase();
+                const crName = (t.creditAccount.name || '').toUpperCase();
+
+                if (drCode.startsWith('11') || drCode.startsWith('1295') || drName.includes('CAJA') || drName.includes('COOPERATIVA')) {
+                    flowIn[drName] = (flowIn[drName] || 0) + amount;
+                }
+                if (crCode.startsWith('11') || crCode.startsWith('1295') || crName.includes('CAJA') || crName.includes('COOPERATIVA')) {
+                    flowOut[crName] = (flowOut[crName] || 0) + amount;
+                }
+                return;
+            }
+
+            // Función ayudante para limpiar nombres
+            const extractTargetName = (str) => {
+                if (!str) return 'CAJA PRINCIPAL';
+                const parts = str.split('|');
+                let name = (parts[1] || parts[0]).toUpperCase();
+                if (name === 'CAJA_PRINCIPAL' || parts[0] === 'caja_principal') return 'CAJA PRINCIPAL';
+                if (name === '11201501' || parts[0] === '11201501') return 'COOPERATIVA FRATERNIDAD SACERDOTAL';
+                return name;
             };
 
-            if (t.isInternalTransfer && t.type === 'expense') {
-                const origin = getCleanName(t.destination);
-                const destName = t.description.split(' a ')[1]?.split(':')[0].toUpperCase() || 'CUENTA DESTINO';
-                const label = `${origin} (A: ${destName})`;
-                flowOut[label] = (flowOut[label] || 0) + amount;
-            } else if (t.isInternalTransfer && t.type === 'income') {
-                const target = getCleanName(t.destination);
-                const origName = t.description.split('desde ')[1] || 'CUENTA ORIGEN';
-                const label = `${target} (DESDE: ${origName.toUpperCase()})`;
-                flowIn[label] = (flowIn[label] || 0) + amount;
-            } else if (t.type === 'income') {
-                const target = getCleanName(t.destination);
-                flowIn[target] = (flowIn[target] || 0) + amount;
-            } else if (t.type === 'expense') {
-                const origin = getCleanName(t.destination);
-                flowOut[origin] = (flowOut[origin] || 0) + amount;
+            // B. Cruces Internos Automáticos
+            if (t.isInternalTransfer) {
+                const targetName = extractTargetName(t.destination);
+                if (t.type === 'expense') flowOut[`${targetName} (Transferencia)`] = (flowOut[`${targetName} (Transferencia)`] || 0) + amount;
+                else if (t.type === 'income') flowIn[`${targetName} (Transferencia)`] = (flowIn[`${targetName} (Transferencia)`] || 0) + amount;
+                return;
             }
-        });
 
-        const totalIncome = incomes.reduce((sum, t) => sum + parseFloat(t.amount), 0);
-        const totalExpense = expenses.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+            // C. Transacciones Normales
+            const destName = extractTargetName(t.destination);
+            if (t.type === 'income') flowIn[destName] = (flowIn[destName] || 0) + amount;
+            else if (t.type === 'expense') flowOut[destName] = (flowOut[destName] || 0) + amount;
+        });
 
         setReport({
             period: { start, end },
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
-            incomeByCategory: groupByCategory(incomes),
-            expenseByCategory: groupByCategory(expenses),
-            incomeByDestination: Object.entries(flowIn).map(([name, total]) => ({ name, total })),
-            expenseByDestination: Object.entries(flowOut).map(([name, total]) => ({ name, total })),
+            incomeByCategory: sortMap(incomeMap),
+            expenseByCategory: sortMap(expenseMap),
+            incomeByDestination: sortMap(flowIn),
+            expenseByDestination: sortMap(flowOut),
             transactions: pnlTransactions,
-            conciliacion: { excludedIncome, excludedExpense }
+            conciliacion: { tercerosIn, tercerosOut, capitalizacion }
         });
 
-        toast({ title: "Cierre Generado", description: "Movimientos detallados y procesados." });
+        toast({ title: "Cierre Generado", description: "Movimientos detallados y procesados correctamente." });
     };
 
     const handleExport = () => {
@@ -223,11 +260,16 @@ const BookClosings = () => {
             let destName = t.destination ? t.destination.split('|')[1] || t.destination.split('|')[0] : 'N/A';
             if (destName === 'caja_principal') destName = 'Caja Principal';
 
+            let accCat = t.category;
+            if (t.debitAccount && t.creditAccount) {
+                accCat = t.type === 'income' ? t.creditAccount.name : t.debitAccount.name;
+            }
+
             return {
                 'Comprobante': t.voucherNumber || '-',
                 'Fecha': format(adjustedDate, 'dd/MM/yyyy'),
                 'Tipo': t.type === 'income' ? 'Ingreso' : 'Egreso',
-                'Categoría Contable': t.category || 'Sin Categoría',
+                'Categoría Contable': accCat || 'Sin Categoría',
                 'Descripción': t.description,
                 'Cuenta (Caja/Banco)': destName.toUpperCase(),
                 'Ingreso': t.type === 'income' ? parseFloat(t.amount) : 0,
@@ -248,7 +290,7 @@ const BookClosings = () => {
     const handlePrint = () => {
         if (!report) return;
 
-        const printWindow = window.open('', '_blank', 'width=900,height=700');
+        const printWindow = window.open('', '_blank', 'width=900,height=800');
         const { start, end } = report.period;
         const formattedStart = format(start, "d 'de' MMMM, yyyy", { locale: es });
         const formattedEnd = format(end, "d 'de' MMMM, yyyy", { locale: es });
@@ -262,6 +304,8 @@ const BookClosings = () => {
                 </tr>
             `).join('');
         };
+
+        const hasConciliacion = report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0 || report.conciliacion.capitalizacion > 0;
 
         const htmlContent = `
             <!DOCTYPE html>
@@ -286,7 +330,7 @@ const BookClosings = () => {
     .col { width: 50%; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
     th { background-color: #f1f5f9; text-align: left; padding: 5px 6px; border: 1px solid #cbd5e1; font-size: 10px; color: #334155; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    td { padding: 5px 6px !important; border: 1px solid #e2e8f0; font-size: 10px !important; }
+    td { padding: 5px 6px !important; border: 1px solid #e2e8f0; font-size: 10px !important; text-transform: uppercase; }
     .signatures { margin-top: 35px; display: flex; justify-content: space-between; padding: 0 40px; page-break-inside: avoid; }
     .sig-block { width: 40%; text-align: center; }
     .sig-line { border-top: 1px solid #000; padding-top: 5px; font-size: 11px; font-weight: bold; }
@@ -304,20 +348,20 @@ const BookClosings = () => {
 
                 <div class="summary-box">
                     <div class="summary-item">
-                        <div class="summary-label">Total Ingresos</div>
+                        <div class="summary-label">Total Ingresos Operativos</div>
                         <div class="summary-value" style="color: #16a34a;">$${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-label">Total Egresos</div>
+                        <div class="summary-label">Total Gastos Operativos</div>
                         <div class="summary-value" style="color: #dc2626;">$${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-label">Balance Neto</div>
+                        <div class="summary-label">Utilidad / Pérdida</div>
                         <div class="summary-value" style="color: #2563eb;">$${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
                     </div>
                 </div>
 
-                <div class="section-title">1. Estado de Resultados (Por Concepto)</div>
+                <div class="section-title">1. Estado de Resultados (Por Concepto Operativo)</div>
                 <div class="grid-2">
                     <div class="col">
                         <table>
@@ -327,13 +371,13 @@ const BookClosings = () => {
                     </div>
                     <div class="col">
                         <table>
-                            <thead><tr><th>Egresos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
+                            <thead><tr><th>Gastos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
                             <tbody>${generateTableRows(report.expenseByCategory)}</tbody>
                         </table>
                     </div>
                 </div>
 
-                <div class="section-title">2. Flujo de Efectivo (Cajas y Bancos)</div>
+                <div class="section-title">2. Flujo de Efectivo Real (Entradas y Salidas de Caja/Bancos)</div>
                 <div class="grid-2">
                     <div class="col">
                         <table>
@@ -348,6 +392,18 @@ const BookClosings = () => {
                         </table>
                     </div>
                 </div>
+
+                ${hasConciliacion ? `
+                <div class="section-title">3. Conciliación (Capitalizaciones y Terceros)</div>
+                <div style="font-size: 10px; color: #475569; margin-bottom: 5px;">Estos valores representan inversiones en el patrimonio o administración de pasivos. No afectan la utilidad de la empresa.</div>
+                <table style="width: 100%; margin-bottom: 15px;">
+                    <tbody>
+                        ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                        ${report.conciliacion.tercerosIn > 0 ? `<tr><td style="font-weight: bold; background-color: #fffbeb;">Fondos de Terceros Recibidos (Cuentas por Pagar creadas):</td><td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${report.conciliacion.tercerosIn.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                        ${report.conciliacion.tercerosOut > 0 ? `<tr><td style="font-weight: bold; background-color: #fffbeb;">Fondos de Terceros Pagados (Deudas Canceladas a la DIAN/Terceros):</td><td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                    </tbody>
+                </table>
+                ` : ''}
 
                 <div class="signatures">
                     <div class="sig-block">
@@ -515,7 +571,7 @@ const BookClosings = () => {
                                     <div className="bg-green-100 p-2 rounded-lg print:bg-transparent"><TrendingUp className="w-6 h-6 text-green-600 print:text-black" /></div>
                                     <span className="text-xs font-semibold text-green-600 bg-green-100 px-2 py-1 rounded-full print:bg-transparent print:border print:border-black print:text-black">Ingresos</span>
                                 </div>
-                                <p className="text-slate-600 text-sm font-medium">Total Ingresos Periodo</p>
+                                <p className="text-slate-600 text-sm font-medium">Total Ingresos Operativos</p>
                                 <p className="text-3xl font-bold text-slate-900 mt-1">${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
                             </div>
 
@@ -524,7 +580,7 @@ const BookClosings = () => {
                                     <div className="bg-red-100 p-2 rounded-lg print:bg-transparent"><TrendingDown className="w-6 h-6 text-red-600 print:text-black" /></div>
                                     <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-1 rounded-full print:bg-transparent print:border print:border-black print:text-black">Egresos</span>
                                 </div>
-                                <p className="text-slate-600 text-sm font-medium">Total Gastos/Costos Periodo</p>
+                                <p className="text-slate-600 text-sm font-medium">Total Gastos Operativos</p>
                                 <p className="text-3xl font-bold text-slate-900 mt-1">${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
                             </div>
 
@@ -542,30 +598,55 @@ const BookClosings = () => {
                             </div>
                         </div>
 
-                        {report && (report.conciliacion.excludedIncome > 0 || report.conciliacion.excludedExpense > 0) && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-amber-50 p-6 rounded-xl border border-amber-200 shadow-sm mt-6">
-                                <h4 className="font-bold text-amber-900 flex items-center gap-2 mb-3">
-                                    <AlertCircle className="w-4 h-4" /> Conciliación (Fondos de Terceros / Pasivos)
-                                </h4>
-                                <p className="text-xs text-amber-800 mb-4">
-                                    El sistema ha excluido estas cifras de los ingresos/gastos operativos porque pertenecen a cuentas de terceros (Pasivos),
-                                    lo cual es correcto para obtener tu utilidad real.
-                                </p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="bg-white p-3 rounded border border-amber-100 flex justify-between">
-                                        <span className="text-xs font-bold text-slate-600">Fondos Recibidos (No Ingresos):</span>
-                                        <span className="font-mono font-bold text-amber-700">${report.conciliacion.excludedIncome.toLocaleString('es-ES')}</span>
+                        {/* CAJAS DE CONCILIACIÓN SEPARADAS Y CLARAS */}
+                        {report && (report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0 || report.conciliacion.capitalizacion > 0) && (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                                
+                                {report.conciliacion.capitalizacion > 0 && (
+                                    <div className="bg-emerald-50 p-5 rounded-xl border border-emerald-200 shadow-sm">
+                                        <h4 className="font-bold text-emerald-900 flex items-center gap-2 mb-2">
+                                            <ArrowUpRight className="w-4 h-4" /> Inversión y Capitalización
+                                        </h4>
+                                        <p className="text-xs text-emerald-800 mb-4">
+                                            Dinero ejecutado en Activos Fijos, Construcciones o Anticipos a Contratistas. Aumentan tu patrimonio.
+                                        </p>
+                                        <div className="bg-white p-3 rounded border border-emerald-100 flex justify-between">
+                                            <span className="text-sm font-bold text-slate-600">Total Capitalizado:</span>
+                                            <span className="font-mono font-bold text-emerald-700">${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                                        </div>
                                     </div>
-                                    <div className="bg-white p-3 rounded border border-amber-100 flex justify-between">
-                                        <span className="text-xs font-bold text-slate-600">Fondos Entregados (No Gastos):</span>
-                                        <span className="font-mono font-bold text-amber-700">${report.conciliacion.excludedExpense.toLocaleString('es-ES')}</span>
+                                )}
+
+                                {(report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0) && (
+                                    <div className="bg-amber-50 p-5 rounded-xl border border-amber-200 shadow-sm">
+                                        <h4 className="font-bold text-amber-900 flex items-center gap-2 mb-2">
+                                            <AlertCircle className="w-4 h-4" /> Fondos de Terceros (Pasivos)
+                                        </h4>
+                                        <p className="text-xs text-amber-800 mb-4">
+                                            Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
+                                        </p>
+                                        <div className="space-y-2">
+                                            {report.conciliacion.tercerosIn > 0 && (
+                                                <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
+                                                    <span className="text-xs font-bold text-slate-600">Recibido (CxP a pagar):</span>
+                                                    <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosIn.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                                                </div>
+                                            )}
+                                            {report.conciliacion.tercerosOut > 0 && (
+                                                <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
+                                                    <span className="text-xs font-bold text-slate-600">Pagado (Deuda Salada):</span>
+                                                    <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
+
                             </motion.div>
                         )}
 
                         <div className="pt-6">
-                            <h3 className="text-xl font-bold text-slate-800 mb-4 border-b-2 border-slate-200 pb-2">Estado de Resultados (Por Categoría Contable)</h3>
+                            <h3 className="text-xl font-bold text-slate-800 mb-4 border-b-2 border-slate-200 pb-2">Estado de Resultados (Por Categoría Operativa)</h3>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
                                     <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
@@ -580,13 +661,13 @@ const BookClosings = () => {
                                                 </div>
                                                 <span className="font-bold text-slate-900">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                                             </div>
-                                        )) : <div className="p-6 text-center text-slate-400 text-sm">No hubo ingresos.</div>}
+                                        )) : <div className="p-6 text-center text-slate-400 text-sm">No hubo ingresos operativos.</div>}
                                     </div>
                                 </div>
 
                                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
                                     <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
-                                        <h4 className="font-bold text-slate-800 flex items-center"><TrendingDown className="w-4 h-4 mr-2 text-red-600" /> Clasificación de Egresos</h4>
+                                        <h4 className="font-bold text-slate-800 flex items-center"><TrendingDown className="w-4 h-4 mr-2 text-red-600" /> Clasificación de Gastos</h4>
                                     </div>
                                     <div className="divide-y">
                                         {report.expenseByCategory.length > 0 ? report.expenseByCategory.map((item, i) => (
@@ -597,14 +678,14 @@ const BookClosings = () => {
                                                 </div>
                                                 <span className="font-bold text-slate-900">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                                             </div>
-                                        )) : <div className="p-6 text-center text-slate-400 text-sm">No hubo egresos.</div>}
+                                        )) : <div className="p-6 text-center text-slate-400 text-sm">No hubo gastos operativos.</div>}
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <div className="pt-8">
-                            <h3 className="text-xl font-bold text-slate-800 mb-4 border-b-2 border-slate-200 pb-2">Flujo de Efectivo (Afectación a Cajas y Bancos)</h3>
+                            <h3 className="text-xl font-bold text-slate-800 mb-4 border-b-2 border-slate-200 pb-2">Flujo de Efectivo Real (Cajas y Bancos)</h3>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
                                     <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
@@ -613,10 +694,10 @@ const BookClosings = () => {
                                     <div className="divide-y">
                                         {report.incomeByDestination.length > 0 ? report.incomeByDestination.map((item, i) => (
                                             <div key={i} className="p-3 flex justify-between items-center">
-                                                <span className="text-sm text-slate-600">{item.name}</span>
+                                                <span className="text-sm font-medium text-slate-600">{item.name}</span>
                                                 <span className="font-semibold text-slate-800">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                                             </div>
-                                        )) : <div className="p-4 text-center text-slate-400 text-sm">Sin entradas.</div>}
+                                        )) : <div className="p-4 text-center text-slate-400 text-sm">Sin entradas a caja o bancos.</div>}
                                     </div>
                                 </div>
 
@@ -627,10 +708,10 @@ const BookClosings = () => {
                                     <div className="divide-y">
                                         {report.expenseByDestination.length > 0 ? report.expenseByDestination.map((item, i) => (
                                             <div key={i} className="p-3 flex justify-between items-center">
-                                                <span className="text-sm text-slate-600">{item.name}</span>
+                                                <span className="text-sm font-medium text-slate-600">{item.name}</span>
                                                 <span className="font-semibold text-slate-800">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                                             </div>
-                                        )) : <div className="p-4 text-center text-slate-400 text-sm">Sin salidas.</div>}
+                                        )) : <div className="p-4 text-center text-slate-400 text-sm">Sin salidas de caja o bancos.</div>}
                                     </div>
                                 </div>
                             </div>
