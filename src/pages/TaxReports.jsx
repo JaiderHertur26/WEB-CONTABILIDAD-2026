@@ -10,6 +10,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
+import { isValid, parseISO } from 'date-fns';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -119,7 +120,7 @@ const TaxReports = () => {
     };
 
     // ============================================================================
-    // --- LÓGICA DE RENTA (TAX RETURN) EXACTAMENTE IGUAL A REPORTS.JSX ---
+    // --- LÓGICA DE RENTA (CLON EXACTO DEL BALANCE GENERAL) ---
     // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
@@ -150,9 +151,9 @@ const TaxReports = () => {
         const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
         const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
 
-        // 🚀 SE AÑADE LA FUNCIÓN FALTANTE PARA CALCULAR EL AÑO CORRECTO Y EVITAR EL ERROR BLANCO
         const getAccountCreationYear = (accountId, defaultDate) => {
-            if (defaultDate) return getSafeYear(defaultDate);
+            if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
+            
             const accountTransactions = validTransactions.filter(t => 
                 t.destination?.startsWith(accountId) || 
                 t.fromAccount?.startsWith(accountId) || 
@@ -160,6 +161,7 @@ const TaxReports = () => {
                 (t.debitAccount && t.debitAccount.code === accountId) ||
                 (t.creditAccount && t.creditAccount.code === accountId)
             );
+            
             if (accountTransactions.length > 0) {
                 const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
                 return getSafeYear(oldestDate);
@@ -200,7 +202,7 @@ const TaxReports = () => {
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
-        // 2. Balance Sheet Logic
+        // 2. Balance Sheet Logic (Clon de Reports.jsx)
         const cashAccountIds = new Set();
         cashAccountIds.add('caja_principal');
         if (allAccounts) { 
@@ -284,10 +286,12 @@ const TaxReports = () => {
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
             const creationYear = getAccountCreationYear(acc.id, acc.date);
-            if (creationYear > parseInt(currentYear)) return;
-
-            currentBankBalance = safeParseFloat(acc.initialBalance);
-            currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
+            
+            // LA CLAVE: No retornar, solo condicional inicial (Igual al Balance General)
+            if (creationYear <= parseInt(currentYear)) {
+                currentBankBalance = safeParseFloat(acc.initialBalance);
+                currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
+            }
             
             bsTransactions.forEach(t => {
                 const amount = safeParseFloat(t.amount);
