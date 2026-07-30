@@ -150,6 +150,23 @@ const TaxReports = () => {
         const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
         const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
 
+        // 🚀 SE AÑADE LA FUNCIÓN FALTANTE PARA CALCULAR EL AÑO CORRECTO Y EVITAR EL ERROR BLANCO
+        const getAccountCreationYear = (accountId, defaultDate) => {
+            if (defaultDate) return getSafeYear(defaultDate);
+            const accountTransactions = validTransactions.filter(t => 
+                t.destination?.startsWith(accountId) || 
+                t.fromAccount?.startsWith(accountId) || 
+                t.toAccount?.startsWith(accountId) ||
+                (t.debitAccount && t.debitAccount.code === accountId) ||
+                (t.creditAccount && t.creditAccount.code === accountId)
+            );
+            if (accountTransactions.length > 0) {
+                const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
+                return getSafeYear(oldestDate);
+            }
+            return new Date().getFullYear();
+        };
+
         const getAccountPrefix = (categoryName) => {
             const account = allAccounts.find(a => a.name === categoryName);
             return account ? String(account.number).charAt(0) : null;
@@ -183,7 +200,7 @@ const TaxReports = () => {
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
-        // 2. Balance Sheet Logic (Espejo exacto de Reports.jsx)
+        // 2. Balance Sheet Logic
         const cashAccountIds = new Set();
         cashAccountIds.add('caja_principal');
         if (allAccounts) { 
@@ -193,6 +210,14 @@ const TaxReports = () => {
                 } 
             }); 
         }
+
+        const isAccountMatch = (targetId, accountIdOrString) => {
+            if (!accountIdOrString) return false;
+            if (accountIdOrString === targetId) return true;
+            if (accountIdOrString.startsWith(`${targetId}|`)) return true;
+            if (targetId === 'caja_principal' && accountIdOrString.toLowerCase().includes('caja principal')) return true;
+            return false;
+        };
 
         const initialCash = fInitialBalance.reduce((sum, item) => {
             const creationYear = getAccountCreationYear('caja_principal', item.date);
@@ -209,7 +234,7 @@ const TaxReports = () => {
             
             if (t.debitAccount && t.creditAccount) {
                 const drCode = t.debitAccount.code;
-                const crCode = t.creditAccount.code;
+                const crCode = t.creditAccount.code ? t.creditAccount.code : '';
                 const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
                 const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
                 
@@ -238,7 +263,6 @@ const TaxReports = () => {
                 if (creationYear <= parseInt(currentYear)) {
                     currentBal = safeParseFloat(cashAcc.initial_balance);
                 }
-
                 bsTransactions.forEach(t => {
                     const amount = safeParseFloat(t.amount);
                     if (t.debitAccount && t.creditAccount) return;
@@ -260,10 +284,10 @@ const TaxReports = () => {
         fBankAccounts.forEach(acc => {
             let currentBankBalance = 0, currentInvestmentBalance = 0;
             const creationYear = getAccountCreationYear(acc.id, acc.date);
-            if (creationYear <= parseInt(currentYear)) {
-                currentBankBalance = safeParseFloat(acc.initialBalance);
-                currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
-            }
+            if (creationYear > parseInt(currentYear)) return;
+
+            currentBankBalance = safeParseFloat(acc.initialBalance);
+            currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
             
             bsTransactions.forEach(t => {
                 const amount = safeParseFloat(t.amount);
@@ -294,7 +318,7 @@ const TaxReports = () => {
         const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
         const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, currentYear).filter(acc => {
             const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
-            const creationYear = originalAcc && originalAcc.date ? getSafeYear(originalAcc.date) : 9999;
+            const creationYear = originalAcc ? getAccountCreationYear(originalAcc.id, originalAcc.date) : new Date().getFullYear();
             return creationYear <= parseInt(currentYear);
         });
 
@@ -359,7 +383,6 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
-        // Activos Fijos estrictamente por ciclo/año seleccionado
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
             const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
