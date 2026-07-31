@@ -409,10 +409,11 @@ const Reports = () => {
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
+    // --- CORRECCIÓN AQUÍ: Restablecido a coincidencia estricta de año ---
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
-        if (asset.year) return parseInt(asset.year) <= parseInt(currentYear);
-        if (asset.date) return getSafeYear(asset.date) <= parseInt(currentYear);
+        if (asset.year) return asset.year.toString() === currentYear.toString();
+        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
@@ -431,12 +432,13 @@ const Reports = () => {
     const baseAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + intangiblesValue + inventoryValue + depreciacionAcumuladaValue; 
     const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
     
-    // --- LÓGICA DE PATRIMONIO ESTRICTO (CON ABSORCIÓN) ---
+    // --- LÓGICA DE PATRIMONIO DESGLOSADO ---
     const fondoSocial = 76431515; // Histórico Inamovible
+    
+    // Calculamos el patrimonio que deberíamos tener en base a la historia y P&L
     const expectedEquity = fondoSocial + historicalAccumulatedProfit + netProfit;
     
-    // El ajuste de conversión actúa como un amortiguador si el usuario
-    // ingresó activos manualmente que descuadran el histórico contable.
+    // Calculamos si nos falta o sobra activo frente al pasivo y patrimonio esperado
     const conversionAdjustment = expectedEquity + totalLiabilities - baseAssets;
     const finalAssets = baseAssets + conversionAdjustment;
 
@@ -460,6 +462,7 @@ const Reports = () => {
         { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
     ];
     
+    // Si hay diferencia entre los activos registrados y el Patrimonio Histórico
     if (Math.abs(conversionAdjustment) > 1) {
         assets.push({ item: '  Ajuste por Diferencia de Conversión', amount: conversionAdjustment });
     }

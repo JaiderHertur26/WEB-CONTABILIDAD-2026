@@ -109,15 +109,6 @@ const TaxReports = () => {
         }));
     }, [transactions, contacts, selectedYear, areAllDataLoaded, filterByCompany]);
 
-    const handleExportExogena = () => {
-        const data = generateExogenaData;
-        if (data.length === 0) { toast({ variant: 'destructive', title: "No hay datos para exportar" }); return; }
-        const total = data.reduce((sum, item) => sum + item['Pago o Abono en Cuenta'], 0);
-        const footer = { 'Pago o Abono en Cuenta': total };
-        exportToExcel(data, `Reporte_Exogena_${selectedYear}`, footer);
-        toast({ title: "¡Exportado!", description: `El Reporte de Exógena para ${selectedYear} ha sido generado.` });
-    };
-
     // ============================================================================
     // --- LÓGICA DE RENTA (TAX RETURN) CON MOTOR UNIFICADO ---
     // ============================================================================
@@ -419,10 +410,11 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
+        // --- CORRECCIÓN AQUÍ: Restablecido a coincidencia estricta de año ---
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
-            if (asset.year) return parseInt(asset.year) <= parseInt(currentYear);
-            if (asset.date) return getSafeYear(asset.date) <= parseInt(currentYear);
+            if (asset.year) return asset.year.toString() === currentYear.toString();
+            if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
             return false;
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
         
@@ -533,7 +525,7 @@ const TaxReports = () => {
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-lg border">
                     <div className="p-6 border-b flex justify-between items-center">
                         <div className="flex items-center"><BookMarked className="w-6 h-6 mr-3 text-emerald-600" /><h2 className="text-xl font-bold text-slate-900">Declaración de Renta</h2></div>
-                        <Button onClick={handleExportRenta} variant="outline" className="textemerald-700 border-emerald-300 hover:bg-emerald-50"><Download className="w-4 h-4 mr-2"/> Exportar Reporte</Button>
+                        <Button onClick={handleExportRenta} variant="outline" className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"><Download className="w-4 h-4 mr-2"/> Exportar Reporte</Button>
                     </div>
                     <div className="p-6">
                         <div className="overflow-x-auto rounded-lg border">
