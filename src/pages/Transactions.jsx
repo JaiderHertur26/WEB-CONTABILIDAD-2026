@@ -65,7 +65,6 @@ const numeroALetras = (num) => {
     return result.trim() + ' PESOS';
 };
 
-// 🚀 FUNCIÓN SEGURA PARA FORMATEAR FECHAS SIN DESFASE DE TIMEZONE
 const formatSafeDate = (dateStr) => {
     if (!dateStr) return '-';
     if (dateStr.includes('T')) {
@@ -248,6 +247,11 @@ const Transactions = () => {
                 if (crCode.startsWith('1105')) { runningCash -= amount; affected = 'cash'; }
                 else if (crCode.startsWith('1110') || crCode.startsWith('1120')) { runningBanks -= amount; affected = 'banks'; }
 
+                // LOGICA INTELIGENTE DE PREFIJO (A o T)
+                let intelligentPrefix = 'T';
+                const hasCashOrBank = drCode.startsWith('11') || drCode.startsWith('1295') || crCode.startsWith('11') || crCode.startsWith('1295');
+                if (!hasCashOrBank) intelligentPrefix = 'A'; // Si no toca caja o banco, es Ajuste Contable
+
                 return {
                     ...t,
                     _calculatedCash: runningCash,
@@ -257,7 +261,8 @@ const Transactions = () => {
                     _destName: t.type === 'adjustment' ? 'Ajuste Interno' : (t.destination ? t.destination.split('|')[1] || t.destination.split('|')[0] : 'INVENTARIO GENERAL'),
                     _affectedColumn: affected,
                     _isPending: false,
-                    _dualDisplay: `Dr: ${t.debitAccount.name.substring(0, 10)} / Cr: ${t.creditAccount.name.substring(0, 10)}`
+                    _dualDisplay: `Dr: ${t.debitAccount.name.substring(0, 10)} / Cr: ${t.creditAccount.name.substring(0, 10)}`,
+                    voucherPrefix: intelligentPrefix // Forzar el prefijo para la tabla
                 };
             }
 
@@ -273,7 +278,7 @@ const Transactions = () => {
                 if (toId === 'caja_principal' || toParts[1]?.toUpperCase().includes('CAJA PRINCIPAL')) runningCash += amount;
                 else if (bankAccounts && bankAccounts.some(b => b.id === toId)) runningBanks += amount;
 
-                return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: 'TRANSFER', _destName: toParts[1] || t.toAccount, _affectedColumn: 'none', _isPending: false };
+                return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: 'TRANSFER', _destName: toParts[1] || t.toAccount, _affectedColumn: 'none', _isPending: false, voucherPrefix: 'T' };
             }
 
             const destParts = (t.destination || '').split('|');
@@ -302,7 +307,10 @@ const Transactions = () => {
                 else if (bankAccounts && bankAccounts.some(b => b.id === destId)) { runningBanks += amount; affectedColumn = 'banks'; }
             }
 
-            return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: accountNumber, _destName: isPending ? '(Pendiente)' : destName, _affectedColumn: affectedColumn, _isPending: isPending };
+            let defaultPrefix = t.type === 'income' ? 'I' : 'E';
+            if (t.isInternalTransfer) defaultPrefix = 'T';
+
+            return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: accountNumber, _destName: isPending ? '(Pendiente)' : destName, _affectedColumn: affectedColumn, _isPending: isPending, voucherPrefix: defaultPrefix };
         });
         setProcessedTransactions(calculated);
     }, [transactions, initialBalances, bankAccounts, accounts, isRelevant]);
@@ -339,7 +347,7 @@ const Transactions = () => {
                 return;
             }
 
-            if (t.isInternalTransfer) {
+            if (t.isInternalTransfer && !t.debitAccount) {
                 const baseId = t.id.replace(/-exp$|-inc$/, '');
                 const isExp = t.id.endsWith('-exp');
                 const siblingId = baseId + (isExp ? '-inc' : '-exp');
@@ -362,7 +370,7 @@ const Transactions = () => {
                     if (isAporte) displayDestName = 'APORTES COOPERATIVA FRATERNIDAD';
                     else if (incomePart.destination.startsWith('11201501')) displayDestName = 'COOPERATIVA FRATERNIDAD SACERDOTAL';
 
-                    groups.push({ ...second, id: first.id, description: rawDesc, _mergedAmount: displayAmount, _isMerged: true, _sourceAccount: sourceAsset, _destAccount: destAsset, _rawAmount: amountVal, _destName: displayDestName });
+                    groups.push({ ...second, id: first.id, description: rawDesc, _mergedAmount: displayAmount, _isMerged: true, _sourceAccount: sourceAsset, _destAccount: destAsset, _rawAmount: amountVal, _destName: displayDestName, voucherPrefix: 'T' });
                 } else { groups.push(t); }
             } else { groups.push(t); }
         });
@@ -403,7 +411,7 @@ const Transactions = () => {
         
         const typeTransactions = transactions.filter(isRelevant).filter(t => {
             let tType = t.type;
-            if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
+            if (t.isInternalTransfer || t.type === 'transfer' || t.debitAccount) tType = 'transfer';
             
             const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
                 ? t.date.split('-')[0] 
@@ -524,7 +532,9 @@ const Transactions = () => {
             toast({ title: "¡Transacción actualizada!" });
         } else {
             transactionId = `${Date.now()}`;
-            const voucherNumber = getNextVoucherNumber(transactionData.type, transactionData.date);
+            // Si es un ajuste (Partida Doble Manual), el tipo base para buscar número es 'transfer' 
+            const lookupType = (transactionData.debitAccount || transactionData.isInternalTransfer) ? 'transfer' : transactionData.type;
+            const voucherNumber = getNextVoucherNumber(lookupType, transactionData.date);
             
             const newTransaction = { 
                 ...transactionData, 
@@ -726,19 +736,16 @@ const Transactions = () => {
         setTransferDialogOpen(false);
     };
 
-    // 🚀 CORRECCIÓN CRÍTICA EXPORTACIÓN: "CONTROL SALDOS"
     const handleExport = () => {
         if (filteredTransactions.length === 0) return;
         
         const dataToExport = filteredTransactions.map(t => {
-            let typeLabel = (t.isInternalTransfer || t.type === 'transfer') ? 'Cruce/Transferencia' : (t.type === 'income' ? 'Ingreso' : 'Egreso');
+            let typeLabel = (t.isInternalTransfer || t.type === 'transfer' || t.debitAccount) ? 'Cruce/Transferencia/Ajuste' : (t.type === 'income' ? 'Ingreso' : 'Egreso');
             if (t._isPending) typeLabel += ' (Pendiente)';
-            let voucherPrefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
-            let displayVoucher = t.voucherNumber ? `${voucherPrefix}-${String(t.voucherNumber).padStart(4, '0')}` : 'N/A';
+            let displayVoucher = t.voucherNumber ? `${t.voucherPrefix || 'N/A'}-${String(t.voucherNumber).padStart(4, '0')}` : 'N/A';
             
-            // Usar siempre el monto puro. Los egresos y cruces que sacan dinero van negativos.
             let amountValue = parseFloat(t.amount) || 0;
-            if (t.type === 'expense' && t.type !== 'transfer') {
+            if (t.type === 'expense' && t.type !== 'transfer' && !t.debitAccount) {
                 amountValue = -Math.abs(amountValue); 
             }
 
@@ -761,7 +768,6 @@ const Transactions = () => {
         toast({ title: "¡Exportado!", description: "Informe de Control exportado a Excel." });
     };
 
-    // 🚀 CORRECCIÓN CRÍTICA EXPORTACIÓN: "PARTIDA DOBLE"
     const handleExportAccounting = () => {
         if (filteredTransactions.length === 0) { 
             toast({ variant: 'destructive', title: "No hay datos para exportar" }); 
@@ -774,8 +780,8 @@ const Transactions = () => {
         filteredTransactions.forEach(t => {
             if (processedIds.has(t.id)) return;
             
-            // CASO 1: Cruces y Transferencias Internas
-            if (t.isInternalTransfer) {
+            // CASO 1: Cruces y Transferencias Internas (Sin partida doble manual incrustada)
+            if (t.isInternalTransfer && !t.debitAccount) {
                 const baseId = t.id.replace(/-exp$|-inc$/, '');
                 const isExp = t.id.endsWith('-exp');
                 const siblingId = baseId + (isExp ? '-inc' : '-exp');
@@ -798,10 +804,8 @@ const Transactions = () => {
                 }
             }
 
-            // CASO 2: Ingresos y Egresos Normales
-            let prefix = (t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
-            if (t.type === 'adjustment') prefix = 'A';
-            let vId = t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+            // CASO 2: Ingresos, Egresos Normales y PARTIDA DOBLE MANUAL (que es un solo objeto T)
+            let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
             const displayDate = formatSafeDate(t.date);
             const { debit, credit } = resolveAccountingRow(t);
             
@@ -1019,18 +1023,16 @@ const Transactions = () => {
                                 <thead className="bg-slate-50 text-slate-700 font-medium border-b"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Monto</th><th className="px-4 py-3 text-right bg-blue-50/50">Saldo Caja</th><th className="px-4 py-3 text-right bg-purple-50/50">Saldo Bancos</th><th className="px-4 py-3 text-right bg-green-50/50">Saldo Aportes</th><th className="px-4 py-3 text-center">Acciones</th></tr></thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {displayTransactions.map((t) => {
-                                        const isIncome = t.type === 'income';
-                                        let prefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (isIncome ? 'I' : 'E');
                                         return (
                                             <tr key={t.id} className="hover:bg-slate-50 group">
                                                 <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatSafeDate(t.date)}</td>
-                                                <td className="px-4 py-3 font-mono text-xs text-slate-500">{t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-'}</td>
+                                                <td className="px-4 py-3 font-mono text-xs text-slate-500 font-bold">{t.voucherNumber ? `${t.voucherPrefix || 'N/A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-'}</td>
                                                 <td className="px-4 py-3 text-slate-700 font-medium max-w-[200px] truncate" title={t.description}>{t.description}{t._isPending && <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">Pendiente</span>}</td>
 
                                                 <td className="px-4 py-3 text-slate-600">
                                                     {t._dualDisplay ? (
                                                         <div className="flex flex-col text-[10px] leading-tight font-mono text-slate-500" title={t._dualDisplay}>
-                                                            <span className="font-bold text-slate-700">{t.category}</span>
+                                                            <span className="font-bold text-slate-700">{t.category || t.debitAccount?.name}</span>
                                                             <span>{t._dualDisplay}</span>
                                                         </div>
                                                     ) : (
@@ -1041,7 +1043,7 @@ const Transactions = () => {
                                                     )}
                                                 </td>
 
-                                                <td className={`px-4 py-3 text-right font-mono font-medium ${t._mergedAmount ? 'text-slate-800' : (t.type === 'transfer' ? 'text-slate-800' : (isIncome ? 'text-green-600' : 'text-red-600'))}`}>{t._mergedAmount ? t._mergedAmount : ((isIncome || t.type === 'transfer' ? '' : '-') + parseFloat(t.amount).toLocaleString('es-CO', { minimumFractionDigits: 0 }))}</td>
+                                                <td className={`px-4 py-3 text-right font-mono font-medium ${t._mergedAmount ? 'text-slate-800' : (t.type === 'transfer' ? 'text-slate-800' : (t.type === 'income' ? 'text-green-600' : 'text-red-600'))}`}>{t._mergedAmount ? t._mergedAmount : ((t.type === 'income' || t.type === 'transfer' ? '' : '-') + parseFloat(t.amount).toLocaleString('es-CO', { minimumFractionDigits: 0 }))}</td>
                                                 <td className={`px-4 py-3 text-right font-mono text-slate-600 bg-blue-50/30 ${t._affectedColumn === 'cash' ? 'font-bold text-slate-900' : ''}`}>{t._calculatedCash.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</td>
                                                 <td className={`px-4 py-3 text-right font-mono text-slate-600 bg-purple-50/30 ${t._affectedColumn === 'banks' ? 'font-bold text-slate-900' : ''}`}>{t._calculatedBanks.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</td>
                                                 <td className={`px-4 py-3 text-right font-mono text-slate-600 bg-green-50/30 ${t._affectedColumn === 'aportes' ? 'font-bold text-slate-900' : ''}`}>{t._calculatedAportes.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</td>
@@ -1049,13 +1051,13 @@ const Transactions = () => {
                                                     <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-800 hover:bg-blue-50" onClick={() => handlePrint(t)} title="Imprimir Comprobante"><Printer className="w-3 h-3" /></Button>
                                                         
-                                                        {t.type === 'expense' && !t.isInternalTransfer && (
+                                                        {t.type === 'expense' && !t.isInternalTransfer && !t.debitAccount && (
                                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50" onClick={() => handleGenerateBillingDoc(t)} title="Generar/Ver Cuenta de Cobro">
                                                                 <FileText className="w-3 h-3" />
                                                             </Button>
                                                         )}
 
-                                                        {t.type === 'income' && !t.isInternalTransfer && (
+                                                        {t.type === 'income' && !t.isInternalTransfer && !t.debitAccount && (
                                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50" onClick={() => handleGenerateReceipt(t)} title="Generar Recibo de Caja / Certificado">
                                                                 <FileCheck className="w-3 h-3" />
                                                             </Button>
@@ -1078,20 +1080,17 @@ const Transactions = () => {
                                 <thead className="bg-slate-800 text-slate-200 font-medium"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comp.</th><th className="px-4 py-3 w-1/3">Cuenta (PUC)</th><th className="px-4 py-3 w-1/3">Detalle</th><th className="px-4 py-3 text-right w-32">Débito</th><th className="px-4 py-3 text-right w-32">Crédito</th></tr></thead>
                                 <tbody className="bg-white">
                                     {displayTransactions.map(t => {
-                                        // 1. Ignorar la fila "Mergeada" falsa de la UI para no pintar basura
                                         if (t._isMerged) return null;
                                         
-                                        let prefix = (t.isInternalTransfer || t.type === 'transfer') ? 'T' : (t.type === 'income' ? 'I' : 'E');
-                                        let vId = t.voucherNumber ? `${prefix}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
-
+                                        let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
                                         const { debit, credit } = resolveAccountingRow(t);
-                                        let rowColorClass = t.type === 'income' ? 'bg-green-50' : (t.type === 'transfer' || t.isInternalTransfer ? 'bg-orange-50' : 'bg-red-50');
+                                        let rowColorClass = t.type === 'income' ? 'bg-green-50' : (t.type === 'transfer' || t.isInternalTransfer || t.debitAccount ? 'bg-orange-50' : 'bg-red-50');
 
                                         return (
                                             <React.Fragment key={t.id}>
                                                 <tr className={`border-t border-slate-100 ${rowColorClass}`}>
                                                     <td className="px-4 py-2 text-slate-500">{formatSafeDate(t.date)}</td>
-                                                    <td className="px-4 py-2 font-mono text-xs text-slate-400">{vId}</td>
+                                                    <td className="px-4 py-2 font-mono text-xs text-slate-400 font-bold">{vId}</td>
                                                     <td className="px-4 py-2">
                                                         <div className="flex flex-col">
                                                             <span className="font-bold text-slate-700 text-xs">{debit?.code || 'N/A'}</span>

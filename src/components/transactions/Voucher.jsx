@@ -100,11 +100,24 @@ const VoucherContent = ({ transaction }) => {
   const amount = transaction.amount ? parseFloat(transaction.amount) : 0;
   const amountInWords = numberToWords(amount);
   
+  // --- LÓGICA INTELIGENTE DE PREFIJOS Y TÍTULOS ---
   let voucherType = '';
   let voucherPrefix = '';
-  if(transaction.isInternalTransfer) {
-      voucherType = 'Transferencia';
-      voucherPrefix = 'T';
+  
+  if (transaction.isInternalTransfer || transaction.type === 'transfer' || transaction.type === 'adjustment') {
+      // Verificar si hay dinero real involucrado mirando los códigos PUC del débito o crédito
+      const code1 = String(transaction.debitAccount?.code || accountDetails.code || '');
+      const code2 = String(transaction.creditAccount?.code || '');
+      
+      const hasCashOrBank = code1.startsWith('11') || code1.startsWith('1295') || code2.startsWith('11') || code2.startsWith('1295');
+      
+      if (hasCashOrBank) {
+          voucherType = 'Transferencia';
+          voucherPrefix = 'T';
+      } else {
+          voucherType = 'Ajuste';
+          voucherPrefix = 'A';
+      }
   } else if (transaction.type === 'income') {
       voucherType = 'Ingreso';
       voucherPrefix = 'I';
@@ -113,7 +126,9 @@ const VoucherContent = ({ transaction }) => {
       voucherPrefix = 'E';
   }
 
-  const voucherNumber = transaction.voucherNumber ? `${voucherPrefix}-${String(transaction.voucherNumber).padStart(4, '0')}` : 'N/A';
+  // Si la transacción ya viene con un prefijo forzado (Ej: de importaciones), lo respetamos
+  const displayPrefix = transaction.voucherPrefix || voucherPrefix;
+  const voucherNumber = transaction.voucherNumber ? `${displayPrefix}-${String(transaction.voucherNumber).padStart(4, '0')}` : 'N/A';
 
   return (
     <div className="p-4 bg-white font-sans text-xs flex flex-col justify-between" style={{ width: '100%', height: '100%', border: '1px solid #000' }}>
@@ -137,7 +152,7 @@ const VoucherContent = ({ transaction }) => {
 
         <section className="flex justify-between items-center my-2">
             <div className="w-2/3">
-                <p className="font-bold text-base text-center bg-gray-200 p-1" style={{border: '1px solid black'}}>COMPROBANTE DE {voucherType.toUpperCase()}</p>
+                <p className="font-bold text-base text-center bg-gray-200 p-1 uppercase" style={{border: '1px solid black'}}>COMPROBANTE DE {voucherType}</p>
             </div>
             <div className="w-1/3 pl-2">
                 <table className="text-xs border-collapse w-full" style={{border: '1px solid black'}}>
