@@ -126,25 +126,49 @@ const Reports = () => {
     };
 
     const totalIncome = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+        if (t.isInternalTransfer) return sum;
+        const amount = safeParseFloat(t.amount);
+        
+        // Soporte para asientos manuales (Partida Doble)
+        if (t.debitAccount && t.creditAccount) {
+             const crCode = String(t.creditAccount.code || '');
+             if (crCode.startsWith('4')) return sum + amount;
+             return sum;
+        }
+        // Transacciones normales
         if (getAccountPrefix(t.category) === '4') {
-            return sum + (t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+            return sum + (t.type === 'income' ? amount : -amount);
         }
         return sum;
     }, 0);
 
     const totalCosts = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+        if (t.isInternalTransfer) return sum;
+        const amount = safeParseFloat(t.amount);
+        
+        if (t.debitAccount && t.creditAccount) {
+             const drCode = String(t.debitAccount.code || '');
+             if (['6', '7'].includes(drCode.charAt(0))) return sum + amount;
+             return sum;
+        }
         if (['6', '7'].includes(getAccountPrefix(t.category))) {
-            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+            return sum + (t.type === 'expense' ? amount : -amount);
         }
         return sum;
     }, 0);
 
     const totalExpenses = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
+        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
+        const amount = safeParseFloat(t.amount);
+        
+        if (t.debitAccount && t.creditAccount) {
+             const drCode = String(t.debitAccount.code || '');
+             // Atrapamos la cuenta 5 (Gastos normales) y la 4 (Catedratón)
+             if (['5', '4'].includes(drCode.charAt(0))) return sum + amount;
+             return sum;
+        }
         if (getAccountPrefix(t.category) === '5') {
-            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+            return sum + (t.type === 'expense' ? amount : -amount);
         }
         return sum;
     }, 0);
@@ -153,11 +177,11 @@ const Reports = () => {
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
+    // Función ajustada para renderizar la tabla correctamente
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
         const amount = safeParseFloat(t.amount);
         
-        // Soporte para Partida Doble
         if (t.debitAccount && t.creditAccount) {
              const drCode = String(t.debitAccount.code || '');
              const drName = t.debitAccount.name || '';
@@ -166,8 +190,8 @@ const Reports = () => {
              
              if (classPrefix === '4' && crCode.startsWith('4') && crName === categoryName) return sum + amount;
              
-             // Si buscamos gastos, verificamos débitos a 5, 6, 7 Y 4
              if (['5', '6', '7'].includes(classPrefix)) {
+                 // Suma a la vista de gastos si el débito es 5, 6, 7 o 4
                  if (['5', '6', '7', '4'].includes(drCode.charAt(0)) && drName === categoryName) {
                      return sum + amount;
                  }
@@ -183,7 +207,7 @@ const Reports = () => {
     }, 0);
 
     const incomeAccounts = allAccounts.filter(a => String(a.number).startsWith('4'));
-    // Agregamos las cuentas 4 al mapeo de gastos para que iteren y capturen el débito de la Catedratón
+    // Expandimos el filtro de gastos para que incluya las cuentas 4 usadas como gasto
     const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5') || String(a.number).startsWith('4'));
     const costAccounts = allAccounts.filter(a => String(a.number).startsWith('6') || String(a.number).startsWith('7'));
 
