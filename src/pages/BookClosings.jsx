@@ -51,6 +51,8 @@ const BookClosings = () => {
     const [report, setReport] = useState(null);
     const [transactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
+    const [bankAccounts] = useCompanyData('bankAccounts');
+    const [cashAccounts] = useCompanyData('cash_accounts');
     const { toast } = useToast();
 
     const availableYears = React.useMemo(() => {
@@ -160,7 +162,7 @@ const BookClosings = () => {
                 if (crPrefix === '2') tercerosIn += amount;
                 if (drPrefix === '2') tercerosOut += amount;
 
-                // Capitalizaciones e Inversiones (Activos - 1, excluyendo Cajas 11)
+                // Capitalizaciones e Inversiones (Activos - 1, excluyendo Cajas 11 y 1295)
                 if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
                     capitalizacion += amount;
                 }
@@ -186,9 +188,21 @@ const BookClosings = () => {
 
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
-        // 2. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos)
+        // 2. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
         const flowIn = {};
         const flowOut = {};
+
+        // Filtro estricto: ¿Es dinero real?
+        const isCashOrBank = (destStr) => {
+            if (!destStr) return true; // defaults to caja principal
+            const [id, name] = destStr.split('|');
+            if (id === 'caja_principal' || id === '11201501' || id === '12950501') return true;
+            if (cashAccounts && cashAccounts.some(c => c.id === id)) return true;
+            if (bankAccounts && bankAccounts.some(b => b.id === id)) return true;
+            const upperName = (name || id || '').toUpperCase();
+            if (upperName.includes('CAJA') || upperName.includes('COOPERATIVA') || upperName.includes('BANCO')) return true;
+            return false;
+        };
 
         allRelevant.forEach(t => {
             const amount = parseFloat(t.amount || 0);
@@ -219,18 +233,21 @@ const BookClosings = () => {
                 return name;
             };
 
-            // B. Cruces Internos Automáticos
-            if (t.isInternalTransfer) {
-                const targetName = extractTargetName(t.destination);
-                if (t.type === 'expense') flowOut[`${targetName} (Transferencia)`] = (flowOut[`${targetName} (Transferencia)`] || 0) + amount;
-                else if (t.type === 'income') flowIn[`${targetName} (Transferencia)`] = (flowIn[`${targetName} (Transferencia)`] || 0) + amount;
-                return;
+            // SOLO AGREGAR A LA TABLA SI ES CAJA O BANCO REAL
+            if (isCashOrBank(t.destination)) {
+                const destName = extractTargetName(t.destination);
+                
+                // B. Cruces Internos Automáticos
+                if (t.isInternalTransfer) {
+                    if (t.type === 'expense') flowOut[`${destName} (Transferencia)`] = (flowOut[`${destName} (Transferencia)`] || 0) + amount;
+                    else if (t.type === 'income') flowIn[`${destName} (Transferencia)`] = (flowIn[`${destName} (Transferencia)`] || 0) + amount;
+                } 
+                // C. Transacciones Normales
+                else {
+                    if (t.type === 'income') flowIn[destName] = (flowIn[destName] || 0) + amount;
+                    else if (t.type === 'expense') flowOut[destName] = (flowOut[destName] || 0) + amount;
+                }
             }
-
-            // C. Transacciones Normales
-            const destName = extractTargetName(t.destination);
-            if (t.type === 'income') flowIn[destName] = (flowIn[destName] || 0) + amount;
-            else if (t.type === 'expense') flowOut[destName] = (flowOut[destName] || 0) + amount;
         });
 
         setReport({
@@ -338,9 +355,9 @@ const BookClosings = () => {
             </head>
             <body>
                 <div class="header">
-                    <h1>${activeCompany?.name || 'PARROQUIA MARÍA AUXILIO DE LOS CRISTIANOS'}</h1>
-                    <p>NIT: ${activeCompany?.doc || '802020683'}</p>
-                    <p>${activeCompany?.address || 'Cra 10 # 98 - 71'} - Tel: ${activeCompany?.phone || '3167630763'}</p>
+                    <h1>${activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO'}</h1>
+                    <p>NIT: ${activeCompany?.doc || '802012765'}</p>
+                    <p>${activeCompany?.address || 'CRA 9G # 77 - 42'} - Tel: ${activeCompany?.phone || '3167630763'}</p>
                 </div>
                 
                 <div class="title">ACTA DE CIERRE CONTABLE</div>
@@ -395,7 +412,7 @@ const BookClosings = () => {
 
                 ${hasConciliacion ? `
                 <div class="section-title">3. Conciliación (Capitalizaciones y Terceros)</div>
-                <div style="font-size: 10px; color: #475569; margin-bottom: 5px;">Estos valores representan inversiones en el patrimonio o administración de pasivos. No afectan la utilidad de la empresa.</div>
+                <div style="font-size: 10px; color: #475569; margin-bottom: 5px;">Estos valores representan inversiones en el patrimonio o administración de pasivos. No afectan la utilidad de la parroquia.</div>
                 <table style="width: 100%; margin-bottom: 15px;">
                     <tbody>
                         ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
@@ -598,7 +615,6 @@ const BookClosings = () => {
                             </div>
                         </div>
 
-                        {/* CAJAS DE CONCILIACIÓN SEPARADAS Y CLARAS */}
                         {report && (report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0 || report.conciliacion.capitalizacion > 0) && (
                             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                                 
@@ -634,7 +650,7 @@ const BookClosings = () => {
                                             )}
                                             {report.conciliacion.tercerosOut > 0 && (
                                                 <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
-                                                    <span className="text-xs font-bold text-slate-600">Pagado (Deuda Salada):</span>
+                                                    <span className="text-xs font-bold text-slate-600">Pagado (Deuda Cancelada a la DIAN/Terceros):</span>
                                                     <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                                                 </div>
                                             )}
