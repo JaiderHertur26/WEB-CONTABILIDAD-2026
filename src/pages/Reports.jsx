@@ -125,17 +125,15 @@ const Reports = () => {
         return account ? String(account.number).charAt(0) : null;
     };
 
+    // --- CÁLCULO TOTALES P&L (CON SOPORTE DE PARTIDA DOBLE Y CATEDRATÓN) ---
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer) return sum;
         const amount = safeParseFloat(t.amount);
-        
-        // Soporte para asientos manuales (Partida Doble)
         if (t.debitAccount && t.creditAccount) {
              const crCode = String(t.creditAccount.code || '');
              if (crCode.startsWith('4')) return sum + amount;
              return sum;
         }
-        // Transacciones normales
         if (getAccountPrefix(t.category) === '4') {
             return sum + (t.type === 'income' ? amount : -amount);
         }
@@ -145,7 +143,6 @@ const Reports = () => {
     const totalCosts = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer) return sum;
         const amount = safeParseFloat(t.amount);
-        
         if (t.debitAccount && t.creditAccount) {
              const drCode = String(t.debitAccount.code || '');
              if (['6', '7'].includes(drCode.charAt(0))) return sum + amount;
@@ -160,10 +157,9 @@ const Reports = () => {
     const totalExpenses = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
         const amount = safeParseFloat(t.amount);
-        
         if (t.debitAccount && t.creditAccount) {
              const drCode = String(t.debitAccount.code || '');
-             // Atrapamos la cuenta 5 (Gastos normales) y la 4 (Catedratón)
+             // Atrapamos gastos de la 5 y la salida de la Catedratón en la 4
              if (['5', '4'].includes(drCode.charAt(0))) return sum + amount;
              return sum;
         }
@@ -177,7 +173,6 @@ const Reports = () => {
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
-    // Función ajustada para renderizar la tabla correctamente
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
         const amount = safeParseFloat(t.amount);
@@ -191,7 +186,6 @@ const Reports = () => {
              if (classPrefix === '4' && crCode.startsWith('4') && crName === categoryName) return sum + amount;
              
              if (['5', '6', '7'].includes(classPrefix)) {
-                 // Suma a la vista de gastos si el débito es 5, 6, 7 o 4
                  if (['5', '6', '7', '4'].includes(drCode.charAt(0)) && drName === categoryName) {
                      return sum + amount;
                  }
@@ -207,7 +201,6 @@ const Reports = () => {
     }, 0);
 
     const incomeAccounts = allAccounts.filter(a => String(a.number).startsWith('4'));
-    // Expandimos el filtro de gastos para que incluya las cuentas 4 usadas como gasto
     const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5') || String(a.number).startsWith('4'));
     const costAccounts = allAccounts.filter(a => String(a.number).startsWith('6') || String(a.number).startsWith('7'));
 
@@ -349,7 +342,6 @@ const Reports = () => {
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
-        // Bloque Partida Doble Manual
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
@@ -373,7 +365,6 @@ const Reports = () => {
             return;
         }
 
-        // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
