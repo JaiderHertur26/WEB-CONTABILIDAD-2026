@@ -132,9 +132,23 @@ const BookClosings = () => {
         const incomeMap = {};
         const expenseMap = {};
 
-        // 1. CLASIFICACIÓN DEL ESTADO DE RESULTADOS (P&L) Y CONCILIACIONES
+        // 1. INTELIGENCIA PARA LA TABLA MENSUAL
+        const monthlySummary = Array.from({ length: 12 }, (_, i) => ({
+            mes: months[i].toUpperCase(),
+            ingresos: 0,
+            gastos: 0,
+            utilidad: 0
+        }));
+
+        // 2. CLASIFICACIÓN DEL ESTADO DE RESULTADOS (P&L) Y CONCILIACIONES
         allRelevant.forEach(t => {
             const amount = parseFloat(t.amount || 0);
+            
+            // Determinar el mes exacto de la transacción
+            const dateObj = new Date(t.date);
+            const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
+            const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
+            const mIndex = adjustedDate.getMonth();
 
             // A. Asiento manual de Partida Doble
             if (t.debitAccount && t.creditAccount) {
@@ -143,25 +157,26 @@ const BookClosings = () => {
                 const drPrefix = drCode.charAt(0);
                 const crPrefix = crCode.charAt(0);
 
-                // Todo crédito a la clase 4 es Ingreso
+                // INGRESOS
                 if (crPrefix === '4') { 
                     totalIncome += amount; 
-                    incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount; 
+                    incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount;
+                    monthlySummary[mIndex].ingresos += amount;
                 }
                 
-                // TRUCO: Aceptamos débitos a la 5, 6, 7 Y a la 4 (Para sumar la salida de la Catedratón como gasto)
+                // GASTOS (La magia: Sumamos los gastos regulares 5,6,7 Y la salida de Catedratón 4)
                 if (['5', '6', '7', '4'].includes(drPrefix)) { 
                     totalExpense += amount; 
-                    // Etiquetamos visualmente si es un débito a una cuenta de ingreso
-                    const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Débito)` : t.debitAccount.name;
+                    const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Salida/Débito)` : t.debitAccount.name;
                     expenseMap[expenseName] = (expenseMap[expenseName] || 0) + amount; 
+                    monthlySummary[mIndex].gastos += amount;
                 }
 
                 // Fondos de Terceros (Pasivos - Ej: 2365 Retención)
                 if (crPrefix === '2') tercerosIn += amount;
                 if (drPrefix === '2') tercerosOut += amount;
 
-                // Capitalizaciones e Inversiones (Activos - Ej: 1508 Construcciones)
+                // Capitalizaciones e Inversiones (Activos)
                 if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
                     capitalizacion += amount;
                 }
@@ -175,23 +190,32 @@ const BookClosings = () => {
             if (accountObj) {
                 prefix = String(accountObj.number).charAt(0);
             } else if (t.category === 'Transferencia Interna') {
-                prefix = '0'; // Ignorar transferencias de dinero literales
+                prefix = '0'; 
             } else {
                 prefix = t.type === 'income' ? '4' : '5';
             }
             
-            // P&L (Estado de Resultados): SOLO si no es cruce interno
+            // P&L (Estado de Resultados)
             if (!t.isInternalTransfer) {
                 if (prefix === '4') {
-                    totalIncome += amount;
-                    incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
+                    if (t.type === 'income') {
+                        totalIncome += amount;
+                        incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
+                        monthlySummary[mIndex].ingresos += amount;
+                    } else {
+                        // Si es un "Gasto" hacia una cuenta 4
+                        totalExpense += amount;
+                        expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
+                        monthlySummary[mIndex].gastos += amount;
+                    }
                 } else if (['5', '6', '7'].includes(prefix)) {
                     totalExpense += amount;
                     expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
+                    monthlySummary[mIndex].gastos += amount;
                 }
             }
 
-            // Conciliación: AQUÍ SÍ EVALUAMOS LOS CRUCES COMO LA RETENCIÓN
+            // Conciliación Automática
             if (prefix === '2') {
                 if (t.type === 'income') tercerosIn += amount;
                 if (t.type === 'expense') tercerosOut += amount;
@@ -203,9 +227,12 @@ const BookClosings = () => {
             }
         });
 
+        // Calcular utilidad mensual
+        monthlySummary.forEach(m => m.utilidad = m.ingresos - m.gastos);
+
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
-        // 2. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
+        // 3. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
         const flowIn = {};
         const flowOut = {};
 
@@ -267,6 +294,7 @@ const BookClosings = () => {
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
+            monthlySummary, // Agregado para el PDF
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
@@ -390,6 +418,34 @@ const BookClosings = () => {
                         <div class="summary-value" style="color: #2563eb;">$${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
                     </div>
                 </div>
+		
+		<div class="section-title">Resumen Mensual</div>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                    <thead>
+                        <tr>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">MES</th>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">INGRESOS</th>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">GASTOS</th>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">UTILIDAD DEL MES</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${report.monthlySummary.map(m => `
+                            <tr>
+                                <td style="border: 1px solid #000; padding: 6px; font-weight: normal; font-size: 11px;">${m.mes}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.ingresos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.gastos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.utilidad.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                            </tr>
+                        `).join('')}
+                        <tr style="background-color: #f8fafc;">
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">TOTAL</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                        </tr>
+                    </tbody>
+                </table>
 
                 <div class="section-title">1. Estado de Resultados (Por Concepto Operativo)</div>
                 <div class="grid-2">
