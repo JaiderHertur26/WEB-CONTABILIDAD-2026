@@ -122,12 +122,6 @@ const BookClosings = () => {
         });
 
         allRelevant.sort((a, b) => new Date(a.date) - new Date(b.date));
-        const pnlTransactions = allRelevant.filter(t => !t.isInternalTransfer);
-
-        const getAccountPrefix = (categoryName) => {
-            const account = (accounts || []).find(a => a.name === categoryName);
-            return account ? String(account.number).charAt(0) : null;
-        };
 
         let totalIncome = 0;
         let totalExpense = 0;
@@ -139,10 +133,10 @@ const BookClosings = () => {
         const expenseMap = {};
 
         // 1. CLASIFICACIÓN DEL ESTADO DE RESULTADOS (P&L) Y CONCILIACIONES
-        pnlTransactions.forEach(t => {
+        allRelevant.forEach(t => {
             const amount = parseFloat(t.amount || 0);
 
-            // Si es un asiento manual de Partida Doble
+            // A. Asiento manual de Partida Doble
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
@@ -158,31 +152,49 @@ const BookClosings = () => {
                     expenseMap[t.debitAccount.name] = (expenseMap[t.debitAccount.name] || 0) + amount; 
                 }
 
-                // Fondos de Terceros (Pasivos - 2)
+                // Fondos de Terceros (Pasivos - Ej: 2365 Retención)
                 if (crPrefix === '2') tercerosIn += amount;
                 if (drPrefix === '2') tercerosOut += amount;
 
-                // Capitalizaciones e Inversiones (Activos - 1, excluyendo Cajas 11 y 1295)
+                // Capitalizaciones e Inversiones (Activos - Ej: 1508 Construcciones)
                 if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
                     capitalizacion += amount;
                 }
                 return;
             }
 
-            // Si es una transacción normal
-            const prefix = getAccountPrefix(t.category) || (t.type === 'income' ? '4' : '5');
+            // B. Transacciones Normales o Cruces Internos Automáticos
+            const accountObj = (accounts || []).find(a => a.name === t.category);
+            let prefix = '0';
             
-            if (prefix === '4') {
-                totalIncome += amount;
-                incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
-            } else if (['5', '6', '7'].includes(prefix)) {
-                totalExpense += amount;
-                expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
-            } else if (prefix === '2') {
+            if (accountObj) {
+                prefix = String(accountObj.number).charAt(0);
+            } else if (t.category === 'Transferencia Interna') {
+                prefix = '0'; // Ignorar transferencias de dinero literales
+            } else {
+                prefix = t.type === 'income' ? '4' : '5';
+            }
+            
+            // P&L (Estado de Resultados): SOLO si no es cruce interno
+            if (!t.isInternalTransfer) {
+                if (prefix === '4') {
+                    totalIncome += amount;
+                    incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
+                } else if (['5', '6', '7'].includes(prefix)) {
+                    totalExpense += amount;
+                    expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
+                }
+            }
+
+            // Conciliación: AQUÍ SÍ EVALUAMOS LOS CRUCES COMO LA RETENCIÓN
+            if (prefix === '2') {
                 if (t.type === 'income') tercerosIn += amount;
                 if (t.type === 'expense') tercerosOut += amount;
             } else if (prefix === '1' || prefix === '3') {
-                if (t.type === 'expense') capitalizacion += amount;
+                const accNum = accountObj ? String(accountObj.number) : '';
+                if (!accNum.startsWith('11') && !accNum.startsWith('1295')) {
+                    if (t.type === 'expense') capitalizacion += amount;
+                }
             }
         });
 
@@ -192,9 +204,8 @@ const BookClosings = () => {
         const flowIn = {};
         const flowOut = {};
 
-        // Filtro estricto: ¿Es dinero real?
         const isCashOrBank = (destStr) => {
-            if (!destStr) return true; // defaults to caja principal
+            if (!destStr) return true;
             const [id, name] = destStr.split('|');
             if (id === 'caja_principal' || id === '11201501' || id === '12950501') return true;
             if (cashAccounts && cashAccounts.some(c => c.id === id)) return true;
@@ -207,7 +218,6 @@ const BookClosings = () => {
         allRelevant.forEach(t => {
             const amount = parseFloat(t.amount || 0);
 
-            // A. Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
@@ -223,7 +233,6 @@ const BookClosings = () => {
                 return;
             }
 
-            // Función ayudante para limpiar nombres
             const extractTargetName = (str) => {
                 if (!str) return 'CAJA PRINCIPAL';
                 const parts = str.split('|');
@@ -233,22 +242,20 @@ const BookClosings = () => {
                 return name;
             };
 
-            // SOLO AGREGAR A LA TABLA SI ES CAJA O BANCO REAL
             if (isCashOrBank(t.destination)) {
                 const destName = extractTargetName(t.destination);
                 
-                // B. Cruces Internos Automáticos
                 if (t.isInternalTransfer) {
                     if (t.type === 'expense') flowOut[`${destName} (Transferencia)`] = (flowOut[`${destName} (Transferencia)`] || 0) + amount;
                     else if (t.type === 'income') flowIn[`${destName} (Transferencia)`] = (flowIn[`${destName} (Transferencia)`] || 0) + amount;
-                } 
-                // C. Transacciones Normales
-                else {
+                } else {
                     if (t.type === 'income') flowIn[destName] = (flowIn[destName] || 0) + amount;
                     else if (t.type === 'expense') flowOut[destName] = (flowOut[destName] || 0) + amount;
                 }
             }
         });
+
+        const exportTransactions = allRelevant.filter(t => !t.isInternalTransfer || (t.isInternalTransfer && t.category !== 'Transferencia Interna'));
 
         setReport({
             period: { start, end },
@@ -259,7 +266,7 @@ const BookClosings = () => {
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
             expenseByDestination: sortMap(flowOut),
-            transactions: pnlTransactions,
+            transactions: exportTransactions,
             conciliacion: { tercerosIn, tercerosOut, capitalizacion }
         });
 
