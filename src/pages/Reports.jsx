@@ -121,7 +121,13 @@ const Reports = () => {
     };
 
     const getAccountPrefix = (categoryName) => {
-        const account = allAccounts.find(a => a.name === categoryName);
+        if (!categoryName) return null;
+        const upper = String(categoryName).toUpperCase();
+        if (upper.includes('CATEDRATÓN') || upper.includes('CATEDRATON')) {
+            // Si es la Catedratón, pertenece a la clase 4 de ingresos (y también maneja su salida)
+            return '4';
+        }
+        const account = allAccounts.find(a => a.name && a.name.toUpperCase() === upper);
         return account ? String(account.number).charAt(0) : null;
     };
 
@@ -130,32 +136,15 @@ const Reports = () => {
         if (t.isInternalTransfer) return sum;
         const amount = safeParseFloat(t.amount);
         
-        // Si es asiento de Partida Doble Manual
         if (t.debitAccount && t.creditAccount) {
              const crCode = String(t.creditAccount.code || '');
              if (crCode.startsWith('4')) return sum + amount;
              return sum;
         }
-        
-        // Transacción normal
-        if (getAccountPrefix(t.category) === '4') {
-            return sum + (t.type === 'income' ? amount : -amount);
-        }
-        return sum;
-    }, 0);
 
-    const totalCosts = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer) return sum;
-        const amount = safeParseFloat(t.amount);
-        
-        if (t.debitAccount && t.creditAccount) {
-             const drCode = String(t.debitAccount.code || '');
-             if (['6', '7'].includes(drCode.charAt(0))) return sum + amount;
-             return sum;
-        }
-        
-        if (['6', '7'].includes(getAccountPrefix(t.category))) {
-            return sum + (t.type === 'expense' ? amount : -amount);
+        const prefix = getAccountPrefix(t.category);
+        if (prefix === '4' || (t.category && t.category.toUpperCase().includes('CATEDRATÓN'))) {
+            return sum + (t.type === 'income' ? amount : -amount);
         }
         return sum;
     }, 0);
@@ -164,15 +153,16 @@ const Reports = () => {
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
         const amount = safeParseFloat(t.amount);
         
-        // Atrapamos los débitos de gastos (clase 5) y la salida de Catedratón (débito en clase 4)
         if (t.debitAccount && t.creditAccount) {
              const drCode = String(t.debitAccount.code || '');
              if (['5', '4'].includes(drCode.charAt(0))) return sum + amount;
              return sum;
         }
-        
-        if (getAccountPrefix(t.category) === '5') {
-            return sum + (t.type === 'expense' ? amount : -amount);
+
+        const prefix = getAccountPrefix(t.category);
+        // Si es un gasto normal (5) o si hay un egreso asociado a la Catedratón
+        if (prefix === '5' || (t.type === 'expense' && t.category && t.category.toUpperCase().includes('CATEDRATÓN'))) {
+            return sum + amount;
         }
         return sum;
     }, 0);
