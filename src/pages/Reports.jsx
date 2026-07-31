@@ -125,56 +125,82 @@ const Reports = () => {
         return account ? String(account.number).charAt(0) : null;
     };
 
-    const totalIncome = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer) return sum;
-        const amount = safeParseFloat(t.amount);
-        
-        // Si es asiento de Partida Doble, sumamos si el crédito es de la clase 4
+    // --- MOTOR UNIFICADO IDÉNTICO AL DE CIERRES CONTABLES ---
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    pnlTransactions.forEach(t => {
+        const amount = parseFloat(t.amount || 0);
+
         if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            const crCode = String(t.creditAccount.code || '');
+            const drPrefix = drCode.charAt(0);
+            const crPrefix = crCode.charAt(0);
+
+            if (crPrefix === '4') { 
+                totalIncome += amount; 
+            }
+            if (['5', '6', '7', '4'].includes(drPrefix)) { 
+                totalExpense += amount; 
+            }
+            return;
+        }
+
+        const accountObj = (accounts || []).find(a => a.name === t.category);
+        let prefix = '0';
+        
+        if (accountObj) {
+            prefix = String(accountObj.number).charAt(0);
+        } else if (t.category === 'Transferencia Interna') {
+            prefix = '0'; 
+        } else {
+            prefix = t.type === 'income' ? '4' : '5';
+        }
+        
+        if (!t.isInternalTransfer) {
+            if (prefix === '4') {
+                if (t.type === 'income') {
+                    totalIncome += amount;
+                } else {
+                    totalExpense += amount;
+                }
+            } else if (['5', '6', '7'].includes(prefix)) {
+                totalExpense += amount;
+            }
+        }
+    });
+
+    const netProfit = totalIncome - totalExpense;
+    const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
+    const summaryData = { totalIncome, totalExpenses: totalExpense, netProfit, profitMargin };
+    
+    const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
+        const amount = safeParseFloat(t.amount);
+        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
+
+        if (t.debitAccount && t.creditAccount) {
+             const drCode = String(t.debitAccount.code || '');
+             const drName = t.debitAccount.name || '';
              const crCode = String(t.creditAccount.code || '');
-             if (crCode.startsWith('4')) return sum + amount;
+             const crName = t.creditAccount.name || '';
+             
+             if (classPrefix === '4' && crCode.startsWith('4') && crName === categoryName) return sum + amount;
+             if (['5', '6', '7'].includes(classPrefix)) {
+                 if (['5', '6', '7', '4'].includes(drCode.charAt(0)) && drName === categoryName) return sum + amount;
+             }
              return sum;
         }
 
-        if (getAccountPrefix(t.category) === '4') {
-            return sum + (t.type === 'income' ? amount : -amount);
-        }
-        return sum;
-    }, 0);
-
-    const totalCosts = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
-        if (['6', '7'].includes(getAccountPrefix(t.category))) {
-            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
-        }
-        return sum;
-    }, 0);
-
-    const totalExpenses = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
-        if (getAccountPrefix(t.category) === '5') {
-            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
-        }
-        return sum;
-    }, 0);
-
-    const netProfit = totalIncome - totalCosts - totalExpenses;
-    const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
-    const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
-    
-    const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
-        if (t.category !== categoryName || t.isFixedAsset || t.isInternalTransfer || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
-        const amount = safeParseFloat(t.amount);
+        if (t.category !== categoryName) return sum;
         if (classPrefix === '4') return sum + (t.type === 'income' ? amount : -amount);
         if (['5', '6', '7'].includes(classPrefix)) return sum + (t.type === 'expense' ? amount : -amount);
         return sum;
     }, 0);
 
     const incomeAccounts = allAccounts.filter(a => String(a.number).startsWith('4'));
-    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5'));
+    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5') || String(a.number).startsWith('4'));
     const costAccounts = allAccounts.filter(a => String(a.number).startsWith('6') || String(a.number).startsWith('7'));
-
-    const grossProfit = totalIncome - totalCosts;
 
     const incomeStatement = [
         { item: 'INGRESOS OPERACIONALES', isBold: true },
@@ -183,13 +209,13 @@ const Reports = () => {
         
         { item: 'COSTOS DE VENTA', isBold: true },
         ...costAccounts.map(acc => ({ item: `  ${acc.name}`, amount: -Math.abs(calculateTotalForCategory(acc.name, '6')) })).filter(i => i.amount !== 0),
-        { item: 'Total Costos', amount: -totalCosts, isSubtotal: true, isTopBorder: true },
+        { item: 'Total Costos', amount: 0, isSubtotal: true, isTopBorder: true },
         
-        { item: 'UTILIDAD BRUTA', amount: grossProfit, isBold: true, isTopBorder: true },
+        { item: 'UTILIDAD BRUTA', amount: totalIncome, isBold: true, isTopBorder: true },
         
         { item: 'GASTOS OPERACIONALES', isBold: true },
         ...expenseAccounts.map(acc => ({ item: `  ${acc.name}`, amount: -Math.abs(calculateTotalForCategory(acc.name, '5')) })).filter(i => i.amount !== 0),
-        { item: 'Total Gastos', amount: -totalExpenses, isSubtotal: true, isTopBorder: true },
+        { item: 'Total Gastos', amount: -totalExpense, isSubtotal: true, isTopBorder: true },
         
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
     ];
@@ -210,7 +236,6 @@ const Reports = () => {
         }
         return sum;
     }, 0);
-
 
     let cashIncomes = 0, cashExpenses = 0;
     
@@ -312,7 +337,6 @@ const Reports = () => {
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
-        // Bloque Partida Doble Manual
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
@@ -336,7 +360,6 @@ const Reports = () => {
             return;
         }
 
-        // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
@@ -494,7 +517,7 @@ const Reports = () => {
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between md:items-center gap-4"><h1 className="text-4xl font-bold text-slate-900 mb-2">Reportes Financieros</h1><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select" className="font-medium">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px] bg-white"><SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-green-100 p-6 rounded-lg border border-green-200"><p className="text-sm text-green-800">Ingresos Operacionales (P&L)</p><p className="text-2xl font-bold text-green-900">${reportData.summary.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-red-100 p-6 rounded-lg border border-red-200"><p className="text-sm text-red-800">Costos y Gastos (P&L)</p><p className="text-2xl font-bold text-red-900">${reportData.summary.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-blue-100 p-6 rounded-lg border border-blue-200"><p className="text-sm text-blue-800">Utilidad Neta</p><p className="text-2xl font-bold text-blue-900">${reportData.summary.netProfit.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-purple-100 p-6 rounded-lg border border-purple-200"><p className="text-sm text-purple-800">Margen de Ganancia</p><p className="text-2xl font-bold text-purple-900">{reportData.summary.profitMargin}%</p></div></div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Balance General</h2><Button onClick={handleExportBalanceSheet} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8"><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Activos</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.assets)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Activos</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.assets?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Pasivos y Patrimonio</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.liabilities)}</tbody></table><table className="w-full mt-2"><tbody>{renderSheetTable(reportData.balanceSheet.equity)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Pasivo + Patrimonio</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.liabilitiesAndEquity?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div></div><div className={`p-4 text-center border-t text-sm font-semibold ${Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? '¡El balance está cuadrado!' : 'El balance no está cuadrado'}</div></div></motion.div>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Estado de Resultados</h2><Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${item.item.search(/\S/) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div></div></motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Estado de Resultados</h2><Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key5="index" className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${item.item.search(/\S/) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div></div></motion.div>
       </div>
     </>
   );
