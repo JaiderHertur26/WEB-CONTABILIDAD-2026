@@ -124,14 +124,13 @@ const Reports = () => {
         if (!categoryName) return null;
         const upper = String(categoryName).toUpperCase();
         if (upper.includes('CATEDRATÓN') || upper.includes('CATEDRATON')) {
-            // Si es la Catedratón, pertenece a la clase 4 de ingresos (y también maneja su salida)
             return '4';
         }
         const account = allAccounts.find(a => a.name && a.name.toUpperCase() === upper);
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // --- CÁLCULO TOTALES P&L (INCLUYENDO PARTIDA DOBLE Y CATEDRATÓN) ---
+    // --- CÁLCULO TOTALES P&L (CORREGIDO Y BLINDADO) ---
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer) return sum;
         const amount = safeParseFloat(t.amount);
@@ -149,6 +148,14 @@ const Reports = () => {
         return sum;
     }, 0);
 
+    const totalCosts = pnlTransactions.reduce((sum, t) => {
+        if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+        if (['6', '7'].includes(getAccountPrefix(t.category))) {
+            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+        }
+        return sum;
+    }, 0);
+
     const totalExpenses = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
         const amount = safeParseFloat(t.amount);
@@ -160,7 +167,6 @@ const Reports = () => {
         }
 
         const prefix = getAccountPrefix(t.category);
-        // Si es un gasto normal (5) o si hay un egreso asociado a la Catedratón
         if (prefix === '5' || (t.type === 'expense' && t.category && t.category.toUpperCase().includes('CATEDRATÓN'))) {
             return sum + amount;
         }
