@@ -211,22 +211,6 @@ const TaxReports = () => {
             }
         });
 
-        const totalExpenses = pnlTransactions.reduce((sum, t) => {
-            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
-            const amount = safeParseFloat(t.amount);
-            
-            if (t.debitAccount && t.creditAccount) {
-                 const drCode = String(t.debitAccount.code || '');
-                 // ¡AQUÍ ESTÁ LA MAGIA! Sumamos los débitos a la 5 y a la 4 (Catedratón)
-                 if (['5', '4'].includes(drCode.charAt(0))) return sum + amount;
-                 return sum;
-            }
-            if (getAccountPrefix(t.category) === '5') {
-                return sum + (t.type === 'expense' ? amount : -amount);
-            }
-            return sum;
-        }, 0);
-
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
