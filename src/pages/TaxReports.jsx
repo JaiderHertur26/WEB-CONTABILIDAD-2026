@@ -345,7 +345,7 @@ const TaxReports = () => {
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
                 else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-                else if (drCode.startsWith('16')) intangiblesValue += amount; // Corrección
+                else if (drCode.startsWith('16')) intangiblesValue += amount;
                 else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
@@ -354,7 +354,7 @@ const TaxReports = () => {
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
                 else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
-                else if (crCode.startsWith('16')) intangiblesValue -= amount; // Corrección
+                else if (crCode.startsWith('16')) intangiblesValue -= amount;
                 else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
@@ -373,7 +373,7 @@ const TaxReports = () => {
             if (num.startsWith('1330')) anticiposValue += assetImpact;
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
             else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
-            else if (num.startsWith('16')) intangiblesValue += assetImpact; // Corrección
+            else if (num.startsWith('16')) intangiblesValue += assetImpact;
             else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
                 otherAssetsValue += assetImpact;
             }
@@ -406,6 +406,10 @@ const TaxReports = () => {
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
         const netWorth = totalAssets - totalDebts;
 
+        // --- LÓGICA DE PATRIMONIO DESGLOSADO ---
+        const fondoSocial = 76431515; 
+        const resultadosAcumulados = netWorth - fondoSocial - netProfit;
+
         const assetsSection = [
             { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
             { Concepto: '  Efectivo y Equivalentes (Caja General)', Valor: cajaGeneralValue, isSubtotal: true },
@@ -419,7 +423,7 @@ const TaxReports = () => {
             { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
             { Concepto: '  Propiedades, Planta y Equipo', Valor: realEstatesValue, isDetail: true },
             { Concepto: '  Activos Fijos (Oficina y Equipos)', Valor: manualFixedAssetsValue, isDetail: true },
-            { Concepto: '  Activos Intangibles (Licencias/Software)', Valor: intangiblesValue, isDetail: true }, // Nueva línea
+            { Concepto: '  Activos Intangibles (Licencias/Software)', Valor: intangiblesValue, isDetail: true },
             { Concepto: '  Inventario', Valor: inventoryValue, isDetail: true },
             { Concepto: '  Depreciación Acumulada', Valor: depreciacionAcumuladaValue, isDetail: true },
         ];
@@ -430,6 +434,9 @@ const TaxReports = () => {
             { Concepto: '  Cuentas por Pagar', Valor: accountsPayableValue, isDetail: true },
             { Concepto: '  Otros Pasivos', Valor: otherLiabilitiesValue, isDetail: true },
             { Concepto: 'PATRIMONIO LÍQUIDO (Activos - Pasivos)', Valor: netWorth, isTotal: true }, 
+            { Concepto: '  Fondo Social', Valor: fondoSocial, isDetail: true },
+            { Concepto: '  Resultados Acumulados', Valor: resultadosAcumulados, isDetail: true },
+            { Concepto: '  Resultado del Ejercicio', Valor: netProfit, isDetail: true },
             { isSpacer: true },
             { Concepto: 'INGRESOS TOTALES (P&L del año)', Valor: totalIncomes, isDetail: true },
             { Concepto: 'COSTOS Y GASTOS TOTALES (P&L del año)', Valor: totalCostsAndExpenses, isDetail: true },
