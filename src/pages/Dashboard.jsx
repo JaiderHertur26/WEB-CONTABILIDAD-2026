@@ -256,7 +256,7 @@ const Dashboard = () => {
 
     const cajaGeneralTotal = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
     
-    // --- ASSETS (ACTIVOS) ---
+    // --- ASSETS (ACTIVOS UNIFICADOS) ---
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
@@ -272,39 +272,103 @@ const Dashboard = () => {
         return r.status === 'Pendiente' && rYear <= parseInt(selectedYear);
     }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
     
-    const construccionesValue = bsTransactions.filter(t => getAccountPrefix(t.category) === '1' && (t.category || '').toUpperCase().includes('CONSTRUCCIONES')).reduce((sum, t) => sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount)), 0);
-    const anticiposValue = bsTransactions.filter(t => getAccountPrefix(t.category) === '1' && (t.category || '').toUpperCase().includes('ANTICIPOS')).reduce((sum, t) => sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount)), 0);
+    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, intangiblesValue = 0, depreciacionAcumuladaValue = 0;
 
-    const totalAssets = cajaGeneralTotal + accountsReceivableValue + manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue;
+    bsTransactions.forEach(t => {
+        const amount = safeParseFloat(t.amount);
 
-    // --- P&L CALCULATIONS ESTRICTO ---
-    const income = transactionsInPeriod
-        .filter(t => t.type === 'income' && !t.isInternalTransfer && getAccountPrefix(t.category) === '4')
-        .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            const crCode = String(t.creditAccount.code || '');
 
-    const costs = transactionsInPeriod
-        .filter(t => t.type === 'expense' && !t.isInternalTransfer && ['6', '7'].includes(getAccountPrefix(t.category)))
-        .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+            if (drCode.startsWith('1330')) anticiposValue += amount;
+            else if (drCode.startsWith('1508')) construccionesValue += amount;
+            else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+            else if (drCode.startsWith('16')) intangiblesValue += amount;
+            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+                otherAssetsValue += amount;
+            }
 
-    const expenses = transactionsInPeriod
-        .filter(t => t.type === 'expense' && !t.isInternalTransfer && !t.isFixedAsset && !t.isPurchase && getAccountPrefix(t.category) === '5')
-        .reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+            if (crCode.startsWith('1330')) anticiposValue -= amount;
+            else if (crCode.startsWith('1508')) construccionesValue -= amount;
+            else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+            else if (crCode.startsWith('16')) intangiblesValue -= amount;
+            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+                otherAssetsValue -= amount;
+            }
+            return;
+        }
+
+        const acc = allAccounts.find(a => a.name === t.category);
+        if (!acc) return;
+        const num = String(acc.number);
+
+        const assetImpact = t.type === 'expense' ? amount : -amount;
+
+        if (num.startsWith('1330')) anticiposValue += assetImpact;
+        else if (num.startsWith('1508')) construccionesValue += assetImpact;
+        else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
+        else if (num.startsWith('16')) intangiblesValue += assetImpact;
+        else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
+            otherAssetsValue += assetImpact;
+        }
+    });
+
+    const totalAssets = cajaGeneralTotal + accountsReceivableValue + manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue + otherAssetsValue + intangiblesValue + depreciacionAcumuladaValue;
+
+    // --- P&L CALCULATIONS (MOTOR UNIFICADO) ---
+    let totalIncomes = 0;
+    let totalExpenses = 0;
+
+    transactionsInPeriod.forEach(t => {
+        const amount = safeParseFloat(t.amount);
+
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            const crCode = String(t.creditAccount.code || '');
+            const drPrefix = drCode.charAt(0);
+            const crPrefix = crCode.charAt(0);
+
+            if (crPrefix === '4') totalIncomes += amount;
+            if (['5', '6', '7', '4'].includes(drPrefix)) totalExpenses += amount;
+            return;
+        }
+
+        const accountObj = allAccounts.find(a => a.name === t.category);
+        let prefix = '0';
+        if (accountObj) {
+            prefix = String(accountObj.number).charAt(0);
+        } else if (t.category === 'Transferencia Interna') {
+            prefix = '0';
+        } else {
+            prefix = t.type === 'income' ? '4' : '5';
+        }
+
+        if (!t.isInternalTransfer) {
+            if (prefix === '4') {
+                if (t.type === 'income') totalIncomes += amount;
+                else totalExpenses += amount;
+            } else if (['5', '6', '7'].includes(prefix)) {
+                totalExpenses += amount;
+            }
+        }
+    });
 
     setStats({
       generalBalance: totalAssets,
-      totalIncome: income,
-      totalExpenses: (costs + expenses),
+      totalIncome: totalIncomes,
+      totalExpenses: totalExpenses,
       cashBalance: cajaGeneralTotal, 
     });
 
-    const monthlyData = generateMonthlyData(transactionsInPeriod.filter(t => !t.isInternalTransfer), dateRange.from, dateRange.to, getAccountPrefix);
+    const monthlyData = generateMonthlyData(transactionsInPeriod, dateRange.from, dateRange.to, allAccounts);
     setChartData(monthlyData);
 
-    const categories = generateCategoryData(transactionsInPeriod, getAccountPrefix);
+    const categories = generateCategoryData(transactionsInPeriod, allAccounts);
     setCategoryData(categories);
   }, [transactionsData, initialBalanceData, bankAccountsData, cashAccountsData, fixedAssetsData, realEstatesData, accountsReceivableData, accountsData, inventoryData, dateRange, isConsolidated, selectedYear, filterByCompany]);
 
-  const generateMonthlyData = (transactions, startDate, endDate, getAccountPrefix) => {
+  const generateMonthlyData = (transactions, startDate, endDate, allAccounts) => {
     if (!startDate || !endDate) return [];
     const start = startOfDay(startDate);
     const end = endOfDay(endDate);
@@ -325,13 +389,32 @@ const Dashboard = () => {
         const monthData = months.find(m => m.name === monthName);
         if (monthData) {
             const amount = parseFloat(t.amount);
-            const prefix = getAccountPrefix(t.category);
-            
-            if (!isNaN(amount)) {
-                if (t.type === 'income' && prefix === '4') {
-                  monthData.ingresos += amount;
-                } else if (t.type === 'expense' && !t.isInternalTransfer && !t.isFixedAsset && !t.isPurchase && ['5', '6', '7'].includes(prefix)) {
-                  monthData.gastos += amount;
+            if (isNaN(amount)) return;
+
+            if (t.debitAccount && t.creditAccount) {
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                if (crCode.charAt(0) === '4') monthData.ingresos += amount;
+                if (['5', '6', '7', '4'].includes(drCode.charAt(0))) monthData.gastos += amount;
+                return;
+            }
+
+            const accountObj = allAccounts.find(a => a.name === t.category);
+            let prefix = '0';
+            if (accountObj) {
+                prefix = String(accountObj.number).charAt(0);
+            } else if (t.category === 'Transferencia Interna') {
+                prefix = '0';
+            } else {
+                prefix = t.type === 'income' ? '4' : '5';
+            }
+
+            if (!t.isInternalTransfer) {
+                if (prefix === '4') {
+                    if (t.type === 'income') monthData.ingresos += amount;
+                    else monthData.gastos += amount;
+                } else if (['5', '6', '7'].includes(prefix)) {
+                    monthData.gastos += amount;
                 }
             }
         }
@@ -340,22 +423,39 @@ const Dashboard = () => {
     return months;
   };
 
-  const generateCategoryData = (transactions, getAccountPrefix) => {
-    const expenseTransactions = transactions.filter(t => {
-        if (t.type !== 'expense' || t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return false;
-        const prefix = getAccountPrefix(t.category);
-        return ['5', '6', '7'].includes(prefix);
-    });
+  const generateCategoryData = (transactions, allAccounts) => {
+    const categoryTotals = {};
 
-    const categoryTotals = expenseTransactions.reduce((acc, t) => {
-      const category = t.category || 'Sin Categoría';
-      const amount = parseFloat(t.amount);
-      if (!isNaN(amount)) {
-        if (!acc[category]) acc[category] = 0;
-        acc[category] += amount;
-      }
-      return acc;
-    }, {});
+    transactions.forEach(t => {
+        const amount = parseFloat(t.amount);
+        if (isNaN(amount)) return;
+
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            if (['5', '6', '7', '4'].includes(drCode.charAt(0))) {
+                const catName = t.debitAccount.name || 'Sin Categoría';
+                categoryTotals[catName] = (categoryTotals[catName] || 0) + amount;
+            }
+            return;
+        }
+
+        const accountObj = allAccounts.find(a => a.name === t.category);
+        let prefix = '0';
+        if (accountObj) {
+            prefix = String(accountObj.number).charAt(0);
+        } else if (t.category === 'Transferencia Interna') {
+            prefix = '0';
+        } else {
+            prefix = t.type === 'income' ? '4' : '5';
+        }
+
+        if (!t.isInternalTransfer && t.type === 'expense') {
+            if (['5', '6', '7'].includes(prefix) || (prefix === '4' && t.type === 'expense')) {
+                 const catName = t.category || 'Sin Categoría';
+                 categoryTotals[catName] = (categoryTotals[catName] || 0) + amount;
+            }
+        }
+    });
 
     const totalExpenses = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
 
