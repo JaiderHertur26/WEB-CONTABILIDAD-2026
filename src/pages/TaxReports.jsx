@@ -173,43 +173,30 @@ const TaxReports = () => {
             return account ? String(account.number).charAt(0) : null;
         };
 
-        // 1. P&L Logic (Motor Unificado idéntico a Cierres Contables)
-        let totalIncomes = 0;
-        let totalExpenses = 0;
-
-        pnlTransactions.forEach(t => {
-            const amount = safeParseFloat(t.amount);
-
-            if (t.debitAccount && t.creditAccount) {
-                const drCode = String(t.debitAccount.code || '');
-                const crCode = String(t.creditAccount.code || '');
-                const drPrefix = drCode.charAt(0);
-                const crPrefix = crCode.charAt(0);
-
-                if (crPrefix === '4') totalIncomes += amount;
-                if (['5', '6', '7', '4'].includes(drPrefix)) totalExpenses += amount;
-                return;
+        // 1. P&L Logic
+        const totalIncomes = pnlTransactions.reduce((sum, t) => {
+            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (getAccountPrefix(t.category) === '4') {
+                return sum + (t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
+            return sum;
+        }, 0);
 
-            const accountObj = allAccounts.find(a => a.name === t.category);
-            let prefix = '0';
-            if (accountObj) {
-                prefix = String(accountObj.number).charAt(0);
-            } else if (t.category === 'Transferencia Interna') {
-                prefix = '0';
-            } else {
-                prefix = t.type === 'income' ? '4' : '5';
+        const totalCosts = pnlTransactions.reduce((sum, t) => {
+            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (['6', '7'].includes(getAccountPrefix(t.category))) {
+                return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
+            return sum;
+        }, 0);
 
-            if (!t.isInternalTransfer) {
-                if (prefix === '4') {
-                    if (t.type === 'income') totalIncomes += amount;
-                    else totalExpenses += amount;
-                } else if (['5', '6', '7'].includes(prefix)) {
-                    totalExpenses += amount;
-                }
+        const totalExpenses = pnlTransactions.reduce((sum, t) => {
+            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
+            if (getAccountPrefix(t.category) === '5') {
+                return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
-        });
+            return sum;
+        }, 0);
 
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
