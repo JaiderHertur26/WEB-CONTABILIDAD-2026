@@ -163,42 +163,6 @@ const Reports = () => {
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
     const summaryData = { totalIncome, totalExpenses: totalExpense, netProfit, profitMargin };
     
-    // --- LÓGICA DE UTILIDADES ACUMULADAS ---
-    let historicalAccumulatedProfit = -6421070; // Base fijada en el cierre 2025 para años posteriores
-    if (parseInt(currentYear) > 2025) {
-        let historicalIncome = 0;
-        let historicalExpense = 0;
-        
-        // Sumar todos los P&L desde el año base (2025 exclusivo, sumamos a partir de 2026 en adelante)
-        const pastTransactions = validTransactions.filter(t => {
-            const y = getSafeYear(t.date);
-            return y > 2025 && y < parseInt(currentYear);
-        });
-
-        pastTransactions.forEach(t => {
-            const amount = parseFloat(t.amount || 0);
-            if (t.debitAccount && t.creditAccount) {
-                const drCode = String(t.debitAccount.code || '');
-                const crCode = String(t.creditAccount.code || '');
-                if (crCode.charAt(0) === '4') historicalIncome += amount; 
-                if (['5', '6', '7', '4'].includes(drCode.charAt(0))) historicalExpense += amount; 
-                return;
-            }
-            const accountObj = (accounts || []).find(a => a.name === t.category);
-            let prefix = '0';
-            if (accountObj) prefix = String(accountObj.number).charAt(0);
-            else prefix = t.type === 'income' ? '4' : '5';
-            
-            if (!t.isInternalTransfer) {
-                if (prefix === '4') {
-                    if (t.type === 'income') historicalIncome += amount;
-                    else historicalExpense += amount;
-                } else if (['5', '6', '7'].includes(prefix)) historicalExpense += amount;
-            }
-        });
-        historicalAccumulatedProfit += (historicalIncome - historicalExpense);
-    }
-    
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
         const amount = safeParseFloat(t.amount);
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
@@ -369,7 +333,7 @@ const Reports = () => {
             if (drCode.startsWith('1330')) anticiposValue += amount;
             else if (drCode.startsWith('1508')) construccionesValue += amount;
             else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-            else if (drCode.startsWith('16')) intangiblesValue += amount; 
+            else if (drCode.startsWith('16')) intangiblesValue += amount;
             else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                 otherAssetsValue += amount;
             }
@@ -378,7 +342,7 @@ const Reports = () => {
             if (crCode.startsWith('1330')) anticiposValue -= amount;
             else if (crCode.startsWith('1508')) construccionesValue -= amount;
             else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
-            else if (crCode.startsWith('16')) intangiblesValue -= amount; 
+            else if (crCode.startsWith('16')) intangiblesValue -= amount;
             else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                 otherAssetsValue -= amount;
             }
@@ -397,7 +361,7 @@ const Reports = () => {
         if (num.startsWith('1330')) anticiposValue += assetImpact;
         else if (num.startsWith('1508')) construccionesValue += assetImpact;
         else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
-        else if (num.startsWith('16')) intangiblesValue += assetImpact; 
+        else if (num.startsWith('16')) intangiblesValue += assetImpact;
         else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
             otherAssetsValue += assetImpact;
         }
@@ -427,19 +391,6 @@ const Reports = () => {
         return p.status === 'Pendiente' && pYear <= parseInt(currentYear);
     }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
 
-    const baseAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + intangiblesValue + inventoryValue + depreciacionAcumuladaValue; 
-    const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
-    
-    // --- LÓGICA DE PATRIMONIO DESGLOSADO ---
-    const fondoSocial = 76431515; // Histórico Inamovible
-    
-    // Calculamos el patrimonio que deberíamos tener en base a la historia y P&L
-    const expectedEquity = fondoSocial + historicalAccumulatedProfit + netProfit;
-    
-    // Calculamos si nos falta o sobra activo frente al pasivo y patrimonio esperado
-    const conversionAdjustment = expectedEquity + totalLiabilities - baseAssets;
-    const finalAssets = baseAssets + conversionAdjustment;
-
     const assets = [
         { item: 'Activo Corriente', isBold: true },
         { item: '  Efectivo y Equivalentes', isSubtotal: true },
@@ -460,21 +411,24 @@ const Reports = () => {
         { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
     ];
     
-    // Si hay diferencia entre los activos registrados y el Patrimonio Histórico
-    if (Math.abs(conversionAdjustment) > 1) {
-        assets.push({ item: '  Ajuste por Diferencia de Conversión', amount: conversionAdjustment });
-    }
-    
     const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
+    
+    const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + intangiblesValue + inventoryValue + depreciacionAcumuladaValue; 
+    const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
+    const totalEquity = totalAssets - totalLiabilities; 
+    
+    // --- LÓGICA DE PATRIMONIO DESGLOSADO ---
+    const fondoSocial = 76431515; // Valor histórico fijo
+    const resultadosAcumulados = totalEquity - fondoSocial - netProfit;
 
     const equity = [ 
       { item: 'Patrimonio', isBold: true }, 
       { item: '  Fondo Social', amount: fondoSocial }, 
-      { item: '  Resultados Acumulados', amount: historicalAccumulatedProfit }, 
+      { item: '  Resultados Acumulados', amount: resultadosAcumulados }, 
       { item: '  Resultado del Ejercicio', amount: netProfit }
     ];
 
-    const balanceSheet = { assets: assets.filter(a => a.amount != null || a.isBold || a.isSubtotal), liabilities: liabilities.filter(l => l.amount != null || l.isBold), equity: equity.filter(e => e.amount != null || e.isBold), totals: { assets: finalAssets, liabilities: totalLiabilities, equity: expectedEquity, liabilitiesAndEquity: totalLiabilities + expectedEquity } };
+    const balanceSheet = { assets: assets.filter(a => a.amount != null || a.isBold || a.isSubtotal), liabilities: liabilities.filter(l => l.amount != null || l.isBold), equity: equity.filter(e => e.amount != null || e.isBold), totals: { assets: totalAssets, liabilities: totalLiabilities, equity: totalEquity, liabilitiesAndEquity: totalLiabilities + totalEquity } };
     setReportData({ summary: summaryData, incomeStatement, balanceSheet });
   };
   
