@@ -135,6 +135,7 @@ const Reports = () => {
         if (t.isInternalTransfer) return sum;
         const amount = safeParseFloat(t.amount);
         
+        // Soporte para asientos manuales (Partida Doble / Catedratón)
         if (t.debitAccount && t.creditAccount) {
              const crCode = String(t.creditAccount.code || '');
              if (crCode.startsWith('4')) return sum + amount;
@@ -142,7 +143,10 @@ const Reports = () => {
         }
 
         const prefix = getAccountPrefix(t.category);
-        if (prefix === '4' || (t.category && t.category.toUpperCase().includes('CATEDRATÓN'))) {
+        const catUpper = String(t.category || '').toUpperCase();
+        
+        // Sumamos si es cuenta 4 o si la categoría corresponde a la Catedratón
+        if (prefix === '4' || catUpper.includes('CATEDRATÓN') || catUpper.includes('CATEDRATON')) {
             return sum + (t.type === 'income' ? amount : -amount);
         }
         return sum;
