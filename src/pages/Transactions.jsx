@@ -710,7 +710,9 @@ const Transactions = () => {
                 isInternalTransfer: true,
                 voucherNumber,
                 company_id: activeCompany?.id,
-                companyId: activeCompany?.id
+                companyId: activeCompany?.id,
+                debitAccount: { code: debitAccObj.number, name: debitAccObj.name },
+                creditAccount: { code: creditAccObj.number, name: creditAccObj.name }
             };
 
             const incomeTransaction = {
@@ -724,10 +726,13 @@ const Transactions = () => {
                 isInternalTransfer: true,
                 voucherNumber,
                 company_id: activeCompany?.id,
-                companyId: activeCompany?.id
+                companyId: activeCompany?.id,
+                debitAccount: { code: creditAccObj.number, name: creditAccObj.name }, // Contrapartida
+                creditAccount: { code: debitAccObj.number, name: debitAccObj.name }
             };
 
-            if (debitAccObj.number.startsWith('15')) {
+            // EXCEPCIÓN: Evitamos que Construcciones (1508) o Depreciaciones (1592) se vayan a la tabla de Activos Fijos de oficina.
+            if (debitAccObj.number.startsWith('15') && !debitAccObj.number.startsWith('1508') && !debitAccObj.number.startsWith('1592')) {
                 const assetPayload = {
                     date: transferData.date,
                     name: transferData.description, 
