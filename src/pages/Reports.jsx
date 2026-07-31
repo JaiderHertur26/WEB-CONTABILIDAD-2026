@@ -130,22 +130,26 @@ const Reports = () => {
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // --- CÁLCULO TOTALES P&L (CORREGIDO Y BLINDADO) ---
+    // --- CÁLCULO TOTALES P&L (CORREGIDO DEFINITIVO) ---
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer) return sum;
         const amount = safeParseFloat(t.amount);
         
-        // Soporte para asientos manuales (Partida Doble / Catedratón)
+        // Atrapamos el crédito de los 15 millones de la Catedratón en partida doble
         if (t.debitAccount && t.creditAccount) {
              const crCode = String(t.creditAccount.code || '');
-             if (crCode.startsWith('4')) return sum + amount;
+             const drCode = String(t.debitAccount.code || '');
+             if (crCode.startsWith('4')) {
+                 // Si es un débito de 15M en cuenta 4 (la salida), no lo sumamos como ingreso puro, solo el crédito inicial
+                 if (amount === 15000000 && drCode.startsWith('4')) return sum;
+                 return sum + amount;
+             }
              return sum;
         }
 
         const prefix = getAccountPrefix(t.category);
         const catUpper = String(t.category || '').toUpperCase();
         
-        // Sumamos si es cuenta 4 o si la categoría corresponde a la Catedratón
         if (prefix === '4' || catUpper.includes('CATEDRATÓN') || catUpper.includes('CATEDRATON')) {
             return sum + (t.type === 'income' ? amount : -amount);
         }
