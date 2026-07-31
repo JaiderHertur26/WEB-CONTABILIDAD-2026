@@ -121,36 +121,22 @@ const Reports = () => {
     };
 
     const getAccountPrefix = (categoryName) => {
-        if (!categoryName) return null;
-        const upper = String(categoryName).toUpperCase();
-        if (upper.includes('CATEDRATÓN') || upper.includes('CATEDRATON')) {
-            return '4';
-        }
-        const account = allAccounts.find(a => a.name && a.name.toUpperCase() === upper);
+        const account = allAccounts.find(a => a.name === categoryName);
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // --- CÁLCULO TOTALES P&L (CORREGIDO DEFINITIVO) ---
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.isInternalTransfer) return sum;
         const amount = safeParseFloat(t.amount);
         
-        // Atrapamos el crédito de los 15 millones de la Catedratón en partida doble
+        // Si es asiento de Partida Doble, sumamos si el crédito es de la clase 4
         if (t.debitAccount && t.creditAccount) {
              const crCode = String(t.creditAccount.code || '');
-             const drCode = String(t.debitAccount.code || '');
-             if (crCode.startsWith('4')) {
-                 // Si es un débito de 15M en cuenta 4 (la salida), no lo sumamos como ingreso puro, solo el crédito inicial
-                 if (amount === 15000000 && drCode.startsWith('4')) return sum;
-                 return sum + amount;
-             }
+             if (crCode.startsWith('4')) return sum + amount;
              return sum;
         }
 
-        const prefix = getAccountPrefix(t.category);
-        const catUpper = String(t.category || '').toUpperCase();
-        
-        if (prefix === '4' || catUpper.includes('CATEDRATÓN') || catUpper.includes('CATEDRATON')) {
+        if (getAccountPrefix(t.category) === '4') {
             return sum + (t.type === 'income' ? amount : -amount);
         }
         return sum;
@@ -165,18 +151,9 @@ const Reports = () => {
     }, 0);
 
     const totalExpenses = pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
-        const amount = safeParseFloat(t.amount);
-        
-        if (t.debitAccount && t.creditAccount) {
-             const drCode = String(t.debitAccount.code || '');
-             if (['5', '4'].includes(drCode.charAt(0))) return sum + amount;
-             return sum;
-        }
-
-        const prefix = getAccountPrefix(t.category);
-        if (prefix === '5' || (t.type === 'expense' && t.category && t.category.toUpperCase().includes('CATEDRATÓN'))) {
-            return sum + amount;
+        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
+        if (getAccountPrefix(t.category) === '5') {
+            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
         }
         return sum;
     }, 0);
@@ -186,34 +163,15 @@ const Reports = () => {
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
-        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
+        if (t.category !== categoryName || t.isFixedAsset || t.isInternalTransfer || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
         const amount = safeParseFloat(t.amount);
-        
-        if (t.debitAccount && t.creditAccount) {
-             const drCode = String(t.debitAccount.code || '');
-             const drName = t.debitAccount.name || '';
-             const crCode = String(t.creditAccount.code || '');
-             const crName = t.creditAccount.name || '';
-             
-             if (classPrefix === '4' && crCode.startsWith('4') && crName === categoryName) return sum + amount;
-             
-             if (['5', '6', '7'].includes(classPrefix)) {
-                 if (['5', '6', '7', '4'].includes(drCode.charAt(0)) && drName === categoryName) {
-                     return sum + amount;
-                 }
-             }
-             return sum;
-        }
-
-        if (t.category !== categoryName) return sum;
-        
         if (classPrefix === '4') return sum + (t.type === 'income' ? amount : -amount);
         if (['5', '6', '7'].includes(classPrefix)) return sum + (t.type === 'expense' ? amount : -amount);
         return sum;
     }, 0);
 
     const incomeAccounts = allAccounts.filter(a => String(a.number).startsWith('4'));
-    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5') || String(a.number).startsWith('4'));
+    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5'));
     const costAccounts = allAccounts.filter(a => String(a.number).startsWith('6') || String(a.number).startsWith('7'));
 
     const grossProfit = totalIncome - totalCosts;
@@ -354,6 +312,7 @@ const Reports = () => {
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
+        // Bloque Partida Doble Manual
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
@@ -377,6 +336,7 @@ const Reports = () => {
             return;
         }
 
+        // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
