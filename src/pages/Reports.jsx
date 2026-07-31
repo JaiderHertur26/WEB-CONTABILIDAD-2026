@@ -154,15 +154,37 @@ const Reports = () => {
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
-        if (t.category !== categoryName || t.isFixedAsset || t.isInternalTransfer || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
+        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
         const amount = safeParseFloat(t.amount);
+        
+        // Soporte para Partida Doble
+        if (t.debitAccount && t.creditAccount) {
+             const drCode = String(t.debitAccount.code || '');
+             const drName = t.debitAccount.name || '';
+             const crCode = String(t.creditAccount.code || '');
+             const crName = t.creditAccount.name || '';
+             
+             if (classPrefix === '4' && crCode.startsWith('4') && crName === categoryName) return sum + amount;
+             
+             // Si buscamos gastos, verificamos débitos a 5, 6, 7 Y 4
+             if (['5', '6', '7'].includes(classPrefix)) {
+                 if (['5', '6', '7', '4'].includes(drCode.charAt(0)) && drName === categoryName) {
+                     return sum + amount;
+                 }
+             }
+             return sum;
+        }
+
+        if (t.category !== categoryName) return sum;
+        
         if (classPrefix === '4') return sum + (t.type === 'income' ? amount : -amount);
         if (['5', '6', '7'].includes(classPrefix)) return sum + (t.type === 'expense' ? amount : -amount);
         return sum;
     }, 0);
 
     const incomeAccounts = allAccounts.filter(a => String(a.number).startsWith('4'));
-    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5'));
+    // Agregamos las cuentas 4 al mapeo de gastos para que iteren y capturen el débito de la Catedratón
+    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5') || String(a.number).startsWith('4'));
     const costAccounts = allAccounts.filter(a => String(a.number).startsWith('6') || String(a.number).startsWith('7'));
 
     const grossProfit = totalIncome - totalCosts;

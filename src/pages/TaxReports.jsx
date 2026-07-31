@@ -175,25 +175,49 @@ const TaxReports = () => {
 
         // 1. P&L Logic
         const totalIncomes = pnlTransactions.reduce((sum, t) => {
-            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (t.isInternalTransfer) return sum;
+            const amount = safeParseFloat(t.amount);
+            
+            // Si es partida doble manual
+            if (t.debitAccount && t.creditAccount) {
+                 const crCode = String(t.creditAccount.code || '');
+                 if (crCode.startsWith('4')) return sum + amount;
+                 return sum;
+            }
+            // Si es transacción normal
             if (getAccountPrefix(t.category) === '4') {
-                return sum + (t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+                return sum + (t.type === 'income' ? amount : -amount);
             }
             return sum;
         }, 0);
 
         const totalCosts = pnlTransactions.reduce((sum, t) => {
-            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (t.isInternalTransfer) return sum;
+            const amount = safeParseFloat(t.amount);
+            
+            if (t.debitAccount && t.creditAccount) {
+                 const drCode = String(t.debitAccount.code || '');
+                 if (['6', '7'].includes(drCode.charAt(0))) return sum + amount;
+                 return sum;
+            }
             if (['6', '7'].includes(getAccountPrefix(t.category))) {
-                return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+                return sum + (t.type === 'expense' ? amount : -amount);
             }
             return sum;
         }, 0);
 
         const totalExpenses = pnlTransactions.reduce((sum, t) => {
-            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
+            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
+            const amount = safeParseFloat(t.amount);
+            
+            if (t.debitAccount && t.creditAccount) {
+                 const drCode = String(t.debitAccount.code || '');
+                 // ¡AQUÍ ESTÁ LA MAGIA! Sumamos los débitos a la 5 y a la 4 (Catedratón)
+                 if (['5', '4'].includes(drCode.charAt(0))) return sum + amount;
+                 return sum;
+            }
             if (getAccountPrefix(t.category) === '5') {
-                return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+                return sum + (t.type === 'expense' ? amount : -amount);
             }
             return sum;
         }, 0);

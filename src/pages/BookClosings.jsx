@@ -143,13 +143,18 @@ const BookClosings = () => {
                 const drPrefix = drCode.charAt(0);
                 const crPrefix = crCode.charAt(0);
 
+                // Todo crédito a la clase 4 es Ingreso
                 if (crPrefix === '4') { 
                     totalIncome += amount; 
                     incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount; 
                 }
-                if (['5', '6', '7'].includes(drPrefix)) { 
+                
+                // TRUCO: Aceptamos débitos a la 5, 6, 7 Y a la 4 (Para sumar la salida de la Catedratón como gasto)
+                if (['5', '6', '7', '4'].includes(drPrefix)) { 
                     totalExpense += amount; 
-                    expenseMap[t.debitAccount.name] = (expenseMap[t.debitAccount.name] || 0) + amount; 
+                    // Etiquetamos visualmente si es un débito a una cuenta de ingreso
+                    const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Débito)` : t.debitAccount.name;
+                    expenseMap[expenseName] = (expenseMap[expenseName] || 0) + amount; 
                 }
 
                 // Fondos de Terceros (Pasivos - Ej: 2365 Retención)
