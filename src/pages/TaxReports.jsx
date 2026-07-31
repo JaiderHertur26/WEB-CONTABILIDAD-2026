@@ -29,6 +29,7 @@ const TaxReports = () => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const { toast } = useToast();
 
+    // HELPER PARA EVITAR EL BUG DE ZONA HORARIA
     const getSafeYear = (dateStr) => {
         if (!dateStr) return 0;
         if (typeof dateStr === 'string' && dateStr.includes('-')) {
@@ -118,7 +119,7 @@ const TaxReports = () => {
     };
 
     // ============================================================================
-    // --- LÓGICA DE RENTA (TAX RETURN) CON MOTOR UNIFICADO ---
+    // --- LÓGICA DE RENTA (TAX RETURN) CLONADA AL 100% DE REPORTS.JSX ---
     // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
@@ -167,7 +168,12 @@ const TaxReports = () => {
             return new Date().getFullYear();
         };
 
-        // 1. P&L Logic (Motor Unificado)
+        const getAccountPrefix = (categoryName) => {
+            const account = allAccounts.find(a => a.name === categoryName);
+            return account ? String(account.number).charAt(0) : null;
+        };
+
+        // 1. P&L Logic (Motor Unificado idéntico a Cierres Contables)
         let totalIncomes = 0;
         let totalExpenses = 0;
 
@@ -205,7 +211,23 @@ const TaxReports = () => {
             }
         });
 
-        const totalCostsAndExpenses = totalExpenses;
+        const totalExpenses = pnlTransactions.reduce((sum, t) => {
+            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
+            const amount = safeParseFloat(t.amount);
+            
+            if (t.debitAccount && t.creditAccount) {
+                 const drCode = String(t.debitAccount.code || '');
+                 // ¡AQUÍ ESTÁ LA MAGIA! Sumamos los débitos a la 5 y a la 4 (Catedratón)
+                 if (['5', '4'].includes(drCode.charAt(0))) return sum + amount;
+                 return sum;
+            }
+            if (getAccountPrefix(t.category) === '5') {
+                return sum + (t.type === 'expense' ? amount : -amount);
+            }
+            return sum;
+        }, 0);
+
+        const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
 
         // 2. Balance Sheet Logic
@@ -336,6 +358,7 @@ const TaxReports = () => {
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
+            // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
@@ -359,6 +382,7 @@ const TaxReports = () => {
                 return;
             }
 
+            // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
             const acc = allAccounts.find(a => a.name === t.category);
             if (!acc) return;
             const num = String(acc.number);
@@ -470,7 +494,7 @@ const TaxReports = () => {
         <>
             <Helmet><title>Reportes Tributarios - JaiderHerTur26</title></Helmet>
             <div className="space-y-8">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center"><div><h1 className="text-4xl font-bold text-slate-900">Reportes Tributarios</h1><p className="text-slate-600">Genera tus reportes fiscales.</p></div><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px] SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
+                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center"><div><h1 className="text-4xl font-bold text-slate-900">Reportes Tributarios</h1><p className="text-slate-600">Genera tus reportes fiscales.</p></div><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px]"><SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
                 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg border"><div className="p-6 border-b flex justify-between items-center"><div className="flex items-center"><FileText className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-slate-900">Pagos a Terceros (Exógena)</h2></div><Button onClick={handleExportExogena}><Download className="w-4 h-4 mr-2"/> Exportar Reporte</Button></div><div className="p-6">{!areAllDataLoaded ? <p>Cargando datos...</p> : generateExogenaData.length === 0 ? (<div className="text-center py-10"><Search className="w-12 h-12 text-slate-300 mx-auto mb-4" /><p className="text-slate-500">No se encontraron pagos a terceros.</p></div>) : (<div className="overflow-x-auto rounded-lg border max-h-72"><table className="w-full"><thead className="bg-slate-50 sticky top-0"><tr><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Nombre o Razón Social</th><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Dirección</th><th className="px-6 py-3 text-right text-sm font-semibold text-slate-800">Pago o Abono en Cuenta</th></tr></thead><tbody className="divide-y divide-slate-200">{generateExogenaData.map((row, index) => (<tr key={index} className="hover:bg-slate-50"><td className="px-6 py-4 text-sm font-medium text-slate-900">{row['Nombre o Razón Social']}</td><td className="px-6 py-4 text-sm text-slate-600">{row['Dirección']}</td><td className="px-6 py-4 text-sm font-mono text-right text-red-600">${row['Pago o Abono en Cuenta'].toLocaleString('es-ES', {minimumFractionDigits: 2})}</td ></tr>))}</tbody></table></div>)}</div></motion.div>
                 
