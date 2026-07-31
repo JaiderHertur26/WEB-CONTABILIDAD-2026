@@ -330,6 +330,7 @@ const BookClosings = () => {
         };
 
         const hasConciliacion = report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0 || report.conciliacion.capitalizacion > 0;
+        const saldoNetoTerceros = report.conciliacion.tercerosIn - report.conciliacion.tercerosOut;
 
         const htmlContent = `
             <!DOCTYPE html>
@@ -425,6 +426,7 @@ const BookClosings = () => {
                         ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                         ${report.conciliacion.tercerosIn > 0 ? `<tr><td style="font-weight: bold; background-color: #fffbeb;">Fondos de Terceros Recibidos (Cuentas por Pagar creadas):</td><td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${report.conciliacion.tercerosIn.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                         ${report.conciliacion.tercerosOut > 0 ? `<tr><td style="font-weight: bold; background-color: #fffbeb;">Fondos de Terceros Pagados (Deudas Canceladas a la DIAN/Terceros):</td><td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                        ${(report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0) ? `<tr><td style="font-weight: bold; background-color: #fef3c7; color: #92400e;">Saldo Pendiente (Deuda Viva del Periodo):</td><td style="text-align: right; font-weight: bold; background-color: #fef3c7; color: #92400e; width: 35%;">$${saldoNetoTerceros.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                     </tbody>
                 </table>
                 ` : ''}
@@ -641,26 +643,35 @@ const BookClosings = () => {
                                 )}
 
                                 {(report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0) && (
-                                    <div className="bg-amber-50 p-5 rounded-xl border border-amber-200 shadow-sm">
-                                        <h4 className="font-bold text-amber-900 flex items-center gap-2 mb-2">
-                                            <AlertCircle className="w-4 h-4" /> Fondos de Terceros (Pasivos)
-                                        </h4>
-                                        <p className="text-xs text-amber-800 mb-4">
-                                            Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
-                                        </p>
-                                        <div className="space-y-2">
-                                            {report.conciliacion.tercerosIn > 0 && (
-                                                <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
-                                                    <span className="text-xs font-bold text-slate-600">Recibido (CxP a pagar):</span>
-                                                    <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosIn.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
-                                                </div>
-                                            )}
-                                            {report.conciliacion.tercerosOut > 0 && (
-                                                <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
-                                                    <span className="text-xs font-bold text-slate-600">Pagado (Deuda Cancelada a la DIAN/Terceros):</span>
-                                                    <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
-                                                </div>
-                                            )}
+                                    <div className="bg-amber-50 p-5 rounded-xl border border-amber-200 shadow-sm flex flex-col justify-between">
+                                        <div>
+                                            <h4 className="font-bold text-amber-900 flex items-center gap-2 mb-2">
+                                                <AlertCircle className="w-4 h-4" /> Fondos de Terceros (Pasivos)
+                                            </h4>
+                                            <p className="text-xs text-amber-800 mb-4">
+                                                Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
+                                            </p>
+                                            <div className="space-y-2">
+                                                {report.conciliacion.tercerosIn > 0 && (
+                                                    <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
+                                                        <span className="text-xs font-bold text-slate-600">Recibido (CxP a pagar):</span>
+                                                        <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosIn.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                )}
+                                                {report.conciliacion.tercerosOut > 0 && (
+                                                    <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
+                                                        <span className="text-xs font-bold text-slate-600">Pagado (Deuda Cancelada a la DIAN/Terceros):</span>
+                                                        <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="mt-4 pt-3 border-t border-amber-200 flex justify-between">
+                                            <span className="text-sm font-bold text-amber-900">Saldo Pendiente (Deuda Viva):</span>
+                                            <span className="font-mono font-bold text-amber-900 text-lg">
+                                                ${(report.conciliacion.tercerosIn - report.conciliacion.tercerosOut).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                                            </span>
                                         </div>
                                     </div>
                                 )}
