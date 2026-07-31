@@ -125,7 +125,7 @@ const Reports = () => {
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // --- MOTOR UNIFICADO IDÉNTICO AL DE CIERRES CONTABLES ---
+    // --- MOTOR UNIFICADO ---
     let totalIncome = 0;
     let totalExpense = 0;
 
@@ -332,7 +332,8 @@ const Reports = () => {
         return creationYear <= parseInt(currentYear);
     });
 
-    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
+    // Nueva variable para intangibles
+    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, intangiblesValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
 
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
@@ -344,6 +345,7 @@ const Reports = () => {
             if (drCode.startsWith('1330')) anticiposValue += amount;
             else if (drCode.startsWith('1508')) construccionesValue += amount;
             else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+            else if (drCode.startsWith('16')) intangiblesValue += amount; // Corrección
             else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                 otherAssetsValue += amount;
             }
@@ -352,6 +354,7 @@ const Reports = () => {
             if (crCode.startsWith('1330')) anticiposValue -= amount;
             else if (crCode.startsWith('1508')) construccionesValue -= amount;
             else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+            else if (crCode.startsWith('16')) intangiblesValue -= amount; // Corrección
             else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                 otherAssetsValue -= amount;
             }
@@ -370,6 +373,7 @@ const Reports = () => {
         if (num.startsWith('1330')) anticiposValue += assetImpact;
         else if (num.startsWith('1508')) construccionesValue += assetImpact;
         else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
+        else if (num.startsWith('16')) intangiblesValue += assetImpact; // Corrección
         else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
             otherAssetsValue += assetImpact;
         }
@@ -414,13 +418,14 @@ const Reports = () => {
         { item: '  Construcciones en Curso', amount: construccionesValue }, 
         { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
         { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
+        { item: '  Activos Intangibles (Licencias/Software)', amount: intangiblesValue }, // Nueva línea
         { item: '  Inventario', amount: inventoryValue },
         { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
     ];
     
     const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
     
-    const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
+    const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + intangiblesValue + inventoryValue + depreciacionAcumuladaValue; 
     const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
     const totalEquity = totalAssets - totalLiabilities; 
     
@@ -517,7 +522,7 @@ const Reports = () => {
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between md:items-center gap-4"><h1 className="text-4xl font-bold text-slate-900 mb-2">Reportes Financieros</h1><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select" className="font-medium">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px] bg-white"><SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-green-100 p-6 rounded-lg border border-green-200"><p className="text-sm text-green-800">Ingresos Operacionales (P&L)</p><p className="text-2xl font-bold text-green-900">${reportData.summary.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-red-100 p-6 rounded-lg border border-red-200"><p className="text-sm text-red-800">Costos y Gastos (P&L)</p><p className="text-2xl font-bold text-red-900">${reportData.summary.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-blue-100 p-6 rounded-lg border border-blue-200"><p className="text-sm text-blue-800">Utilidad Neta</p><p className="text-2xl font-bold text-blue-900">${reportData.summary.netProfit.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-purple-100 p-6 rounded-lg border border-purple-200"><p className="text-sm text-purple-800">Margen de Ganancia</p><p className="text-2xl font-bold text-purple-900">{reportData.summary.profitMargin}%</p></div></div>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Balance General</h2><Button onClick={handleExportBalanceSheet} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8"><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Activos</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.assets)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Activos</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.assets?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Pasivos y Patrimonio</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.liabilities)}</tbody></table><table className="w-full mt-2"><tbody>{renderSheetTable(reportData.balanceSheet.equity)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Pasivo + Patrimonio</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.liabilitiesAndEquity?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div></div><div className={`p-4 text-center border-t text-sm font-semibold ${Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? '¡El balance está cuadrado!' : 'El balance no está cuadrado'}</div></div></motion.div>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Estado de Resultados</h2><Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key5="index" className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${item.item.search(/\S/) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div></div></motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Estado de Resultados</h2><Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${item.item.search(/\S/) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div></div></motion.div>
       </div>
     </>
   );
