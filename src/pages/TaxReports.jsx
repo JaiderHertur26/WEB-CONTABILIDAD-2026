@@ -109,8 +109,17 @@ const TaxReports = () => {
         }));
     }, [transactions, contacts, selectedYear, areAllDataLoaded, filterByCompany]);
 
+    const handleExportExogena = () => {
+        const data = generateExogenaData;
+        if (data.length === 0) { toast({ variant: 'destructive', title: "No hay datos para exportar" }); return; }
+        const total = data.reduce((sum, item) => sum + item['Pago o Abono en Cuenta'], 0);
+        const footer = { 'Pago o Abono en Cuenta': total };
+        exportToExcel(data, `Reporte_Exogena_${selectedYear}`, footer);
+        toast({ title: "¡Exportado!", description: `El Reporte de Exógena para ${selectedYear} ha sido generado.` });
+    };
+
     // ============================================================================
-    // --- LÓGICA DE RENTA (TAX RETURN) CON MOTOR UNIFICADO ---
+    // --- LÓGICA DE RENTA (TAX RETURN) CLONADA AL 100% DE REPORTS.JSX ---
     // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
@@ -159,81 +168,38 @@ const TaxReports = () => {
             return new Date().getFullYear();
         };
 
-        // 1. P&L Logic (Motor Unificado)
-        let totalIncomes = 0;
-        let totalExpenses = 0;
+        const getAccountPrefix = (categoryName) => {
+            const account = allAccounts.find(a => a.name === categoryName);
+            return account ? String(account.number).charAt(0) : null;
+        };
 
-        pnlTransactions.forEach(t => {
-            const amount = safeParseFloat(t.amount);
-
-            if (t.debitAccount && t.creditAccount) {
-                const drCode = String(t.debitAccount.code || '');
-                const crCode = String(t.creditAccount.code || '');
-                const drPrefix = drCode.charAt(0);
-                const crPrefix = crCode.charAt(0);
-
-                if (crPrefix === '4') totalIncomes += amount;
-                if (['5', '6', '7', '4'].includes(drPrefix)) totalExpenses += amount;
-                return;
+        // 1. P&L Logic
+        const totalIncomes = pnlTransactions.reduce((sum, t) => {
+            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (getAccountPrefix(t.category) === '4') {
+                return sum + (t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
+            return sum;
+        }, 0);
 
-            const accountObj = allAccounts.find(a => a.name === t.category);
-            let prefix = '0';
-            if (accountObj) {
-                prefix = String(accountObj.number).charAt(0);
-            } else if (t.category === 'Transferencia Interna') {
-                prefix = '0';
-            } else {
-                prefix = t.type === 'income' ? '4' : '5';
+        const totalCosts = pnlTransactions.reduce((sum, t) => {
+            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (['6', '7'].includes(getAccountPrefix(t.category))) {
+                return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
+            return sum;
+        }, 0);
 
-            if (!t.isInternalTransfer) {
-                if (prefix === '4') {
-                    if (t.type === 'income') totalIncomes += amount;
-                    else totalExpenses += amount;
-                } else if (['5', '6', '7'].includes(prefix)) {
-                    totalExpenses += amount;
-                }
+        const totalExpenses = pnlTransactions.reduce((sum, t) => {
+            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
+            if (getAccountPrefix(t.category) === '5') {
+                return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
-        });
+            return sum;
+        }, 0);
 
-        const totalCostsAndExpenses = totalExpenses;
+        const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
-        
-        // --- LÓGICA DE UTILIDADES ACUMULADAS ---
-        let historicalAccumulatedProfit = -6421070; // Base fijada en el cierre 2025 para años posteriores
-        if (parseInt(currentYear) > 2025) {
-            let historicalIncome = 0;
-            let historicalExpense = 0;
-            
-            const pastTransactions = validTransactions.filter(t => {
-                const y = getSafeYear(t.date);
-                return y >= 2025 && y < parseInt(currentYear);
-            });
-    
-            pastTransactions.forEach(t => {
-                const amount = parseFloat(t.amount || 0);
-                if (t.debitAccount && t.creditAccount) {
-                    const drCode = String(t.debitAccount.code || '');
-                    const crCode = String(t.creditAccount.code || '');
-                    if (crCode.charAt(0) === '4') historicalIncome += amount; 
-                    if (['5', '6', '7', '4'].includes(drCode.charAt(0))) historicalExpense += amount; 
-                    return;
-                }
-                const accountObj = (accounts || []).find(a => a.name === t.category);
-                let prefix = '0';
-                if (accountObj) prefix = String(accountObj.number).charAt(0);
-                else prefix = t.type === 'income' ? '4' : '5';
-                
-                if (!t.isInternalTransfer) {
-                    if (prefix === '4') {
-                        if (t.type === 'income') historicalIncome += amount;
-                        else historicalExpense += amount;
-                    } else if (['5', '6', '7'].includes(prefix)) historicalExpense += amount;
-                }
-            });
-            historicalAccumulatedProfit += (historicalIncome - historicalExpense);
-        }
 
         // 2. Balance Sheet Logic
         const cashAccountIds = new Set();
@@ -358,12 +324,12 @@ const TaxReports = () => {
             return creationYear <= parseInt(currentYear);
         });
 
-        // Nueva variable para intangibles
-        let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, intangiblesValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
+        let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
 
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
+            // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
@@ -371,7 +337,6 @@ const TaxReports = () => {
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
                 else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-                else if (drCode.startsWith('16')) intangiblesValue += amount;
                 else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
@@ -380,7 +345,6 @@ const TaxReports = () => {
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
                 else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
-                else if (crCode.startsWith('16')) intangiblesValue -= amount;
                 else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
@@ -389,6 +353,7 @@ const TaxReports = () => {
                 return;
             }
 
+            // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
             const acc = allAccounts.find(a => a.name === t.category);
             if (!acc) return;
             const num = String(acc.number);
@@ -399,7 +364,6 @@ const TaxReports = () => {
             if (num.startsWith('1330')) anticiposValue += assetImpact;
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
             else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
-            else if (num.startsWith('16')) intangiblesValue += assetImpact;
             else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
                 otherAssetsValue += assetImpact;
             }
@@ -410,39 +374,30 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
-        // --- CORRECCIÓN AQUÍ: Restablecido a coincidencia estricta de año ---
         const manualFixedAssetsValue = fFixedAssets.filter(asset => {
             if (asset.status === 'Dado de Baja') return false; 
-            if (asset.year) return asset.year.toString() === currentYear.toString();
-            if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
-            return false;
+            const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
+            return assetYear === parseInt(selectedYear);
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
         
-        const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
+        const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
         const accountsReceivableValue = fAccountsReceivable.filter(r => {
-            const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(currentYear));
-            return r.status === 'Pendiente' && rYear <= parseInt(currentYear);
+            const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
+            return r.status === 'Pendiente' && rYear <= parseInt(selectedYear);
         }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
 
         const accountsPayableValue = fAccountsPayable.filter(p => {
-            const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : parseInt(currentYear));
-            return p.status === 'Pendiente' && pYear <= parseInt(currentYear);
+            const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : parseInt(selectedYear));
+            return p.status === 'Pendiente' && pYear <= parseInt(selectedYear);
         }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
 
-        const baseAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + intangiblesValue + inventoryValue + depreciacionAcumuladaValue; 
+        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
-        
-        // --- LÓGICA DE PATRIMONIO DESGLOSADO ---
-        const fondoSocial = 76431515; 
-        
-        const expectedEquity = fondoSocial + historicalAccumulatedProfit + netProfit;
-        const conversionAdjustment = expectedEquity + totalDebts - baseAssets;
-        const finalAssets = baseAssets + conversionAdjustment;
-        const netWorth = finalAssets - totalDebts;
+        const netWorth = totalAssets - totalDebts;
 
         const assetsSection = [
-            { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: finalAssets, isTotal: true },
+            { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
             { Concepto: '  Efectivo y Equivalentes (Caja General)', Valor: cajaGeneralValue, isSubtotal: true },
             { Concepto: '    Caja Principal', Valor: cajaPrincipalBalance, isDetail: true },
             ...dynamicCashAccounts.map(acc => ({ Concepto: `    ${acc.name}`, Valor: acc.balance, isDetail: true })),
@@ -454,14 +409,9 @@ const TaxReports = () => {
             { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
             { Concepto: '  Propiedades, Planta y Equipo', Valor: realEstatesValue, isDetail: true },
             { Concepto: '  Activos Fijos (Oficina y Equipos)', Valor: manualFixedAssetsValue, isDetail: true },
-            { Concepto: '  Activos Intangibles (Licencias/Software)', Valor: intangiblesValue, isDetail: true }, 
             { Concepto: '  Inventario', Valor: inventoryValue, isDetail: true },
             { Concepto: '  Depreciación Acumulada', Valor: depreciacionAcumuladaValue, isDetail: true },
         ];
-        
-        if (Math.abs(conversionAdjustment) > 1) {
-            assetsSection.push({ Concepto: '  Ajuste por Diferencia de Conversión', Valor: conversionAdjustment, isDetail: true });
-        }
 
         return [
             ...assetsSection,
@@ -469,9 +419,6 @@ const TaxReports = () => {
             { Concepto: '  Cuentas por Pagar', Valor: accountsPayableValue, isDetail: true },
             { Concepto: '  Otros Pasivos', Valor: otherLiabilitiesValue, isDetail: true },
             { Concepto: 'PATRIMONIO LÍQUIDO (Activos - Pasivos)', Valor: netWorth, isTotal: true }, 
-            { Concepto: '  Fondo Social', Valor: fondoSocial, isDetail: true },
-            { Concepto: '  Resultados Acumulados', Valor: historicalAccumulatedProfit, isDetail: true },
-            { Concepto: '  Resultado del Ejercicio', Valor: netProfit, isDetail: true },
             { isSpacer: true },
             { Concepto: 'INGRESOS TOTALES (P&L del año)', Valor: totalIncomes, isDetail: true },
             { Concepto: 'COSTOS Y GASTOS TOTALES (P&L del año)', Valor: totalCostsAndExpenses, isDetail: true },
