@@ -324,7 +324,33 @@ const TaxReports = () => {
             return creationYear <= parseInt(currentYear);
         });
 
-        let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
+        let initialDepreciacion = 0, initialAnticipos = 0, initialConstrucciones = 0, initialOtherAssets = 0, initialOtherLiabilities = 0;
+        
+        fInitialBalance.forEach(item => {
+            const itemYear = item.date ? getSafeYear(item.date) : new Date().getFullYear();
+            if (itemYear <= parseInt(currentYear)) {
+                const amount = safeParseFloat(item.balance);
+                const code = String(item.accountingCode || '');
+                
+                if (code.startsWith('1592')) {
+                    initialDepreciacion -= Math.abs(amount);
+                } else if (code.startsWith('1330')) {
+                    initialAnticipos += amount;
+                } else if (code.startsWith('1508')) {
+                    initialConstrucciones += amount;
+                } else if (code.startsWith('1') && !code.startsWith('11') && !code.startsWith('1305') && !code.startsWith('14') && !code.startsWith('15')) {
+                    initialOtherAssets += amount;
+                } else if (code.startsWith('2') && !code.startsWith('2305')) {
+                    initialOtherLiabilities += Math.abs(amount);
+                }
+            }
+        });
+
+        let anticiposValue = initialAnticipos;
+        let construccionesValue = initialConstrucciones;
+        let otherAssetsValue = initialOtherAssets;
+        let otherLiabilitiesValue = initialOtherLiabilities;
+        let depreciacionAcumuladaValue = initialDepreciacion;
 
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
@@ -379,6 +405,14 @@ const TaxReports = () => {
             const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
             return assetYear === parseInt(selectedYear);
         }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
+        
+        const totalDepreciacionInventario = fFixedAssets.filter(asset => {
+            if (asset.status === 'Dado de Baja') return false; 
+            const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
+            return assetYear === parseInt(selectedYear);
+        }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
+
+        depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario);
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
