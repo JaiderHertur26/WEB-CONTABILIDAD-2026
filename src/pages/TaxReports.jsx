@@ -445,7 +445,12 @@ const TaxReports = () => {
             return assetYear === parseInt(selectedYear);
         }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-        depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario);
+        const totalDepreciacionPropiedades = fRealEstates.filter(estate => {
+            if (estate.status === 'Dado de Baja') return false;
+            return getSafeYear(estate.date) <= parseInt(currentYear);
+        }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
+
+        depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
