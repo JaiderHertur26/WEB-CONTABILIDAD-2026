@@ -371,6 +371,7 @@ const TaxReports = () => {
         let otherAssetsValue = initialOtherAssets;
         let otherLiabilitiesValue = initialOtherLiabilities;
         let depreciacionAcumuladaValue = initialDepreciacion;
+        let intangiblesValue = 0;
 
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
