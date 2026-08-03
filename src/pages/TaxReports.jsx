@@ -372,11 +372,14 @@ const TaxReports = () => {
         let otherLiabilitiesValue = initialOtherLiabilities;
         let depreciacionAcumuladaValue = initialDepreciacion;
 
+        let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
+
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
             // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return; // FILTRO PARA QUE NO ANULE ACTIVOS INTANGIBLES
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
 
@@ -393,7 +396,7 @@ const TaxReports = () => {
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
                 else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
                 else if (crCode.startsWith('16')) intangiblesValue -= amount;
-                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+                else if (crCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
                 else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
