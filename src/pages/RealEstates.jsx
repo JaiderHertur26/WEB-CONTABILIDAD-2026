@@ -4,19 +4,18 @@ import { motion } from 'framer-motion';
 import { Plus, Edit2, Trash2, Building, Search, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { usePermission } from '@/hooks/usePermission';
-import { useCompany } from '@/contexts/CompanyContext'; // <--- AGREGA ESTA LÍNEA
+import { useCompany } from '@/contexts/CompanyContext';
 
 const RealEstates = () => {
-    const { activeCompany } = useCompany(); // <--- AGREGA ESTA LÍNEA
-    const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+    const { activeCompany } = useCompany();
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const [realEstates, saveRealEstates] = useCompanyData('realEstates');
     
-    //NUEVO: Importamos transacciones y cuentas para asegurar la Partida Doble
+    // Importamos transacciones y cuentas para asegurar la Partida Doble
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
     
@@ -174,7 +173,9 @@ const RealEstates = () => {
                 isInternalTransfer: true,
                 voucherNumber: nextVoucher,
                 debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
-                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' }
+                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
             };
             saveTransactions([...(transactions || []), deprTransaction]);
             toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación de edificaciones (T-${String(nextVoucher).padStart(4,'0')})` });
@@ -216,16 +217,17 @@ const RealEstates = () => {
                             const origVal = parseFloat(estate.value) || 0;
                             const acumDepr = parseFloat(estate.accumulatedDepreciation) || 0;
                             return (<tr key={estate.id} className="hover:bg-slate-50">
-                            <td className="p-3 font-medium">{estate.name}</td>
-                            <td className="p-3">{estate.address}</td>
-                            <td className="p-3">{estate.date}</td>
-                            <td className="p-3 font-mono">${origVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                            <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                            <td className="p-3 font-mono font-bold text-blue-600">${(origVal - acumDepr).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                            <td className="p-3"><div className="flex gap-1">
-                                {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                                {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}
-                            </div></td>
+                                <td className="p-3 font-medium">{estate.name}</td>
+                                <td className="p-3">{estate.address}</td>
+                                <td className="p-3">{estate.date}</td>
+                                <td className="p-3 font-mono">${origVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                                <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                                <td className="p-3 font-mono font-bold text-blue-600">${(origVal - acumDepr).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                                <td className="p-3"><div className="flex gap-1">
+                                    {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
+                                    {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}
+                                </div></td>
+                            </tr>
                         })}</tbody>
                     </table></div>
                 )}
