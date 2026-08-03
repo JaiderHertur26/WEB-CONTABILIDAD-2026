@@ -142,6 +142,9 @@ const BookClosings = () => {
 
         // 2. CLASIFICACIÓN DEL ESTADO DE RESULTADOS (P&L) Y CONCILIACIONES
         allRelevant.forEach(t => {
+            // EVITAR DOBLE CONTABILIZACIÓN DE CRUCES MANUALES: Ignorar el gemelo inverso (-inc)
+            if (t.debitAccount && t.creditAccount && String(t.id).endsWith('-inc')) return;
+
             const amount = parseFloat(t.amount || 0);
             
             // Determinar el mes exacto de la transacción
