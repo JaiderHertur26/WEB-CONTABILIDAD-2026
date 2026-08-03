@@ -8,8 +8,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { usePermission } from '@/hooks/usePermission';
+import { useCompany } from '@/contexts/CompanyContext'; // <--- AGREGA ESTA LÍNEA
 
 const RealEstates = () => {
+    const { activeCompany } = useCompany(); // <--- AGREGA ESTA LÍNEA
+    const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const [realEstates, saveRealEstates] = useCompanyData('realEstates');
     
