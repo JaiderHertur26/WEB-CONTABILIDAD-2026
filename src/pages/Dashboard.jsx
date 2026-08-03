@@ -318,14 +318,22 @@ const Dashboard = () => {
         }
     });
 
-    const totalAssets = cajaGeneralTotal + accountsReceivableValue + manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue + otherAssetsValue + intangiblesValue - Math.abs(depreciacionAcumuladaValue);
+    const totalDepreciacionInventario = fFixedAssets.filter(asset => {
+        if (asset.status === 'Dado de Baja') return false; 
+        const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
+        return assetYear === parseInt(selectedYear);
+    }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
+    depreciacionAcumuladaValue = depreciacionAcumuladaValue - Math.abs(totalDepreciacionInventario);
+
+    const totalAssets = cajaGeneralTotal + accountsReceivableValue + manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue + otherAssetsValue + intangiblesValue + depreciacionAcumuladaValue;
+
+   
     // --- P&L CALCULATIONS (MOTOR UNIFICADO) ---
     let totalIncomes = 0;
     let totalExpenses = 0;
 
     transactionsInPeriod.forEach(t => {
-        // Ignorar gemelo inverso para no duplicar valores en Dashboard
         if (t.debitAccount && t.creditAccount && String(t.id).endsWith('-inc')) return;
 
         const amount = safeParseFloat(t.amount);
