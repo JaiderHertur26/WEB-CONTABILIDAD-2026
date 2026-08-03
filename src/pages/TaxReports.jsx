@@ -119,7 +119,7 @@ const TaxReports = () => {
     };
 
     // ============================================================================
-    // --- LÓGICA DE RENTA (TAX RETURN) ---
+    // --- LÓGICA DE RENTA (TAX RETURN) CLONADA AL 100% DE REPORTS.JSX ---
     // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
@@ -173,7 +173,7 @@ const TaxReports = () => {
             return account ? String(account.number).charAt(0) : null;
         };
 
-        // 1. P&L Logic (Totalmente Limpia y Nativa para Base de Datos con Partida Doble)
+        // 1. P&L Logic
         const totalIncomes = pnlTransactions.reduce((sum, t) => {
             if (t.debitAccount && t.creditAccount) {
                 const crCode = String(t.creditAccount.code || '');
@@ -373,6 +373,9 @@ const TaxReports = () => {
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
+            bsTransactions.forEach(t => {
+            const amount = safeParseFloat(t.amount);
+
             // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
@@ -380,19 +383,19 @@ const TaxReports = () => {
 
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
-                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
                 else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
-                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
+                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue += amount;
 
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
-                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
                 else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
-                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
+                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
                 return;
             }
@@ -446,9 +449,7 @@ const TaxReports = () => {
 
         const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
-        const totalEquity = totalAssets - totalDebts; 
-        
-        const retainedEquity = totalEquity - netProfit;
+        const netWorth = totalAssets - totalDebts;
 
         const assetsSection = [
             { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
