@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Plus, Edit2, Trash2, Building, Search, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { usePermission } from '@/hooks/usePermission';
@@ -13,10 +13,9 @@ const RealEstates = () => {
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const [realEstates, saveRealEstates] = useCompanyData('realEstates');
     
-    // Importamos transacciones y cuentas para asegurar la Partida Doble
+    // NUEVO: Importamos transacciones y cuentas para asegurar la Partida Doble
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
-    const { activeCompany } = useCompany();
     
     const [dialogOpen, setDialogOpen] = useState(false);
     const [depreciationDialogOpen, setDepreciationDialogOpen] = useState(false);
@@ -127,8 +126,7 @@ const RealEstates = () => {
     const handleRunDepreciation = () => {
         if (!canEdit && !canAdd) return;
         
-        // Tasa DIAN para edificaciones: 2.22% anual (45 años)
-        const edificationRate = 0.0222; 
+        const edificationRate = 0.0222; // 2.22% anual (45 años)
         const dateStr = `${depreciationYear}-12-31`;
         
         const existingDeprTransaction = (transactions || []).find(t => 
@@ -141,18 +139,12 @@ const RealEstates = () => {
         const updatedEstates = (realEstates || []).map(estate => {
             const originalValue = parseFloat(estate.value) || 0;
             const historicalDepr = parseFloat(estate.accumulatedDepreciation) || 0;
-            
-            // La depreciación anual se calcula sobre el valor original
             const yearlyDepr = originalValue * edificationRate;
-
             const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDepr + yearlyDepr) : historicalDepr; 
             
             totalDepreciationGenerated += yearlyDepr;
 
-            return {
-                ...estate,
-                accumulatedDepreciation: newAccumulated
-            };
+            return { ...estate, accumulatedDepreciation: newAccumulated };
         });
 
         if (totalDepreciationGenerated === 0) {
@@ -163,18 +155,12 @@ const RealEstates = () => {
 
         saveRealEstates(updatedEstates);
 
-        // Actualizar o crear el comprobante de depreciación
         if (existingDeprTransaction) {
-            const updatedTransactions = transactions.map(t => 
-                t.id === existingDeprTransaction.id 
-                    ? { ...t, amount: totalDepreciationGenerated } 
-                    : t
-            );
+            const updatedTransactions = transactions.map(t => t.id === existingDeprTransaction.id ? { ...t, amount: totalDepreciationGenerated } : t);
             saveTransactions(updatedTransactions);
             toast({ title: "Depreciación Actualizada", description: `El comprobante T-${String(existingDeprTransaction.voucherNumber).padStart(4,'0')} fue actualizado.` });
         } else {
             const nextVoucher = getNextVoucherNumber('transfer', dateStr);
-
             const deprTransaction = {
                 id: `${Date.now()}-depr-estate`,
                 type: 'expense',
@@ -185,14 +171,11 @@ const RealEstates = () => {
                 isInternalTransfer: true,
                 voucherNumber: nextVoucher,
                 debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
-                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
-                company_id: activeCompany?.id,
-                companyId: activeCompany?.id
+                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' }
             };
             saveTransactions([...(transactions || []), deprTransaction]);
             toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación de edificaciones (T-${String(nextVoucher).padStart(4,'0')})` });
         }
-
         setDepreciationDialogOpen(false);
     };
 
@@ -229,21 +212,18 @@ const RealEstates = () => {
                         <tbody className="divide-y">{filteredEstates.map(estate => {
                             const origVal = parseFloat(estate.value) || 0;
                             const acumDepr = parseFloat(estate.accumulatedDepreciation) || 0;
-                            const netVal = origVal - acumDepr;
-                            return (
-                            <tr key={estate.id} className="hover:bg-slate-50">
-                                <td className="p-3 font-medium">{estate.name}</td>
-                                <td className="p-3">{estate.address}</td>
-                                <td className="p-3">{estate.date}</td>
-                                <td className="p-3 font-mono">${origVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                                <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                                <td className="p-3 font-mono font-bold text-blue-600">${netVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                                <td className="p-3"><div className="flex gap-1">
-                                    {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                                    {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}
-                                </div></td>
-                            </tr>
-                        )})}</tbody>
+                            return (<tr key={estate.id} className="hover:bg-slate-50">
+                            <td className="p-3 font-medium">{estate.name}</td>
+                            <td className="p-3">{estate.address}</td>
+                            <td className="p-3">{estate.date}</td>
+                            <td className="p-3 font-mono">${origVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            <td className="p-3 font-mono font-bold text-blue-600">${(origVal - acumDepr).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            <td className="p-3"><div className="flex gap-1">
+                                {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
+                                {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}
+                            </div></td>
+                        })}</tbody>
                     </table></div>
                 )}
             </div>
