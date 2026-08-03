@@ -158,12 +158,13 @@ const FixedAssets = () => {
             else if (cat.includes('mueble') || cat.includes('enrser') || cat.includes('oficina')) rate = taxRates.muebles;
 
             const originalValue = parseFloat(asset.value) || 0;
+            const historicalDepr = parseFloat(asset.accumulatedDepreciation) || 0;
             
             // La depreciación anual SIEMPRE se calcula sobre el valor original.
             const yearlyDepr = originalValue * rate;
 
-            // Reseteamos y recalculamos el acumulado real para evitar sumas infinitas
-            const newAccumulated = Math.min(originalValue, yearlyDepr); 
+            // Sumamos la histórica + la del año, y nos aseguramos de no depreciar más del 100%
+            const newAccumulated = Math.min(originalValue, historicalDepr + yearlyDepr); 
             
             totalDepreciationGenerated += yearlyDepr;
 
@@ -602,8 +603,10 @@ const FixedAssets = () => {
 }
 
 const AssetDialog = ({ open, onOpenChange, onSave, asset }) => {
-    const [data, setData] = useState({ quantity: 1, name: '', model: '', category: '', usage: 'Uso', status: 'Bueno', location: '', value: '', notes: '' });
-    useEffect(() => { if(open) { if(asset) setData(asset); else setData({ quantity: 1, name: '', model: '', category: '', usage: 'Uso', status: 'Bueno', location: '', value: '', notes: '' }); } }, [asset, open]);
+    // Se agrega accumulatedDepreciation al estado inicial
+    const [data, setData] = useState({ quantity: 1, name: '', model: '', category: '', usage: 'Uso', status: 'Bueno', location: '', value: '', accumulatedDepreciation: 0, notes: '' });
+    useEffect(() => { if(open) { if(asset) setData(asset); else setData({ quantity: 1, name: '', model: '', category: '', usage: 'Uso', status: 'Bueno', location: '', value: '', accumulatedDepreciation: 0, notes: '' }); } }, [asset, open]);
+
     const handleSubmit = e => { e.preventDefault(); onSave(data); };
 
     return(<Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>{asset ? 'Editar' : 'Nuevo'} Activo Fijo</DialogTitle></DialogHeader><form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
@@ -615,6 +618,7 @@ const AssetDialog = ({ open, onOpenChange, onSave, asset }) => {
         <div className="space-y-1"><Label>Estado</Label><select value={data.status || 'Bueno'} onChange={e => setData({...data, status: e.target.value})} className="w-full p-2 border rounded-lg"><option>Bueno</option><option>Regular</option><option>Malo</option></select></div>
         <div className="space-y-1"><Label>Lugar a inventariar</Label><input value={data.location || ''} onChange={e => setData({...data, location: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Ej: Templo, Sacristía, etc."/></div>
         <div className="space-y-1"><Label>Valor Total</Label><input type="number" step="0.01" required value={data.value} onChange={e => setData({...data, value: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+<div className="space-y-1"><Label>Deprec. Acumulada Histórica</Label><input type="number" step="0.01" value={data.accumulatedDepreciation || 0} onChange={e => setData({...data, accumulatedDepreciation: e.target.value})} className="w-full p-2 border rounded-lg text-red-600" /></div>
         <div className="md:col-span-2 space-y-1"><Label>Observaciones</Label><textarea value={data.notes || ''} onChange={e => setData({...data, notes: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
         <div className="md:col-span-2 flex justify-end gap-2 pt-4"><DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose><Button type="submit" className="bg-blue-600 hover:bg-blue-700">Guardar</Button></div>
     </form></DialogContent></Dialog>);
@@ -694,6 +698,7 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
 
                     const name = getVal(['NOMBRE DEL ACTIVO', 'Nombre del Activo', 'Activo', 'Nombre']) || 'Activo sin nombre';
                     const val = getVal(['VALOR NETO', 'Valor Total', 'Valor Original', 'Valor']) || 0;
+                    const histDepr = getVal(['DEPRECIACION ACUMULADA', 'Deprec.', 'Depreciación Histórica', 'Depreciacion']) || 0;
                     const qty = getVal(['CANT.', 'CANT', 'CANTIDAD', 'Cantidad']) || 1;
                     const model = getVal(['MARCA / MODELO / SERIE', 'MARCA/MODELO/SERIE', 'Marca/Modelo/Serie', 'Marca', 'Modelo']) || '';
                     const cat = getVal(['CATEGORIA DEL ACTIVO', 'CATEGORIA', 'Categoría', 'Categoria']) || '';
@@ -705,6 +710,7 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
                     return {
                         name: name,
                         value: parseFloat(val) || 0,
+                        accumulatedDepreciation: parseFloat(histDepr) || 0,
                         quantity: parseInt(qty) || 1,
                         model: model,
                         category: cat,
