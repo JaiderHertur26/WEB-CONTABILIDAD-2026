@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Plus, Edit2, Trash2, Building, Search, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { usePermission } from '@/hooks/usePermission';
@@ -13,11 +13,14 @@ const RealEstates = () => {
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const [realEstates, saveRealEstates] = useCompanyData('realEstates');
     
-    // NUEVO: Importamos transacciones y cuentas para asegurar la Partida Doble
+    // Importamos transacciones y cuentas para asegurar la Partida Doble
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
+    const { activeCompany } = useCompany();
     
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [depreciationDialogOpen, setDepreciationDialogOpen] = useState(false);
+    const [depreciationYear, setDepreciationYear] = useState(new Date().getFullYear().toString());
     const [editingEstate, setEditingEstate] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const { toast } = useToast();
@@ -120,6 +123,79 @@ const RealEstates = () => {
         toast({ title: "Propiedad eliminada" });
     };
 
+    // --- DEPRECIACIÓN AUTOMÁTICA ---
+    const handleRunDepreciation = () => {
+        if (!canEdit && !canAdd) return;
+        
+        // Tasa DIAN para edificaciones: 2.22% anual (45 años)
+        const edificationRate = 0.0222; 
+        const dateStr = `${depreciationYear}-12-31`;
+        
+        const existingDeprTransaction = (transactions || []).find(t => 
+            t.description === `Depreciación Edificaciones - Vigencia ${depreciationYear}` &&
+            t.category === 'Depreciación Acumulada Activos Fijos'
+        );
+
+        let totalDepreciationGenerated = 0;
+        
+        const updatedEstates = (realEstates || []).map(estate => {
+            const originalValue = parseFloat(estate.value) || 0;
+            const historicalDepr = parseFloat(estate.accumulatedDepreciation) || 0;
+            
+            // La depreciación anual se calcula sobre el valor original
+            const yearlyDepr = originalValue * edificationRate;
+
+            const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDepr + yearlyDepr) : historicalDepr; 
+            
+            totalDepreciationGenerated += yearlyDepr;
+
+            return {
+                ...estate,
+                accumulatedDepreciation: newAccumulated
+            };
+        });
+
+        if (totalDepreciationGenerated === 0) {
+            toast({ variant: 'destructive', title: "Sin propiedades", description: "No hay propiedades con valor para depreciar." });
+            setDepreciationDialogOpen(false);
+            return;
+        }
+
+        saveRealEstates(updatedEstates);
+
+        // Actualizar o crear el comprobante de depreciación
+        if (existingDeprTransaction) {
+            const updatedTransactions = transactions.map(t => 
+                t.id === existingDeprTransaction.id 
+                    ? { ...t, amount: totalDepreciationGenerated } 
+                    : t
+            );
+            saveTransactions(updatedTransactions);
+            toast({ title: "Depreciación Actualizada", description: `El comprobante T-${String(existingDeprTransaction.voucherNumber).padStart(4,'0')} fue actualizado.` });
+        } else {
+            const nextVoucher = getNextVoucherNumber('transfer', dateStr);
+
+            const deprTransaction = {
+                id: `${Date.now()}-depr-estate`,
+                type: 'expense',
+                description: `Depreciación Edificaciones - Vigencia ${depreciationYear}`,
+                amount: totalDepreciationGenerated,
+                category: 'Depreciación Acumulada Activos Fijos',
+                date: dateStr,
+                isInternalTransfer: true,
+                voucherNumber: nextVoucher,
+                debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
+                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
+            };
+            saveTransactions([...(transactions || []), deprTransaction]);
+            toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación de edificaciones (T-${String(nextVoucher).padStart(4,'0')})` });
+        }
+
+        setDepreciationDialogOpen(false);
+    };
+
     const filteredEstates = (realEstates || []).filter(estate => 
         (estate.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
         (estate.address?.toLowerCase() || '').includes(searchTerm.toLowerCase())
@@ -133,6 +209,7 @@ const RealEstates = () => {
                     <div><h1 className="text-4xl font-bold text-slate-900">Propiedades y Oficinas</h1></div>
                     <div className="flex items-center gap-2">
                         {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
+                        {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
                         {canAdd && <Button onClick={() => { setEditingEstate(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Propiedad</Button>}
                     </div>
                 </motion.div>
@@ -148,34 +225,43 @@ const RealEstates = () => {
                     </motion.div>
                 ) : (
                     <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
-                        <thead className="bg-slate-50"><tr>{['Nombre', 'Dirección', 'Fecha de Adquisición', 'Valor', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
-                        <tbody className="divide-y">{filteredEstates.map(estate => (<tr key={estate.id} className="hover:bg-slate-50">
-                            <td className="p-3 font-medium">{estate.name}</td>
-                            <td className="p-3">{estate.address}</td>
-                            <td className="p-3">{estate.date}</td>
-                            <td className="p-3 font-mono">${parseFloat(estate.value).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                            <td className="p-3"><div className="flex gap-1">
-                                {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                                {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}
-                            </div></td>
-                        </tr>))}</tbody>
+                        <thead className="bg-slate-50"><tr>{['Nombre', 'Dirección', 'Fecha de Adquisición', 'Valor Original', 'Deprec. Acumulada', 'Valor Neto', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
+                        <tbody className="divide-y">{filteredEstates.map(estate => {
+                            const origVal = parseFloat(estate.value) || 0;
+                            const acumDepr = parseFloat(estate.accumulatedDepreciation) || 0;
+                            const netVal = origVal - acumDepr;
+                            return (
+                            <tr key={estate.id} className="hover:bg-slate-50">
+                                <td className="p-3 font-medium">{estate.name}</td>
+                                <td className="p-3">{estate.address}</td>
+                                <td className="p-3">{estate.date}</td>
+                                <td className="p-3 font-mono">${origVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                                <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                                <td className="p-3 font-mono font-bold text-blue-600">${netVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                                <td className="p-3"><div className="flex gap-1">
+                                    {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
+                                    {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}
+                                </div></td>
+                            </tr>
+                        )})}</tbody>
                     </table></div>
                 )}
             </div>
             <EstateDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSaveEstate} estate={editingEstate} />
+            <DepreciationDialog open={depreciationDialogOpen} onOpenChange={setDepreciationDialogOpen} year={depreciationYear} setYear={setDepreciationYear} onRun={handleRunDepreciation} />
         </>
     );
 }
 
 const EstateDialog = ({ open, onOpenChange, onSave, estate }) => {
-    const [data, setData] = useState({ name: '', address: '', value: '', date: '' });
+    const [data, setData] = useState({ name: '', address: '', value: '', date: '', accumulatedDepreciation: 0 });
     
     useEffect(() => { 
         if(open) { 
             if(estate) {
                 setData(estate);
             } else {
-                setData({ name: '', address: '', value: '', date: new Date().toISOString().split('T')[0] });
+                setData({ name: '', address: '', value: '', date: new Date().toISOString().split('T')[0], accumulatedDepreciation: 0 });
             }
         } 
     }, [estate, open]);
@@ -190,10 +276,11 @@ const EstateDialog = ({ open, onOpenChange, onSave, estate }) => {
             <DialogContent className="sm:max-w-lg">
                 <DialogHeader><DialogTitle>{estate ? 'Editar' : 'Nueva'} Propiedad</DialogTitle></DialogHeader>
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 pt-4">
-                    <div className="space-y-1"><Label>Nombre</Label><input required value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Ej: Oficina Principal, Bodega Norte"/></div>
+                    <div className="space-y-1"><Label>Nombre</Label><input required value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Ej: Templo Principal, Despacho Parroquial"/></div>
                     <div className="space-y-1"><Label>Dirección</Label><input required value={data.address} onChange={e => setData({...data, address: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
                     <div className="space-y-1"><Label>Fecha de Adquisición</Label><input type="date" required value={data.date} onChange={e => setData({...data, date: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div className="space-y-1"><Label>Valor</Label><input type="number" step="0.01" required value={data.value} onChange={e => setData({...data, value: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                    <div className="space-y-1"><Label>Valor Original</Label><input type="number" step="0.01" required value={data.value} onChange={e => setData({...data, value: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+                    <div className="space-y-1"><Label>Deprec. Acumulada Histórica</Label><input type="number" step="0.01" value={data.accumulatedDepreciation || 0} onChange={e => setData({...data, accumulatedDepreciation: e.target.value})} className="w-full p-2 border rounded-lg text-red-600" /></div>
                     <div className="flex justify-end gap-2 pt-4">
                         <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
                         <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Guardar</Button>
@@ -203,5 +290,26 @@ const EstateDialog = ({ open, onOpenChange, onSave, estate }) => {
         </Dialog>
     );
 };
+
+const DepreciationDialog = ({ open, onOpenChange, year, setYear, onRun }) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader><DialogTitle>Depreciación Edificaciones (Normas COLGAAP / DIAN)</DialogTitle></DialogHeader>
+            <DialogDescription>
+                Este proceso calculará la depreciación anual en línea recta (2.22% anual) para todas las propiedades. Se generará un comprobante de ajuste para el P&L y el Balance.
+            </DialogDescription>
+            <div className="space-y-4 pt-4">
+                <div className="space-y-1">
+                    <Label>Año de Vigencia a Depreciar</Label>
+                    <input type="number" value={year} onChange={e => setYear(e.target.value)} className="w-full p-2 border rounded-lg" />
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+                <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
+                <Button onClick={onRun} className="bg-purple-600 hover:bg-purple-700">Calcular y Registrar</Button>
+            </div>
+        </DialogContent>
+    </Dialog>
+);
 
 export default RealEstates;
