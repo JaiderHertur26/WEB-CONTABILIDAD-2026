@@ -461,11 +461,7 @@ const TaxReports = () => {
 
         const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
-        const netWorth = totalAssets - totalDebts;
-
-        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
-        const totalDebts = accountsPayableValue + otherLiabilitiesValue;
-        const netWorth = totalAssets - totalDebts;
+        const netWorth = totalAssets - totalDebts;        
 
         const assetsSection = [
             { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
