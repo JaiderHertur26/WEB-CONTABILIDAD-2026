@@ -119,7 +119,7 @@ const TaxReports = () => {
     };
 
     // ============================================================================
-    // --- LÓGICA DE RENTA (TAX RETURN) CLONADA AL 100% DE REPORTS.JSX ---
+    // --- LÓGICA DE RENTA (TAX RETURN) ---
     // ============================================================================
     const generateRentaData = useMemo(() => {
         if (!areAllDataLoaded) return [];
@@ -173,9 +173,15 @@ const TaxReports = () => {
             return account ? String(account.number).charAt(0) : null;
         };
 
-        // 1. P&L Logic
+        // 1. P&L Logic (Totalmente Limpia y Nativa para Base de Datos con Partida Doble)
         const totalIncomes = pnlTransactions.reduce((sum, t) => {
-            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (t.debitAccount && t.creditAccount) {
+                const crCode = String(t.creditAccount.code || '');
+                if (crCode.startsWith('4')) return sum + safeParseFloat(t.amount);
+                return sum;
+            }
+            if (t.isInternalTransfer) return sum;
+            
             if (getAccountPrefix(t.category) === '4') {
                 return sum + (t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
@@ -183,7 +189,13 @@ const TaxReports = () => {
         }, 0);
 
         const totalCosts = pnlTransactions.reduce((sum, t) => {
-            if (t.isInternalTransfer || (t.debitAccount && t.creditAccount)) return sum;
+            if (t.debitAccount && t.creditAccount) {
+                const drCode = String(t.debitAccount.code || '');
+                if (['6', '7'].includes(drCode.charAt(0))) return sum + safeParseFloat(t.amount);
+                return sum;
+            }
+            if (t.isInternalTransfer) return sum;
+
             if (['6', '7'].includes(getAccountPrefix(t.category))) {
                 return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
@@ -191,7 +203,13 @@ const TaxReports = () => {
         }, 0);
 
         const totalExpenses = pnlTransactions.reduce((sum, t) => {
-            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase || (t.debitAccount && t.creditAccount)) return sum;
+            if (t.debitAccount && t.creditAccount) {
+                const drCode = String(t.debitAccount.code || '');
+                if (drCode.startsWith('5')) return sum + safeParseFloat(t.amount);
+                return sum;
+            }
+            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
+
             if (getAccountPrefix(t.category) === '5') {
                 return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
             }
@@ -428,7 +446,9 @@ const TaxReports = () => {
 
         const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
-        const netWorth = totalAssets - totalDebts;
+        const totalEquity = totalAssets - totalDebts; 
+        
+        const retainedEquity = totalEquity - netProfit;
 
         const assetsSection = [
             { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
