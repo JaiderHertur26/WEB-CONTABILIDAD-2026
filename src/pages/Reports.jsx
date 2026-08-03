@@ -386,13 +386,28 @@ const Reports = () => {
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
 
-    // LECTURA CONTABLE DESDE TRANSACCIONES: Suma acumulada de todas las depreciaciones registradas hasta el año fiscal seleccionado (<= currentYear)
-    const totalDepreciacionAcumuladaTransacciones = validTransactions.filter(t => {
-        return t.category === 'Depreciación Acumulada Activos Fijos' && getSafeYear(t.date) <= parseInt(currentYear);
+    // 1. Depreciación acumulada histórica manual (los $8.862.130 que vienen de atrás)
+    const totalDepreciacionInventario = fFixedAssets.filter(asset => {
+        if (asset.status === 'Dado de Baja') return false; 
+        if (asset.year) return asset.year.toString() === currentYear.toString();
+        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
+        return false;
+    }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
+
+    const totalDepreciacionPropiedades = fRealEstates.filter(estate => {
+        if (estate.status === 'Dado de Baja') return false;
+        return getSafeYear(estate.date) <= parseInt(currentYear);
+    }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
+
+    const baseHistoricaManual = totalDepreciacionInventario + totalDepreciacionPropiedades;
+
+    // 2. Transacciones nuevas de depreciación generadas en años posteriores (ej. 2026 en adelante)
+    const depreciacionTransaccionesNuevas = validTransactions.filter(t => {
+        return t.category === 'Depreciación Acumulada Activos Fijos' && getSafeYear(t.date) > 2025 && getSafeYear(t.date) <= parseInt(currentYear);
     }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
 
-    // Depreciación acumulada total en formato negativo sincronizada con los comprobantes contables
-    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionAcumuladaTransacciones);
+    // Suma total: El arrastre histórico de atrás ($8.862.130) + las transacciones nuevas del periodo en formato negativo
+    depreciacionAcumuladaValue = -Math.abs(baseHistoricaManual + depreciacionTransaccionesNuevas);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
