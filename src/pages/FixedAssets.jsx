@@ -163,8 +163,8 @@ const FixedAssets = () => {
             // La depreciación anual SIEMPRE se calcula sobre el valor original.
             const yearlyDepr = originalValue * rate;
 
-            // Sumamos la histórica + la del año, y nos aseguramos de no depreciar más del 100%
-            const newAccumulated = Math.min(originalValue, historicalDepr + yearlyDepr); 
+            // Sumamos la histórica + la del año. Si el valor original es 0 (Activo Control), respetamos la histórica.
+const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDepr + yearlyDepr) : historicalDepr; 
             
             totalDepreciationGenerated += yearlyDepr;
 
