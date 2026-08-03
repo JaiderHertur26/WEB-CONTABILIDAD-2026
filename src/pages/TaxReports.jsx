@@ -373,9 +373,6 @@ const TaxReports = () => {
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
-            bsTransactions.forEach(t => {
-            const amount = safeParseFloat(t.amount);
-
             // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
