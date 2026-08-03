@@ -16,7 +16,7 @@ const RealEstates = () => {
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const [realEstates, saveRealEstates] = useCompanyData('realEstates');
     
-    // NUEVO: Importamos transacciones y cuentas para asegurar la Partida Doble
+    //NUEVO: Importamos transacciones y cuentas para asegurar la Partida Doble
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
     
