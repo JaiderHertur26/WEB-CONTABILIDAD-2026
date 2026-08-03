@@ -325,54 +325,57 @@ const Reports = () => {
         return creationYear <= parseInt(currentYear);
     });
 
-    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
+    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0, intangiblesValue = 0;
 
-    bsTransactions.forEach(t => {
-        const amount = safeParseFloat(t.amount);
+        bsTransactions.forEach(t => {
+            const amount = safeParseFloat(t.amount);
 
-        // Bloque Partida Doble Manual
-        if (t.debitAccount && t.creditAccount) {
-            if (String(t.id).endsWith('-inc')) return;
-            const drCode = String(t.debitAccount.code || '');
-            const crCode = String(t.creditAccount.code || '');
+            // Bloque Partida Doble Manual
+            if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return;
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
 
-            if (drCode.startsWith('1330')) anticiposValue += amount;
-            else if (drCode.startsWith('1508')) construccionesValue += amount;
-            else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
-                otherAssetsValue += amount;
+                if (drCode.startsWith('1330')) anticiposValue += amount;
+                else if (drCode.startsWith('1508')) construccionesValue += amount;
+                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+                else if (drCode.startsWith('16')) intangiblesValue += amount;
+                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+                    otherAssetsValue += amount;
+                }
+                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
+
+                if (crCode.startsWith('1330')) anticiposValue -= amount;
+                else if (crCode.startsWith('1508')) construccionesValue -= amount;
+                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+                else if (crCode.startsWith('16')) intangiblesValue -= amount;
+                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+                    otherAssetsValue -= amount;
+                }
+                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
+
+                return;
             }
-            else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-            if (crCode.startsWith('1330')) anticiposValue -= amount;
-            else if (crCode.startsWith('1508')) construccionesValue -= amount;
-            else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
-            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
-                otherAssetsValue -= amount;
+            // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
+            const acc = allAccounts.find(a => a.name === t.category);
+            if (!acc) return;
+            const num = String(acc.number);
+
+            const assetImpact = t.type === 'expense' ? amount : -amount;
+            const liabilityImpact = t.type === 'income' ? amount : -amount;
+
+            if (num.startsWith('1330')) anticiposValue += assetImpact;
+            else if (num.startsWith('1508')) construccionesValue += assetImpact;
+            else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
+            else if (num.startsWith('16')) intangiblesValue += assetImpact;
+            else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
+                otherAssetsValue += assetImpact;
             }
-            else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
-
-            return;
-        }
-
-        // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
-        const acc = allAccounts.find(a => a.name === t.category);
-        if (!acc) return;
-        const num = String(acc.number);
-
-        const assetImpact = t.type === 'expense' ? amount : -amount;
-        const liabilityImpact = t.type === 'income' ? amount : -amount;
-
-        if (num.startsWith('1330')) anticiposValue += assetImpact;
-        else if (num.startsWith('1508')) construccionesValue += assetImpact;
-        else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
-        else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
-            otherAssetsValue += assetImpact;
-        }
-        else if (num.startsWith('2') && !num.startsWith('2305')) {
-            otherLiabilitiesValue += liabilityImpact;
-        }
-    });
+            else if (num.startsWith('2') && !num.startsWith('2305')) {
+                otherLiabilitiesValue += liabilityImpact;
+            }
+        });
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
@@ -406,27 +409,28 @@ const totalDepreciacionInventario = fFixedAssets.filter(asset => {
     }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
 
     const assets = [
-        { item: 'Activo Corriente', isBold: true },
-        { item: '  Efectivo y Equivalentes', isSubtotal: true },
-        { item: '    Caja General', amount: cajaGeneralValue, isBold: true },
-        { item: '      Caja Principal', amount: cajaPrincipalBalance },
-        ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
-        { item: '      Cuentas Bancarias', amount: totalBankBalances },
-        { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
-        { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
-        { item: '  Anticipos a Proveedores', amount: anticiposValue }, 
-        { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
-        { item: 'Activo No Corriente', isBold: true },
-        { item: '  Construcciones en Curso', amount: construccionesValue }, 
-        { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
-        { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
-        { item: '  Inventario', amount: inventoryValue },
-        { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
-    ];
-    
-    const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
-    
-    const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
+            { item: 'Activo Corriente', isBold: true },
+            { item: '  Efectivo y Equivalentes', isSubtotal: true },
+            { item: '    Caja General', amount: cajaGeneralValue, isBold: true },
+            { item: '      Caja Principal', amount: cajaPrincipalBalance },
+            ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
+            { item: '      Cuentas Bancarias', amount: totalBankBalances },
+            { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
+            { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
+            { item: '  Anticipos a Proveedores', amount: anticiposValue }, 
+            { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
+            { item: 'Activo No Corriente', isBold: true },
+            { item: '  Activos Intangibles (Licencias)', amount: intangiblesValue },
+            { item: '  Construcciones en Curso', amount: construccionesValue }, 
+            { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
+            { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
+            { item: '  Inventario', amount: inventoryValue },
+            { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
+        ];
+        
+        const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
+        
+        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
     const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
     const totalEquity = totalAssets - totalLiabilities; 
     

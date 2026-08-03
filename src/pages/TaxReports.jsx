@@ -371,32 +371,42 @@ const TaxReports = () => {
         let otherAssetsValue = initialOtherAssets;
         let otherLiabilitiesValue = initialOtherLiabilities;
         let depreciacionAcumuladaValue = initialDepreciacion;
-        let intangiblesValue = 0;
+        let intangiblesValue = 0; // DECLARADO AQUÍ
+
+        fInitialBalance.forEach(item => {
+            const itemYear = item.date ? getSafeYear(item.date) : new Date().getFullYear();
+            if (itemYear <= parseInt(currentYear)) {
+                const code = String(item.accountingCode || '');
+                if (code.startsWith('16')) intangiblesValue += safeParseFloat(item.balance);
+            }
+        });
 
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
             // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
-                if (String(t.id).endsWith('-inc')) return; // FILTRO RESTAURADO
+                if (String(t.id).endsWith('-inc')) return;
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
 
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
-                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+                else if (drCode.startsWith('16')) intangiblesValue += amount;
                 else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
-                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue += amount;
+                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
-                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+                else if (crCode.startsWith('16')) intangiblesValue -= amount;
+                else if (crCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
-                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue -= amount;
+                else if (crCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue += amount;
 
                 return;
             }
@@ -412,6 +422,7 @@ const TaxReports = () => {
             if (num.startsWith('1330')) anticiposValue += assetImpact;
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
             else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
+            else if (num.startsWith('16')) intangiblesValue += assetImpact;
             else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
                 otherAssetsValue += assetImpact;
             }
@@ -452,6 +463,10 @@ const TaxReports = () => {
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
         const netWorth = totalAssets - totalDebts;
 
+        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
+        const totalDebts = accountsPayableValue + otherLiabilitiesValue;
+        const netWorth = totalAssets - totalDebts;
+
         const assetsSection = [
             { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
             { Concepto: '  Efectivo y Equivalentes (Caja General)', Valor: cajaGeneralValue, isSubtotal: true },
@@ -462,7 +477,7 @@ const TaxReports = () => {
             { Concepto: '  Cuentas por Cobrar', Valor: accountsReceivableValue, isDetail: true },
             { Concepto: '  Anticipos a Proveedores', Valor: anticiposValue, isDetail: true },
             { Concepto: '  Otros Activos Corrientes', Valor: otherAssetsValue, isDetail: true },
-            { Concepto: '  Activos Intangibles', Valor: intangiblesValue, isDetail: true },
+            { Concepto: '  Activos Intangibles (Licencias)', Valor: intangiblesValue, isDetail: true },
             { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
             { Concepto: '  Propiedades, Planta y Equipo', Valor: realEstatesValue, isDetail: true },
             { Concepto: '  Activos Fijos (Oficina y Equipos)', Valor: manualFixedAssetsValue, isDetail: true },
