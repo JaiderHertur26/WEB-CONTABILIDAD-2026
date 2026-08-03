@@ -318,7 +318,7 @@ const Dashboard = () => {
         }
     });
 
-    const totalAssets = cajaGeneralTotal + accountsReceivableValue + manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue + otherAssetsValue + intangiblesValue + depreciacionAcumuladaValue;
+    const totalAssets = cajaGeneralTotal + accountsReceivableValue + manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue + otherAssetsValue + intangiblesValue - Math.abs(depreciacionAcumuladaValue);
 
     // --- P&L CALCULATIONS (MOTOR UNIFICADO) ---
     let totalIncomes = 0;
