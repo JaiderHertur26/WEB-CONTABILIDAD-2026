@@ -385,21 +385,14 @@ const Reports = () => {
         if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
-    
-const totalDepreciacionInventario = fFixedAssets.filter(asset => {
-        if (asset.status === 'Dado de Baja') return false; 
-        if (asset.year) return asset.year.toString() === currentYear.toString();
-        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
-        return false;
-    }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    const totalDepreciacionPropiedades = fRealEstates.filter(estate => {
-        if (estate.status === 'Dado de Baja') return false;
-        return getSafeYear(estate.date) <= parseInt(currentYear);
-    }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
+    // LECTURA CONTABLE DESDE TRANSACCIONES: Suma acumulada de todas las depreciaciones registradas hasta el año fiscal seleccionado (<= currentYear)
+    const totalDepreciacionAcumuladaTransacciones = validTransactions.filter(t => {
+        return t.category === 'Depreciación Acumulada Activos Fijos' && getSafeYear(t.date) <= parseInt(currentYear);
+    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
 
-    // Suma total de depreciaciones de ambos módulos en formato negativo
-    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
+    // Depreciación acumulada total en formato negativo sincronizada con los comprobantes contables
+    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionAcumuladaTransacciones);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
