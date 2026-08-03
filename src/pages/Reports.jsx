@@ -362,7 +362,8 @@ const totalDepreciacionInventario = fFixedAssets.filter(asset => {
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    depreciacionAcumuladaValue -= totalDepreciacionInventario;
+    // Aseguramos que la depreciación en el balance sea la suma real de los activos en formato negativo
+    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
