@@ -92,6 +92,11 @@ const getTransactionTypeAndPrefix = (t) => {
         return hasCash ? { type: 'transfer', prefix: 'T' } : { type: 'adjustment', prefix: 'A' };
     }
 
+    // SOPORTE ADICIONAL PARA ASEGURAR QUE LOS AJUSTES MANUALES SEAN RECONOCIDOS
+    if (t.voucherPrefix === 'A' || t.category === 'INGRESOS POR DONACIONES') {
+        return { type: 'adjustment', prefix: 'A' };
+    }
+
     if (t.isInternalTransfer || t.type === 'transfer') {
         const destParts = (t.destination || '').split('|');
         const hasCash = checkCashOrBank(destParts[0], destParts[1]);
@@ -201,6 +206,16 @@ const Transactions = () => {
             return {
                 debit: { ...t.debitAccount, value: amount },
                 credit: { ...t.creditAccount, value: amount }
+            };
+        }
+
+        // CORRECCIÓN: SI ES UN ASIENTO DE DONACIÓN EN ESPECIE O AJUSTE MANUAL SIN DEBITACCOUNT EXPLÍCITO
+        if (t.category === 'INGRESOS POR DONACIONES' || t.voucherPrefix === 'A') {
+            const assetAcc = getAssetDetails(t.destination, t.category);
+            const catObj = (accounts || []).find(a => a.name === t.category) || { number: '421004', name: t.category };
+            return {
+                debit: { code: assetAcc.code, name: assetAcc.name, value: amount },
+                credit: { code: catObj.number || '421004', name: catObj.name || t.category, value: amount }
             };
         }
 
@@ -344,7 +359,12 @@ const Transactions = () => {
         });
 
         if (filterType !== 'all') {
-            result = result.filter(t => t._intelligentType === filterType);
+            result = result.filter(t => {
+                if (filterType === 'adjustment') {
+                    return t._intelligentType === 'adjustment' || t.voucherPrefix === 'A' || t.category === 'INGRESOS POR DONACIONES';
+                }
+                return t._intelligentType === filterType;
+            });
         }
         
         if (searchTerm) {
