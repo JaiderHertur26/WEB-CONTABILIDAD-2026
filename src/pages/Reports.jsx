@@ -386,19 +386,28 @@ const Reports = () => {
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
 
-    // Suma acumulada real de todas las transacciones de depreciación contable hasta el año seleccionado
-    const totalDepreciacionAcumuladaTransacciones = validTransactions.filter(t => {
-        return t.category === 'Depreciación Acumulada Activos Fijos' && getSafeYear(t.date) <= parseInt(currentYear);
-    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+    // 1. Depreciación acumulada histórica manual de los activos fijos
+    const totalDepreciacionInventario = fFixedAssets.filter(asset => {
+        if (asset.status === 'Dado de Baja') return false; 
+        if (asset.year) return asset.year.toString() === currentYear.toString();
+        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
+        return false;
+    }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    // Si hay depreciación histórica inicial en propiedades que no pasó por transacción, la sumamos si aplica al año
-    const totalDepreciacionHistoricaPropiedades = fRealEstates.filter(estate => {
+    // 2. Depreciación acumulada histórica manual de las propiedades
+    const totalDepreciacionPropiedades = fRealEstates.filter(estate => {
         if (estate.status === 'Dado de Baja') return false;
         return getSafeYear(estate.date) <= parseInt(currentYear);
     }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
 
-    // Depreciación acumulada total en formato negativo ajustada al año fiscal consultado
-    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionAcumuladaTransacciones > 0 ? totalDepreciacionAcumuladaTransacciones : totalDepreciacionHistoricaPropiedades);
+    // 3. Transacciones adicionales de depreciación del año seleccionado
+    const totalDepreciacionTransacciones = validTransactions.filter(t => {
+        return t.category === 'Depreciación Acumulada Activos Fijos' && getSafeYear(t.date) <= parseInt(currentYear);
+    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+    // Suma total: Histórico manual + Transacciones del periodo en formato negativo
+    const baseHistorico = totalDepreciacionInventario + totalDepreciacionPropiedades;
+    depreciacionAcumuladaValue = -Math.abs(baseHistorico > 0 ? baseHistorico : totalDepreciacionTransacciones);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
