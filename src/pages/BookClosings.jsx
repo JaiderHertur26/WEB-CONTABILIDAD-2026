@@ -183,6 +183,9 @@ const BookClosings = () => {
                 if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
                     capitalizacion += amount;
                 }
+                if (crPrefix === '1' && !crCode.startsWith('11') && !crCode.startsWith('1295')) {
+                    capitalizacion -= amount;
+                }
                 return;
             }
 
