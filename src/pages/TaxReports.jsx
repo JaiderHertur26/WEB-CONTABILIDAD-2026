@@ -250,10 +250,12 @@ const TaxReports = () => {
         
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
-            
+
+            // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
-                const drCode = t.debitAccount.code;
-                const crCode = t.creditAccount.code ? t.creditAccount.code : '';
+                if (String(t.id).endsWith('-inc')) return;
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
                 const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
                 const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
                 
