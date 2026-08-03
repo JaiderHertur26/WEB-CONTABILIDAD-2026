@@ -228,7 +228,8 @@ const BookClosings = () => {
             } else if (prefix === '1' || prefix === '3') {
                 const accNum = accountObj ? String(accountObj.number) : '';
                 if (!accNum.startsWith('11') && !accNum.startsWith('1295')) {
-                    if (t.type === 'expense') capitalizacion += amount;
+                    if (t.type === 'expense' && !t.isInternalTransfer) capitalizacion += amount;
+                    if (t.type === 'income' && !t.isInternalTransfer) capitalizacion -= amount;
                 }
             }
         });
