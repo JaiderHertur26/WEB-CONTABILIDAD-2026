@@ -382,19 +382,21 @@ const TaxReports = () => {
 
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
-                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+                else if (drCode.startsWith('16')) intangiblesValue += amount;
                 else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
-                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue += amount;
+                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
-                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+                else if (crCode.startsWith('16')) intangiblesValue -= amount;
                 else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
-                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue -= amount;
+                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
 
                 return;
             }
