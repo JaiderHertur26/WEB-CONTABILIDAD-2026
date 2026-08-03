@@ -125,7 +125,6 @@ const Reports = () => {
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // 1. P&L Logic (Sin el código duplicado)
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.debitAccount && t.creditAccount) {
             const crCode = String(t.creditAccount.code || '');
@@ -236,7 +235,7 @@ const Reports = () => {
         
         if (t.debitAccount && t.creditAccount) {
             const drCode = t.debitAccount.code;
-            const crCode = t.creditAccount.code ? t.creditAccount.code : '';
+            const crCode = t.creditAccount.code;
             const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
             const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
             
@@ -287,7 +286,6 @@ const Reports = () => {
     fBankAccounts.forEach(acc => {
         let currentBankBalance = 0, currentInvestmentBalance = 0;
         const creationYear = getAccountCreationYear(acc.id, acc.date);
-        
         if (creationYear <= parseInt(currentYear)) {
             currentBankBalance = safeParseFloat(acc.initialBalance);
             currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
@@ -300,7 +298,6 @@ const Reports = () => {
                  const crName = t.creditAccount.name || '';
                  const drCode = t.debitAccount.code || '';
                  const crCode = t.creditAccount.code || '';
-                 
                  if (drName === acc.bankName || (acc.accountingCode && drCode === acc.accountingCode)) currentBankBalance += amount;
                  if (crName === acc.bankName || (acc.accountingCode && crCode === acc.accountingCode)) currentBankBalance -= amount;
                  return;
@@ -326,33 +323,7 @@ const Reports = () => {
         return creationYear <= parseInt(currentYear);
     });
 
-    let initialDepreciacion = 0, initialAnticipos = 0, initialConstrucciones = 0, initialOtherAssets = 0, initialOtherLiabilities = 0;
-    
-    fInitialBalance.forEach(item => {
-        const itemYear = item.date ? getSafeYear(item.date) : new Date().getFullYear();
-        if (itemYear <= parseInt(currentYear)) {
-            const amount = safeParseFloat(item.balance);
-            const code = String(item.accountingCode || '');
-            
-            if (code.startsWith('1592')) {
-                initialDepreciacion -= Math.abs(amount);
-            } else if (code.startsWith('1330')) {
-                initialAnticipos += amount;
-            } else if (code.startsWith('1508')) {
-                initialConstrucciones += amount;
-            } else if (code.startsWith('1') && !code.startsWith('11') && !code.startsWith('1305') && !code.startsWith('14') && !code.startsWith('15')) {
-                initialOtherAssets += amount;
-            } else if (code.startsWith('2') && !code.startsWith('2305')) {
-                initialOtherLiabilities += Math.abs(amount);
-            }
-        }
-    });
-
-    let anticiposValue = initialAnticipos;
-    let construccionesValue = initialConstrucciones;
-    let otherAssetsValue = initialOtherAssets;
-    let otherLiabilitiesValue = initialOtherLiabilities;
-    let depreciacionAcumuladaValue = initialDepreciacion;
+    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0;
 
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
@@ -404,33 +375,57 @@ const Reports = () => {
     
     const manualFixedAssetsValue = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
-        const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-        return assetYear === parseInt(selectedYear);
+        if (asset.year) return asset.year.toString() === currentYear.toString();
+        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
+        return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
-    const totalDepreciacionInventario = fFixedAssets.filter(asset => {
+const totalDepreciacionInventario = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
-        const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-        return assetYear === parseInt(selectedYear);
+        if (asset.year) return asset.year.toString() === currentYear.toString();
+        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
+        return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
+    // Aseguramos que la depreciación en el balance sea la suma real de los activos en formato negativo
     depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario);
     
-    const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
+    const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
     const accountsReceivableValue = fAccountsReceivable.filter(r => {
-        const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
-        return r.status === 'Pendiente' && rYear <= parseInt(selectedYear);
+        const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(currentYear));
+        return r.status === 'Pendiente' && rYear <= parseInt(currentYear);
     }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
 
     const accountsPayableValue = fAccountsPayable.filter(p => {
-        const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : parseInt(selectedYear));
-        return p.status === 'Pendiente' && pYear <= parseInt(selectedYear);
+        const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : parseInt(currentYear));
+        return p.status === 'Pendiente' && pYear <= parseInt(currentYear);
     }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
 
+    const assets = [
+        { item: 'Activo Corriente', isBold: true },
+        { item: '  Efectivo y Equivalentes', isSubtotal: true },
+        { item: '    Caja General', amount: cajaGeneralValue, isBold: true },
+        { item: '      Caja Principal', amount: cajaPrincipalBalance },
+        ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
+        { item: '      Cuentas Bancarias', amount: totalBankBalances },
+        { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
+        { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
+        { item: '  Anticipos a Proveedores', amount: anticiposValue }, 
+        { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
+        { item: 'Activo No Corriente', isBold: true },
+        { item: '  Construcciones en Curso', amount: construccionesValue }, 
+        { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
+        { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
+        { item: '  Inventario', amount: inventoryValue },
+        { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
+    ];
+    
+    const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
+    
     const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
-    const totalDebts = accountsPayableValue + otherLiabilitiesValue;
-    const totalEquity = totalAssets - totalDebts; 
+    const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
+    const totalEquity = totalAssets - totalLiabilities; 
     
     const retainedEquity = totalEquity - netProfit;
 
