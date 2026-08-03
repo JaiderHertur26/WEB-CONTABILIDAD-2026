@@ -378,6 +378,7 @@ const TaxReports = () => {
 
             // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return; // FILTRO RESTAURADO
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
 
