@@ -21,6 +21,7 @@ import * as XLSX from 'xlsx';
 
 const numeroALetras = (num) => {
     if (!num || isNaN(num) || num === 0) return 'CERO PESOS';
+    num = Math.floor(num); // <-- LÍNEA NUEVA: Elimina decimales para evitar el error 'undefined'
     const units = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
     const tens = ['', 'DIEZ', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
     const teens = ['DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISEIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE'];
@@ -378,7 +379,7 @@ const Transactions = () => {
                     const amountVal = parseFloat(t.amount);
                     const formattedAmount = amountVal.toLocaleString('es-CO', { minimumFractionDigits: 0 });
                     const displayAmount = `-${formattedAmount} / +${formattedAmount}`;
-                    const rawDesc = t.description.includes(': ') ? t.description.split(': ')[1] : t.description;
+                    const rawDesc = (t.description || '').includes(': ') ? t.description.split(': ')[1] : (t.description || ''); // <-- LÍNEA MODIFICADA
                     const expensePart = isExp ? t : sibling;
                     const incomePart = isExp ? sibling : t;
                     const sourceAsset = getAssetDetails(expensePart.destination, expensePart.category);
@@ -834,12 +835,17 @@ const Transactions = () => {
                     const expensePart = isExp ? t : sibling;
                     const incomePart = isExp ? sibling : t;
                     
+                    // EXTRAER LAS CUENTAS REALES DE LOS ACTIVOS
+                    const sourceAsset = getAssetDetails(expensePart.destination, expensePart.category);
+                    const destAsset = getAssetDetails(incomePart.destination, incomePart.category);
+                    
                     let vId = expensePart.voucherNumber ? `${expensePart.voucherPrefix || 'A'}-${String(expensePart.voucherNumber).padStart(4, '0')}` : '-';
                     const displayDate = formatSafeDate(expensePart.date);
                     const monto = parseFloat(expensePart.amount) || 0;
                     
-                    dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': expensePart._accountNumber || 'N/A', 'Cuenta': expensePart.category, 'Descripción': expensePart.description.replace('Cruce: ', ''), 'Débito': monto, 'Crédito': 0 });
-                    dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': incomePart._accountNumber || 'N/A', 'Cuenta': incomePart.category, 'Descripción': incomePart.description.replace('Cruce: ', ''), 'Débito': 0, 'Crédito': monto });
+                    // USAR LOS ACTIVOS EN LUGAR DE LA CATEGORÍA INTERNA
+                    dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': destAsset.code, 'Cuenta': destAsset.name, 'Descripción': expensePart.description.replace('Cruce: ', ''), 'Débito': monto, 'Crédito': 0 });
+                    dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': sourceAsset.code, 'Cuenta': sourceAsset.name, 'Descripción': incomePart.description.replace('Cruce: ', ''), 'Débito': 0, 'Crédito': monto });
                     return;
                 }
             }
@@ -893,6 +899,7 @@ const Transactions = () => {
         setIsPrinting(true);
         const printContent = voucherRef.current.innerHTML;
         const printWindow = window.open('', '_blank', 'width=900,height=700');
+        if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Por favor permite las ventanas emergentes (pop-ups) para imprimir." }); setIsPrinting(false); return; }
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
             .map(style => style.outerHTML)
             .join('\n');
@@ -935,6 +942,7 @@ const Transactions = () => {
         setIsPrinting(true);
         const printContent = billingRef.current.innerHTML;
         const printWindow = window.open('', '_blank', 'width=900,height=700');
+        if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Por favor permite las ventanas emergentes (pop-ups) para imprimir." }); setIsPrinting(false); return; }
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(style => style.outerHTML).join('\n');
 
         printWindow.document.write(`
@@ -978,6 +986,7 @@ const Transactions = () => {
         setIsPrinting(true);
         const printContent = receiptRef.current.innerHTML;
         const printWindow = window.open('', '_blank', 'width=900,height=700');
+        if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Por favor permite las ventanas emergentes (pop-ups) para imprimir." }); setIsPrinting(false); return; }
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(style => style.outerHTML).join('\n');
 
         printWindow.document.write(`
@@ -1841,14 +1850,16 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
         const transactionsToAdd = [];
         const now = Date.now();
         const nextVouchers = {};
+        let hasError = false;
 
         parsedRows.forEach((row, i) => {
-            if (!selectedRows[row.id]) return; 
+            if (!selectedRows[row.id] || hasError) return; 
 
             const category = rowMappings[row.id];
             if (!category) {
                 toast({ variant: 'destructive', title: "Falta Categoría", description: `Asigna una cuenta contable a la transacción: ${row.description}` });
-                throw new Error("Categoría faltante");
+                hasError = true;
+                return;
             }
 
             const year = (typeof row.date === 'string' && row.date.includes('-')) 
@@ -1890,6 +1901,8 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                 companyId: activeCompany?.id
             });
         });
+
+        if (hasError) return; // <-- Evita que se guarde a medias si hubo un error
 
         saveTransactions([...transactions, ...transactionsToAdd]);
         toast({ title: "Conciliación Exitosa", description: `Se importaron ${transactionsToAdd.length} movimientos faltantes.` });
