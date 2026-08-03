@@ -279,12 +279,15 @@ const Dashboard = () => {
         const amount = safeParseFloat(t.amount);
 
         if (t.debitAccount && t.creditAccount) {
+            // EVITAR DOBLE CONTABILIZACIÓN
+            if (String(t.id).endsWith('-inc')) return;
+
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
 
             if (drCode.startsWith('1330')) anticiposValue += amount;
             else if (drCode.startsWith('1508')) construccionesValue += amount;
-            else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
+            else if (drCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
             else if (drCode.startsWith('16')) intangiblesValue += amount;
             else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                 otherAssetsValue += amount;
@@ -292,7 +295,7 @@ const Dashboard = () => {
 
             if (crCode.startsWith('1330')) anticiposValue -= amount;
             else if (crCode.startsWith('1508')) construccionesValue -= amount;
-            else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
+            else if (crCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
             else if (crCode.startsWith('16')) intangiblesValue -= amount;
             else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                 otherAssetsValue -= amount;
@@ -322,6 +325,9 @@ const Dashboard = () => {
     let totalExpenses = 0;
 
     transactionsInPeriod.forEach(t => {
+        // Ignorar gemelo inverso para no duplicar valores en Dashboard
+        if (t.debitAccount && t.creditAccount && String(t.id).endsWith('-inc')) return;
+
         const amount = safeParseFloat(t.amount);
 
         if (t.debitAccount && t.creditAccount) {
@@ -331,7 +337,7 @@ const Dashboard = () => {
             const crPrefix = crCode.charAt(0);
 
             if (crPrefix === '4') totalIncomes += amount;
-            if (['5', '6', '7', '4'].includes(drPrefix)) totalExpenses += amount;
+            if (['5', '6', '7'].includes(drPrefix)) totalExpenses += amount;
             return;
         }
 
@@ -393,10 +399,11 @@ const Dashboard = () => {
             if (isNaN(amount)) return;
 
             if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return;
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
                 if (crCode.charAt(0) === '4') monthData.ingresos += amount;
-                if (['5', '6', '7', '4'].includes(drCode.charAt(0))) monthData.gastos += amount;
+                if (['5', '6', '7'].includes(drCode.charAt(0))) monthData.gastos += amount;
                 return;
             }
 
@@ -432,8 +439,9 @@ const Dashboard = () => {
         if (isNaN(amount)) return;
 
         if (t.debitAccount && t.creditAccount) {
+            if (String(t.id).endsWith('-inc')) return;
             const drCode = String(t.debitAccount.code || '');
-            if (['5', '6', '7', '4'].includes(drCode.charAt(0))) {
+            if (['5', '6', '7'].includes(drCode.charAt(0))) {
                 const catName = t.debitAccount.name || 'Sin Categoría';
                 categoryTotals[catName] = (categoryTotals[catName] || 0) + amount;
             }
