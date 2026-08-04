@@ -385,22 +385,35 @@ const Reports = () => {
         if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
-
-    // DEPRECIACIÓN ESTRICTA POR AÑO BASADA EN COMPROBANTES (EVITA VIAJES AL FUTURO)
-    const depreciacionAcumuladaTransacciones = validTransactions.filter(t => {
-        return t.category === 'Depreciación Acumulada Activos Fijos' && getSafeYear(t.date) <= parseInt(currentYear);
-    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
-
-    // Mantenemos la lectura de activos fijos manuales en caso de no existir comprobantes aún
-    const totalDepreciacionInventarioManual = fFixedAssets.filter(asset => {
+    
+    // 1. ACTIVOS FIJOS (Lee tu tabla clonada intacta, trae los $8.862.130 sin borrarlos)
+    const totalDepreciacionInventario = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
         if (asset.year) return asset.year.toString() === currentYear.toString();
         if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    // Usa las transacciones contables del año seleccionado; si no hay, usa el respaldo manual
-    depreciacionAcumuladaValue = -Math.abs(depreciacionAcumuladaTransacciones > 0 ? depreciacionAcumuladaTransacciones : totalDepreciacionInventarioManual);
+    // 2. PROPIEDADES (Lógica de viaje en el tiempo)
+    // Toma el acumulado global actual de la propiedad
+    const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
+        if (estate.status === 'Dado de Baja') return false;
+        return getSafeYear(estate.date) <= parseInt(currentYear);
+    }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
+
+    // Identifica las transacciones de depreciación que ocurrieron DESPUÉS del año consultado
+    const depreciacionesFuturasPropiedades = validTransactions.filter(t => {
+        return t.category === 'Depreciación Acumulada Activos Fijos' && 
+               String(t.description).includes('Edificaciones') && 
+               getSafeYear(t.date) > parseInt(currentYear);
+    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+    // Al valor global le restamos el futuro para obtener el valor exacto en el año seleccionado
+    const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
+
+    // 3. SUMA PERFECTA
+    // Suma los Activos Fijos ($8.8M) + Propiedades ($1M) sin que ninguno sobreescriba al otro
+    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
