@@ -181,32 +181,14 @@ const Transactions = () => {
         return Array.from(years).sort((a, b) => b - a);
     }, [transactions, isRelevant]);
     
-    // 🚀 LÓGICA INTELIGENTE: EXTRAER SOLO CUENTAS QUE TUVIERON ACTIVIDAD EXACTA EN EL AÑO SELECCIONADO
-    const activeAccountsInYear = useMemo(() => {
-        const yearTx = processedTransactions.filter(t => {
-            const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
-                ? t.date.split('-')[0] 
-                : new Date(t.date).getFullYear().toString();
-            return tYear === selectedYear;
+    // Obtener cuentas activas para el filtro
+    const activeAccounts = useMemo(() => {
+        const uniqueAccounts = new Map();
+        (accounts || []).forEach(acc => {
+            if (acc && acc.name) uniqueAccounts.set(acc.number, acc);
         });
-
-        const usedExactCodes = new Set();
-        
-        yearTx.forEach(t => {
-            const { debit, credit } = resolveAccountingRow(t);
-            if (debit?.code) usedExactCodes.add(String(debit.code));
-            if (credit?.code) usedExactCodes.add(String(credit.code));
-            if (t._accountNumber) usedExactCodes.add(String(t._accountNumber));
-        });
-
-        return (accounts || [])
-            .filter(acc => {
-                const accNum = String(acc.number);
-                // Si la cuenta exacta fue usada, o si es la cuenta padre ("Mayor") de una que fue usada
-                return Array.from(usedExactCodes).some(usedCode => usedCode.startsWith(accNum));
-            })
-            .sort((a, b) => String(a.number).localeCompare(String(b.number)));
-    }, [processedTransactions, selectedYear, accounts]);
+        return Array.from(uniqueAccounts.values()).sort((a, b) => a.number.localeCompare(b.number));
+    }, [accounts]);
 
     const getAssetDetails = (destinationStr, categoryName = '') => {
         const relInitialBalances = (initialBalances || []).filter(isRelevant);
@@ -1176,91 +1158,20 @@ const Transactions = () => {
                         <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500" /></div>
                         
                         <div className="flex gap-2 items-center flex-wrap">
-                            
-                            {/* 🚀 FILTRO POR CUENTA PUC MULTIPLE (SOLO CUENTAS ACTIVAS) */}
-                            <div className="relative">
-                                <Button 
-                                    variant="outline" 
-                                    onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)} 
-                                    className={`bg-white ${accountFilters.length > 0 ? 'border-blue-400 text-blue-700' : 'border-slate-300 text-slate-600'}`}
+                            {/* NUEVO: FILTRO POR CUENTA PUC */}
+                            <div className="flex items-center bg-slate-50 border rounded-md px-2">
+                                <Filter className="w-4 h-4 text-slate-400 mr-2"/>
+                                <select 
+                                    className="text-sm bg-transparent border-none focus:ring-0 py-2 min-w-[180px] max-w-[250px] truncate" 
+                                    value={accountFilter} 
+                                    onChange={(e) => setAccountFilter(e.target.value)}
                                 >
-                                    <Filter className={`w-4 h-4 mr-2 ${accountFilters.length > 0 ? 'text-blue-600' : 'text-slate-400'}`} />
-                                    {accountFilters.length === 0 ? 'Todas las cuentas' : `${accountFilters.length} cuentas filtradas`}
-                                </Button>
-                                {isAccountMenuOpen && (
-                                    <div className="absolute top-full mt-2 right-0 md:left-0 w-80 bg-white border border-slate-200 shadow-2xl rounded-xl z-50 flex flex-col">
-                                        <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
-                                            <span className="font-bold text-slate-700 text-sm">Filtrar por Cuentas</span>
-                                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-blue-600 hover:bg-blue-50" onClick={() => { setAccountFilters([]); setIsAccountMenuOpen(false); }}>Limpiar</Button>
-                                        </div>
-                                        <div className="max-h-64 overflow-y-auto p-2 space-y-1">
-                                            <label className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer transition-colors border border-transparent hover:border-slate-200">
-                                                <input type="checkbox" checked={accountFilters.length === 0} onChange={() => setAccountFilters([])} className="w-4 h-4 text-blue-600 rounded" />
-                                                <span className="font-semibold text-slate-800 text-sm">Mostrar Todas</span>
-                                            </label>
-                                            <hr className="my-1 border-slate-100 mx-2" />
-                                            {activeAccountsInYear.map(acc => (
-                                                <label key={acc.id} className={`flex items-center gap-3 p-2 rounded cursor-pointer transition-colors border ${accountFilters.includes(acc.number) ? 'bg-blue-50/50 border-blue-200' : 'border-transparent hover:bg-slate-50 hover:border-slate-200'}`}>
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={accountFilters.includes(acc.number)}
-                                                        onChange={(e) => {
-                                                            if (e.target.checked) setAccountFilters([...accountFilters, acc.number]);
-                                                            else setAccountFilters(accountFilters.filter(x => x !== acc.number));
-                                                        }}
-                                                        className="w-4 h-4 text-blue-600 rounded border-slate-300"
-                                                    />
-                                                    <div className="flex flex-col">
-                                                        <span className="text-xs font-bold text-slate-800">{acc.number}</span>
-                                                        <span className="text-[11px] text-slate-500 leading-tight uppercase line-clamp-1" title={acc.name}>{acc.name}</span>
-                                                    </div>
-                                                </label>
-                                            ))}
-                                            {activeAccountsInYear.length === 0 && (
-                                                <div className="p-4 text-center text-xs text-slate-400">No hay cuentas con movimientos este año.</div>
-                                            )}
-                                        </div>
-                                        <div className="p-3 border-t border-slate-100 bg-slate-50 rounded-b-xl flex gap-2">
-                                            <Button className="w-full bg-slate-800 hover:bg-slate-900" size="sm" onClick={() => setIsAccountMenuOpen(false)}>Aplicar Filtro</Button>
-                                        </div>
-                                    </div>
-                                )}
+                                    <option value="all">Todas las cuentas</option>
+                                    {activeAccounts.map(acc => (
+                                        <option key={acc.id} value={acc.number}>{acc.number} - {acc.name}</option>
+                                    ))}
+                                </select>
                             </div>
-
-                            <select className="text-sm border rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
-                            
-                            <div className="flex bg-slate-100 rounded-lg p-1">
-                                <button onClick={() => setViewMode('balances')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'balances' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><TableIcon className="w-3 h-3 inline mr-1" /> Control</button>
-                                <button onClick={() => setViewMode('accounting')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'accounting' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BookOpen className="w-3 h-3 inline mr-1" /> Partida Doble</button>
-                                <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`}><FileText className="w-3 h-3 inline mr-1" /> Cuentas de Cobro</button>
-                            </div>
-                            {canEdit && <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>}
-                        </div>
-                    </div>
-                    
-                    {viewMode !== 'billing' && (
-                        <div className="flex gap-2 overflow-x-auto pb-2">
-                            {['all', 'income', 'expense', 'transfer', 'adjustment'].map(type => (
-                                <Button 
-                                    key={type} 
-                                    variant={filterType === type ? 'default' : 'outline'} 
-                                    size="sm" 
-                                    onClick={() => setFilterType(type)} 
-                                    className="capitalize"
-                                >
-                                    {type === 'all' ? 'Todas' : type === 'income' ? 'Ingresos' : type === 'expense' ? 'Gastos' : type === 'transfer' ? 'Transferencias' : 'Ajustes'}
-                                </Button>
-                            ))}
-                            <div className="ml-auto flex gap-2">
-                                {/* BOTÓN DE IMPRESIÓN SIEMPRE VISIBLE */}
-                                <Button variant="outline" size="sm" onClick={() => setPrintFilteredOpen(true)} className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm">
-                                    <Printer className="w-4 h-4 mr-2" /> Imprimir Reporte
-                                </Button>
-                                {viewMode === 'accounting' ? <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel</Button> : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
-                            </div>
-                        </div>
-                    )}
-                </div>
 
                             <select className="text-sm border rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
                             
@@ -1852,7 +1763,7 @@ const Transactions = () => {
                 </DialogContent>
             </Dialog>
 
-            {/* NUEVO: Diálogo Oculto para Imprimir el Libro Auxiliar (Filtro Múltiple) */}
+            {/* NUEVO: Diálogo Oculto para Imprimir el Libro Auxiliar (Filtro) */}
             <Dialog open={printFilteredOpen} onOpenChange={setPrintFilteredOpen}>
                 <DialogContent className="max-w-5xl p-0 border-none bg-transparent shadow-none">
                     <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
@@ -1894,9 +1805,9 @@ const Transactions = () => {
                                             let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
                                             const { debit, credit } = resolveAccountingRow(t);
                                             
-                                            // Lógica Multi-Filtro: Mostrar fila si aplica
-                                            const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
-                                            const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
+                                            // Lógica para mostrar la fila solo si coincide con el filtro, o mostrar ambas si el filtro es "Todas"
+                                            const showDebit = accountFilter === 'all' || (debit && debit.code.startsWith(accountFilter));
+                                            const showCredit = accountFilter === 'all' || (credit && credit.code.startsWith(accountFilter));
 
                                             return (
                                                 <React.Fragment key={t.id}>
@@ -1930,7 +1841,7 @@ const Transactions = () => {
                                             );
                                         })}
                                         {displayTransactions.length === 0 && (
-                                            <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la(s) cuenta(s) seleccionada(s).</td></tr>
+                                            <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la cuenta seleccionada.</td></tr>
                                         )}
                                     </tbody>
                                 </table>
