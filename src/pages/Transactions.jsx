@@ -127,9 +127,8 @@ const Transactions = () => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const [viewMode, setViewMode] = useState('balances');
     
-    // NUEVO ESTADO: Filtro por Cuenta PUC Múltiple
-    const [accountFilters, setAccountFilters] = useState([]);
-    const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+    // NUEVO ESTADO: Filtro por Cuenta PUC
+    const [accountFilter, setAccountFilter] = useState('all');
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -140,6 +139,7 @@ const Transactions = () => {
     const [transactionToPrint, setTransactionToPrint] = useState(null);
     const [isPrinting, setIsPrinting] = useState(false);
     
+    // NUEVO ESTADO: Diálogo para imprimir el reporte filtrado
     const [printFilteredOpen, setPrintFilteredOpen] = useState(false);
     
     const [configBillingOpen, setConfigBillingOpen] = useState(false);
@@ -153,7 +153,7 @@ const Transactions = () => {
     const voucherRef = useRef(null);
     const billingRef = useRef(null);
     const receiptRef = useRef(null); 
-    const filteredPrintRef = useRef(null); 
+    const filteredPrintRef = useRef(null); // Ref para imprimir el reporte
 
     const isRelevant = useMemo(() => (item) => {
         if (!item) return false;
@@ -181,6 +181,33 @@ const Transactions = () => {
         return Array.from(years).sort((a, b) => b - a);
     }, [transactions, isRelevant]);
     
+    // 🚀 LÓGICA INTELIGENTE: EXTRAER SOLO CUENTAS QUE TUVIERON ACTIVIDAD EN EL AÑO SELECCIONADO
+    const activeAccountsInYear = useMemo(() => {
+        const yearTx = processedTransactions.filter(t => {
+            const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
+                ? t.date.split('-')[0] 
+                : new Date(t.date).getFullYear().toString();
+            return tYear === selectedYear;
+        });
+
+        const usedPrefixes = new Set();
+        yearTx.forEach(t => {
+            const { debit, credit } = resolveAccountingRow(t);
+            if (debit?.code) usedPrefixes.add(String(debit.code).substring(0, 4));
+            if (credit?.code) usedPrefixes.add(String(credit.code).substring(0, 4));
+            if (t._accountNumber) usedPrefixes.add(String(t._accountNumber).substring(0, 4));
+        });
+
+        // Aseguramos incluir siempre las cajas/bancos por defecto aunque no tengan movimiento aún
+        usedPrefixes.add('1105');
+        usedPrefixes.add('1110');
+        usedPrefixes.add('1120');
+
+        return (accounts || [])
+            .filter(acc => Array.from(usedPrefixes).some(prefix => String(acc.number).startsWith(prefix) || prefix.startsWith(String(acc.number))))
+            .sort((a, b) => String(a.number).localeCompare(String(b.number)));
+    }, [processedTransactions, selectedYear, accounts]);
+
     const getAssetDetails = (destinationStr, categoryName = '') => {
         const relInitialBalances = (initialBalances || []).filter(isRelevant);
         if (!destinationStr) {
@@ -353,33 +380,6 @@ const Transactions = () => {
         setProcessedTransactions(calculated);
     }, [transactions, initialBalances, bankAccounts, accounts, isRelevant]);
 
-    // 🚀 LÓGICA INTELIGENTE: EXTRAER CUENTAS QUE TUVIERON ACTIVIDAD EN EL AÑO
-    const activeAccountsInYear = useMemo(() => {
-        const yearTx = processedTransactions.filter(t => {
-            const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
-                ? t.date.split('-')[0] 
-                : new Date(t.date).getFullYear().toString();
-            return tYear === selectedYear;
-        });
-
-        const usedPrefixes = new Set();
-        yearTx.forEach(t => {
-            const { debit, credit } = resolveAccountingRow(t);
-            if (debit?.code) usedPrefixes.add(String(debit.code).substring(0, 4));
-            if (credit?.code) usedPrefixes.add(String(credit.code).substring(0, 4));
-            if (t._accountNumber) usedPrefixes.add(String(t._accountNumber).substring(0, 4));
-        });
-
-        // Aseguramos incluir siempre las cajas/bancos por defecto
-        usedPrefixes.add('1105');
-        usedPrefixes.add('1110');
-        usedPrefixes.add('1120');
-
-        return (accounts || [])
-            .filter(acc => Array.from(usedPrefixes).some(prefix => String(acc.number).startsWith(prefix) || prefix.startsWith(String(acc.number))))
-            .sort((a, b) => String(a.number).localeCompare(String(b.number)));
-    }, [processedTransactions, selectedYear, accounts]);
-
     useEffect(() => {
         let result = [...processedTransactions];
         
@@ -401,17 +401,15 @@ const Transactions = () => {
             });
         }
         
-        // NUEVO: Filtro por Cuenta Contable (Múltiple)
-        if (accountFilters.length > 0) {
+        // NUEVO: Filtro por Cuenta Contable (PUC)
+        if (accountFilter !== 'all') {
             result = result.filter(t => {
                 const { debit, credit } = resolveAccountingRow(t);
-                const drCode = String(debit?.code || '');
-                const crCode = String(credit?.code || '');
-                const baseCode = String(t._accountNumber || '');
-                
-                return accountFilters.some(filter => 
-                    drCode.startsWith(filter) || crCode.startsWith(filter) || baseCode.startsWith(filter)
-                );
+                const drCode = debit?.code || '';
+                const crCode = credit?.code || '';
+                const baseCode = t._accountNumber || '';
+                // Busca coincidencias exactas o que la cuenta seleccionada sea padre de la registrada
+                return drCode.startsWith(accountFilter) || crCode.startsWith(accountFilter) || baseCode.startsWith(accountFilter);
             });
         }
         
@@ -423,7 +421,7 @@ const Transactions = () => {
         
         result.sort((a, b) => new Date(a.date) - new Date(b.date));
         setFilteredTransactions(result);
-    }, [processedTransactions, searchTerm, filterType, selectedYear, accountFilters]);
+    }, [processedTransactions, searchTerm, filterType, selectedYear, accountFilter]); // <-- accountFilter agregado a dependencias
 
     const getDisplayTransactions = () => {
         const groups = [];
@@ -726,7 +724,7 @@ const Transactions = () => {
                     } else if (tx.isInitialStock || (tx.type === 'adjustment' && !tx.isPurchase)) {
                         product.quantity = parseFloat(product.quantity) - qty;
                         inventoryChanged = true;
-                    } else ((tx.type === 'income' && tx.productId) || (tx.type === 'expense' && tx.isStoreAdjustment)) {
+                    } else if ((tx.type === 'income' && tx.productId) || (tx.type === 'expense' && tx.isStoreAdjustment)) {
                         product.quantity = parseFloat(product.quantity) + qty;
                         inventoryChanged = true;
                     }
@@ -796,7 +794,7 @@ const Transactions = () => {
                 voucherNumber,
                 company_id: activeCompany?.id,
                 companyId: activeCompany?.id,
-                debitAccount: { code: creditAccObj.number, name: creditAccObj.name }, 
+                debitAccount: { code: creditAccObj.number, name: creditAccObj.name }, // Contrapartida
                 creditAccount: { code: debitAccObj.number, name: debitAccObj.name }
             };
 
@@ -927,7 +925,7 @@ const Transactions = () => {
         toast({ title: "¡Exportado!", description: "Libro Diario exportado a Excel." });
     };
 
-    // 🚀 LÓGICA DE IMPRESIÓN ELEGANTE DEL REPORTE (LIBRO AUXILIAR)
+    // 🚀 NUEVA FUNCIÓN DE IMPRESIÓN DEL LIBRO AUXILIAR / REPORTE FILTRADO
     const handlePrintFilteredPdf = () => {
         if (!filteredPrintRef.current) return;
         setIsPrinting(true);
@@ -938,12 +936,10 @@ const Transactions = () => {
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(style => style.outerHTML).join('\n');
 
         let accountName = "TODAS LAS CUENTAS";
-        if (accountFilters.length === 1) {
-            const accObj = activeAccountsInYear.find(a => a.number === accountFilters[0]);
+        if (accountFilter !== 'all') {
+            const accObj = activeAccounts.find(a => a.number === accountFilter);
             if (accObj) accountName = `${accObj.number} - ${accObj.name}`;
-            else accountName = `PUC: ${accountFilters[0]}`;
-        } else if (accountFilters.length > 1) {
-            accountName = `MÚLTIPLES CUENTAS (${accountFilters.length} seleccionadas)`;
+            else accountName = `PUC: ${accountFilter}`;
         }
 
         printWindow.document.write(`
@@ -1181,7 +1177,7 @@ const Transactions = () => {
                         
                         <div className="flex gap-2 items-center flex-wrap">
                             
-                            {/* NUEVO: FILTRO POR CUENTA PUC MULTIPLE */}
+                            {/* 🚀 FILTRO POR CUENTA PUC MULTIPLE (SOLO CUENTAS ACTIVAS) */}
                             <div className="relative">
                                 <Button 
                                     variant="outline" 
@@ -1256,11 +1252,44 @@ const Transactions = () => {
                                 </Button>
                             ))}
                             <div className="ml-auto flex gap-2">
-                                {/* BOTÓN DE IMPRESIÓN ELEGANTE SIEMPRE VISIBLE */}
+                                {/* 🚀 BOTÓN DE IMPRESIÓN ELEGANTE SIEMPRE VISIBLE */}
                                 <Button variant="outline" size="sm" onClick={() => setPrintFilteredOpen(true)} className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Reporte
                                 </Button>
                                 {viewMode === 'accounting' ? <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel (Doble)</Button> : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                            <select className="text-sm border rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
+                            
+                            <div className="flex bg-slate-100 rounded-lg p-1">
+                                <button onClick={() => setViewMode('balances')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'balances' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><TableIcon className="w-3 h-3 inline mr-1" /> Control</button>
+                                <button onClick={() => setViewMode('accounting')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'accounting' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BookOpen className="w-3 h-3 inline mr-1" /> Partida Doble</button>
+                                <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`}><FileText className="w-3 h-3 inline mr-1" /> Cuentas de Cobro</button>
+                            </div>
+                            {canEdit && <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>}
+                        </div>
+                    </div>
+                    
+                    {viewMode !== 'billing' && (
+                        <div className="flex gap-2 overflow-x-auto pb-2">
+                            {['all', 'income', 'expense', 'transfer', 'adjustment'].map(type => (
+                                <Button 
+                                    key={type} 
+                                    variant={filterType === type ? 'default' : 'outline'} 
+                                    size="sm" 
+                                    onClick={() => setFilterType(type)} 
+                                    className="capitalize"
+                                >
+                                    {type === 'all' ? 'Todas' : type === 'income' ? 'Ingresos' : type === 'expense' ? 'Gastos' : type === 'transfer' ? 'Transferencias' : 'Ajustes'}
+                                </Button>
+                            ))}
+                            <div className="ml-auto flex gap-2">
+                                {/* NUEVO BOTÓN DE IMPRESIÓN ELEGANTE */}
+                                {viewMode === 'accounting' && <Button variant="outline" size="sm" onClick={() => setPrintFilteredOpen(true)} className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm"><Printer className="w-4 h-4 mr-2" /> Imprimir Reporte</Button>}
+                                {viewMode === 'accounting' ? <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel</Button> : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
                             </div>
                         </div>
                     )}
@@ -1823,7 +1852,7 @@ const Transactions = () => {
                 </DialogContent>
             </Dialog>
 
-            {/* NUEVO: Diálogo Oculto para Imprimir el Libro Auxiliar (Filtro) */}
+            {/* NUEVO: Diálogo Oculto para Imprimir el Libro Auxiliar (Filtro Múltiple) */}
             <Dialog open={printFilteredOpen} onOpenChange={setPrintFilteredOpen}>
                 <DialogContent className="max-w-5xl p-0 border-none bg-transparent shadow-none">
                     <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
@@ -1865,7 +1894,7 @@ const Transactions = () => {
                                             let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
                                             const { debit, credit } = resolveAccountingRow(t);
                                             
-                                            // Si no hay filtro muestra todo, si hay filtro muestra solo las líneas de contrapartida involucradas
+                                            // Lógica Multi-Filtro: Mostrar fila si aplica
                                             const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
                                             const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
 
@@ -1901,7 +1930,7 @@ const Transactions = () => {
                                             );
                                         })}
                                         {displayTransactions.length === 0 && (
-                                            <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la cuenta seleccionada.</td></tr>
+                                            <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la(s) cuenta(s) seleccionada(s).</td></tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -2297,7 +2326,7 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                             </table>
                         </div>
                         
-                       <div className="mt-4 pt-4 border-t flex justify-between items-center">
+                        <div className="mt-4 pt-4 border-t flex justify-between items-center">
                             <span className="text-sm text-slate-500 font-medium">
                                 {Object.values(selectedRows).filter(Boolean).length} transacciones seleccionadas
                             </span>
