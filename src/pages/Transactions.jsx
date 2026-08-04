@@ -946,6 +946,22 @@ const Transactions = () => {
             accountName = `MÚLTIPLES CUENTAS (${accountFilters.length} seleccionadas)`;
         }
 
+        // 🚀 CALCULAR TOTALES PARA EL REPORTE IMPRESO
+        let totalDebitos = 0;
+        let totalCreditos = 0;
+        
+        displayTransactions.forEach(t => {
+            if (t._isMerged) return;
+            const { debit, credit } = resolveAccountingRow(t);
+            const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
+            const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
+            
+            if (showDebit) totalDebitos += parseFloat(debit?.value || 0);
+            if (showCredit) totalCreditos += parseFloat(credit?.value || 0);
+        });
+
+        const saldoNeto = Math.abs(totalDebitos - totalCreditos);
+
         printWindow.document.write(`
           <!DOCTYPE html>
           <html>
@@ -979,6 +995,20 @@ const Transactions = () => {
                       </div>
                   </div>
                   ${printContent}
+                  
+                  <!-- 🚀 FILA DE TOTALES DEL REPORTE -->
+                  <div class="mt-6 border-t-2 border-slate-800 pt-2">
+                      <table class="w-full text-xs text-left">
+                          <tbody>
+                              <tr class="font-bold text-slate-900 text-sm">
+                                  <td class="py-2 text-right w-3/4 pr-4 uppercase">Sumas Iguales / Totales del Periodo:</td>
+                                  <td class="py-2 text-right w-32 border-b-4 border-double border-slate-800">${totalDebitos.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                  <td class="py-2 text-right w-32 border-b-4 border-double border-slate-800">${totalCreditos.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+
                   <div class="mt-12 pt-4 border-t text-xs text-slate-500 text-center">
                       Documento generado por Sistema Contable Automatizado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
                   </div>
