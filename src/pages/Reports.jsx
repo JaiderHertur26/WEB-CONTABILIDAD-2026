@@ -385,21 +385,22 @@ const Reports = () => {
         if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
-    
-const totalDepreciacionInventario = fFixedAssets.filter(asset => {
+
+    // DEPRECIACIÓN ESTRICTA POR AÑO BASADA EN COMPROBANTES (EVITA VIAJES AL FUTURO)
+    const depreciacionAcumuladaTransacciones = validTransactions.filter(t => {
+        return t.category === 'Depreciación Acumulada Activos Fijos' && getSafeYear(t.date) <= parseInt(currentYear);
+    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+    // Mantenemos la lectura de activos fijos manuales en caso de no existir comprobantes aún
+    const totalDepreciacionInventarioManual = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
         if (asset.year) return asset.year.toString() === currentYear.toString();
         if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    const totalDepreciacionPropiedades = fRealEstates.filter(estate => {
-        if (estate.status === 'Dado de Baja') return false;
-        return getSafeYear(estate.date) <= parseInt(currentYear);
-    }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
-
-    // Suma total de depreciaciones de ambos módulos en formato negativo
-    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
+    // Usa las transacciones contables del año seleccionado; si no hay, usa el respaldo manual
+    depreciacionAcumuladaValue = -Math.abs(depreciacionAcumuladaTransacciones > 0 ? depreciacionAcumuladaTransacciones : totalDepreciacionInventarioManual);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
