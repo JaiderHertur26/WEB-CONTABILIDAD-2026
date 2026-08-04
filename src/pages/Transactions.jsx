@@ -2297,7 +2297,7 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                             </table>
                         </div>
                         
-                        <div className="mt-4 pt-4 border-t flex justify-between items-center">
+                       <div className="mt-4 pt-4 border-t flex justify-between items-center">
                             <span className="text-sm text-slate-500 font-medium">
                                 {Object.values(selectedRows).filter(Boolean).length} transacciones seleccionadas
                             </span>
