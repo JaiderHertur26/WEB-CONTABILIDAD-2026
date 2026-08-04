@@ -181,7 +181,7 @@ const Transactions = () => {
         return Array.from(years).sort((a, b) => b - a);
     }, [transactions, isRelevant]);
     
-    // 🚀 LÓGICA INTELIGENTE: EXTRAER SOLO CUENTAS QUE TUVIERON ACTIVIDAD EN EL AÑO SELECCIONADO
+    // 🚀 LÓGICA INTELIGENTE: EXTRAER SOLO CUENTAS QUE TUVIERON ACTIVIDAD EXACTA EN EL AÑO SELECCIONADO
     const activeAccountsInYear = useMemo(() => {
         const yearTx = processedTransactions.filter(t => {
             const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
@@ -190,21 +190,21 @@ const Transactions = () => {
             return tYear === selectedYear;
         });
 
-        const usedPrefixes = new Set();
+        const usedExactCodes = new Set();
+        
         yearTx.forEach(t => {
             const { debit, credit } = resolveAccountingRow(t);
-            if (debit?.code) usedPrefixes.add(String(debit.code).substring(0, 4));
-            if (credit?.code) usedPrefixes.add(String(credit.code).substring(0, 4));
-            if (t._accountNumber) usedPrefixes.add(String(t._accountNumber).substring(0, 4));
+            if (debit?.code) usedExactCodes.add(String(debit.code));
+            if (credit?.code) usedExactCodes.add(String(credit.code));
+            if (t._accountNumber) usedExactCodes.add(String(t._accountNumber));
         });
 
-        // Aseguramos incluir siempre las cajas/bancos por defecto aunque no tengan movimiento aún
-        usedPrefixes.add('1105');
-        usedPrefixes.add('1110');
-        usedPrefixes.add('1120');
-
         return (accounts || [])
-            .filter(acc => Array.from(usedPrefixes).some(prefix => String(acc.number).startsWith(prefix) || prefix.startsWith(String(acc.number))))
+            .filter(acc => {
+                const accNum = String(acc.number);
+                // Si la cuenta exacta fue usada, o si es la cuenta padre ("Mayor") de una que fue usada
+                return Array.from(usedExactCodes).some(usedCode => usedCode.startsWith(accNum));
+            })
             .sort((a, b) => String(a.number).localeCompare(String(b.number)));
     }, [processedTransactions, selectedYear, accounts]);
 
@@ -1252,11 +1252,11 @@ const Transactions = () => {
                                 </Button>
                             ))}
                             <div className="ml-auto flex gap-2">
-                                {/* 🚀 BOTÓN DE IMPRESIÓN ELEGANTE SIEMPRE VISIBLE */}
+                                {/* BOTÓN DE IMPRESIÓN SIEMPRE VISIBLE */}
                                 <Button variant="outline" size="sm" onClick={() => setPrintFilteredOpen(true)} className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Reporte
                                 </Button>
-                                {viewMode === 'accounting' ? <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel (Doble)</Button> : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
+                                {viewMode === 'accounting' ? <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel</Button> : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
                             </div>
                         </div>
                     )}
