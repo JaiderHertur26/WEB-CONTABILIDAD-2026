@@ -768,61 +768,38 @@ const Transactions = () => {
             const debitAccObj = (accounts || []).find(a => a.name === transferData.debitAccount) || { number: '150805', name: transferData.debitAccount };
             const creditAccObj = (accounts || []).find(a => a.name === transferData.creditAccount) || { number: '133005', name: transferData.creditAccount };
 
-            const checkCashOrBank = (codeStr, nameStr) => {
-                const c = String(codeStr || '').trim();
-                const n = String(nameStr || '').toUpperCase().trim();
-                if (c.startsWith('11') || c.startsWith('1295') || c === 'caja_principal') return true;
-                if (n.includes('CAJA') || n.includes('COOPERATIVA') || n.includes('BANCO')) return true;
-                return false;
-            };
-            const hasCash = checkCashOrBank(debitAccObj.number, debitAccObj.name) || checkCashOrBank(creditAccObj.number, creditAccObj.name);
-            const lookupType = hasCash ? 'transfer' : 'adjustment';
-            voucherNumber = getNextVoucherNumber(lookupType, transferData.date);
+            const voucherNumber = getNextVoucherNumber('adjustment', transferData.date);
+            const transactionId = `${Date.now()}`;
 
-            const expenseTransaction = {
-                id: `${now}-exp`,
-                type: 'expense',
-                description: `Cruce: ${transferData.description}`,
-                amount: parseFloat(transferData.amount),
-                category: transferData.debitAccount, 
-                date: transferData.date,
-                destination: `${creditAccObj.number}|${creditAccObj.name.toUpperCase()}`, 
-                isInternalTransfer: true,
+            const accountingTransaction = {
+                id: transactionId,
+                type: 'adjustment',
+                voucherPrefix: 'A',
                 voucherNumber,
-                company_id: activeCompany?.id,
-                companyId: activeCompany?.id,
+                date: transferData.date,
+                description: transferData.description,
+                amount: parseFloat(transferData.amount),
+                category: debitAccObj.name,
+                isInternalTransfer: true,
                 debitAccount: { code: debitAccObj.number, name: debitAccObj.name },
-                creditAccount: { code: creditAccObj.number, name: creditAccObj.name }
-            };
-
-            const incomeTransaction = {
-                id: `${now}-inc`,
-                type: 'income',
-                description: `Cruce: ${transferData.description}`,
-                amount: parseFloat(transferData.amount),
-                category: transferData.creditAccount, 
-                date: transferData.date,
-                destination: `${debitAccObj.number}|${debitAccObj.name.toUpperCase()}`, 
-                isInternalTransfer: true,
-                voucherNumber,
+                creditAccount: { code: creditAccObj.number, name: creditAccObj.name },
                 company_id: activeCompany?.id,
-                companyId: activeCompany?.id,
-                debitAccount: { code: creditAccObj.number, name: creditAccObj.name }, // Contrapartida
-                creditAccount: { code: debitAccObj.number, name: debitAccObj.name }
+                companyId: activeCompany?.id
             };
 
+            // Registro automático en Activos Fijos si la cuenta débito pertenece a la clase 15 (excepto construcciones/depreciación)
             if (debitAccObj.number.startsWith('15') && !debitAccObj.number.startsWith('1508') && !debitAccObj.number.startsWith('1592')) {
                 const assetPayload = {
                     date: transferData.date,
                     name: transferData.description, 
                     value: parseFloat(transferData.amount),
                     year: new Date(transferData.date).getFullYear().toString(),
-                    transactionId: expenseTransaction.id
+                    transactionId: transactionId
                 };
 
                 const newAsset = {
                     ...assetPayload,
-                    id: `asset-${expenseTransaction.id}`,
+                    id: `asset-${transactionId}`,
                     status: 'Bueno',
                     quantity: 1,
                     category: debitAccObj.name,
@@ -833,8 +810,8 @@ const Transactions = () => {
                 saveFixedAssets([...(fixedAssets || []), newAsset]);
             }
 
-            saveTransactions([...transactions, expenseTransaction, incomeTransaction]);
-            toast({ title: "Cruce contable aplicado", description: "Los saldos en el Balance General han sido ajustados." });
+            saveTransactions([...transactions, accountingTransaction]);
+            toast({ title: "Cruce contable aplicado", description: "Los saldos en el Balance General y Libros han sido ajustados." });
             setTransferDialogOpen(false);
             return;
         }
@@ -1354,7 +1331,7 @@ const Transactions = () => {
     };
 
     // =========================================================================
-    // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES (CORREGIDO)
+    // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES (UNIFICADO)
     // =========================================================================
     const libroMayorData = useMemo(() => {
         const mayor = {};
@@ -1383,39 +1360,12 @@ const Transactions = () => {
             }
         });
 
-        // 3. Procesar todas las transacciones evitando duplicar o invertir gemelos contables
-        const processedIdsForMayor = new Set();
-        
+        // 3. Procesar todas las transacciones de manera unificada
         processedTransactions.forEach(t => {
-            if (processedIdsForMayor.has(t.id)) return;
-            
-            let debitToProcess = null;
-            let creditToProcess = null;
             const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
-            const amount = parseFloat(t.amount) || 0;
+            const { debit, credit } = resolveAccountingRow(t);
 
-            if (t.isInternalTransfer && !t.debitAccount) {
-                return; // Transferencia simple entre cuentas de efectivo ya manejada por flujo
-            }
-
-            if (t.isInternalTransfer && t.debitAccount && t.creditAccount) {
-                // Es un Comprobante de Ajuste / Nota Contable con partida doble gemela (-exp y -inc)
-                const baseId = t.id.replace(/-exp$|-inc$/, '');
-                const siblingId = baseId + (t.id.endsWith('-exp') ? '-inc' : '-exp');
-                processedIdsForMayor.add(t.id);
-                processedIdsForMayor.add(siblingId); // Bloqueamos el gemelo para que no se procese dos veces
-
-                // Tomamos siempre la estructura limpia del registro principal (-exp)
-                const expRecord = t.id.endsWith('-exp') ? t : processedTransactions.find(x => x.id === siblingId) || t;
-                debitToProcess = expRecord.debitAccount;
-                creditToProcess = expRecord.creditAccount;
-            } else {
-                const resolved = resolveAccountingRow(t);
-                debitToProcess = resolved.debit;
-                creditToProcess = resolved.credit;
-            }
-
-            const processEntry = (accCode, accName, entryAmount, isDebitEntry) => {
+            const processEntry = (accCode, accName, amount, isDebitEntry) => {
                 if (!accCode) return;
                 const codeStr = String(accCode);
                 if (!mayor[codeStr]) mayor[codeStr] = { code: codeStr, name: accName || 'N/A', saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
@@ -1423,16 +1373,16 @@ const Transactions = () => {
                 const isDebitNature = ['1', '5', '6', '8'].includes(codeStr.charAt(0));
 
                 if (tDate < startDate) {
-                    if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? entryAmount : -entryAmount);
-                    else mayor[codeStr].saldoAnterior += (isDebitNature ? -entryAmount : entryAmount);
+                    if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
+                    else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
                 } else if (tDate >= startDate && tDate <= endDate) {
-                    if (isDebitEntry) mayor[codeStr].debito += entryAmount;
-                    else mayor[codeStr].credito += entryAmount;
+                    if (isDebitEntry) mayor[codeStr].debito += amount;
+                    else mayor[codeStr].credito += amount;
                 }
             };
 
-            if (debitToProcess?.code) processEntry(debitToProcess.code, debitToProcess.name, parseFloat(debitToProcess.value || amount) || 0, true);
-            if (creditToProcess?.code) processEntry(creditToProcess.code, creditToProcess.name, parseFloat(creditToProcess.value || amount) || 0, false);
+            if (debit?.code) processEntry(debit.code, debit.name, parseFloat(debit.value) || 0, true);
+            if (credit?.code) processEntry(credit.code, credit.name, parseFloat(credit.value) || 0, false);
         });
 
         // 4. Aplicar Ecuación Contable para Nuevo Saldo
