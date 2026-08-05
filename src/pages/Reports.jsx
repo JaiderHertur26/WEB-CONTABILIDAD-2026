@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { isValid, parseISO } from 'date-fns';
+import { Download, Calendar, Printer } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
@@ -657,11 +659,14 @@ const Reports = () => {
               </div>
           </body>
           </html>
-      `);
+      `);     
       printWindow.document.close();
       printWindow.focus();
       setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-  }; 
+  }; // Cierre de executePrint
+
+  // 👇 AGREGA ESTA LÍNEA 👇
+  const handleExportBalanceSheet = () => {
       const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
       const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
@@ -705,7 +710,7 @@ const Reports = () => {
 
       exportToExcel(dataToExport, `Balance_General_${selectedYear}`); 
       toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
-  };
+  }; // <-- Esta llave ahora cierra correctamente handleExportBalanceSheet y no el componente
 
   const renderSheetTable = (items) => (items.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''}`}><td className={`py-2 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${item.isSubtotal ? 'font-semibold' : ''}`} style={{ paddingLeft: item.item.search(/\S/) * 4 }}>{item.item.trim()}</td><td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold' : ''}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>)));
 
