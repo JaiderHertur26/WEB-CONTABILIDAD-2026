@@ -1015,6 +1015,167 @@ const Transactions = () => {
         }, 500);
     };
 
+    // 🚀 MÓDULO 1: IMPRESIÓN LEGAL DEL LIBRO DIARIO
+    const handlePrintDiarioPdf = () => {
+        if (filteredTransactions.length === 0) { 
+            toast({ variant: 'destructive', title: "Libro Vacío", description: "No hay datos en este mes para generar el Libro Diario." }); 
+            return; 
+        }
+
+        setIsPrinting(true);
+        const printWindow = window.open('', '_blank', 'width=1000,height=800');
+        if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
+
+        const monthName = meses.find(m => m.val === selectedMonth)?.label || '';
+        const daysInMonth = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
+        const periodText = `DEL 01 DE ${monthName.toUpperCase()} AL ${daysInMonth} DE ${monthName.toUpperCase()} DE ${selectedYear}`;
+
+        // Generar filas del Libro Diario (Partida Doble Estricta)
+        let totalDebit = 0;
+        let totalCredit = 0;
+        const printRows = [];
+        const processedIds = new Set();
+
+        filteredTransactions.forEach(t => {
+            if (processedIds.has(t.id)) return;
+            let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+            const displayDate = formatSafeDate(t.date);
+
+            // Manejo de Cruces Internos (Mismo Comprobante)
+            if (t.isInternalTransfer && !t.debitAccount) {
+                const baseId = t.id.replace(/-exp$|-inc$/, '');
+                const isExp = t.id.endsWith('-exp');
+                const sibling = filteredTransactions.find(x => x.id === baseId + (isExp ? '-inc' : '-exp'));
+                
+                if (sibling) {
+                    processedIds.add(t.id);
+                    processedIds.add(sibling.id);
+                    
+                    const expensePart = isExp ? t : sibling;
+                    const incomePart = isExp ? sibling : t;
+                    const sourceAsset = getAssetDetails(expensePart.destination, expensePart.category);
+                    const destAsset = getAssetDetails(incomePart.destination, incomePart.category);
+                    const monto = parseFloat(expensePart.amount) || 0;
+                    
+                    totalDebit += monto;
+                    totalCredit += monto;
+
+                    printRows.push(`
+                        <tr>
+                            <td style="padding:4px; border-bottom:1px solid #eee;">${displayDate}</td>
+                            <td style="padding:4px; border-bottom:1px solid #eee; font-weight:bold;">${vId}</td>
+                            <td style="padding:4px; border-bottom:1px solid #eee;"><b>${destAsset.code}</b><br/><span style="font-size:10px;">${destAsset.name}</span></td>
+                            <td style="padding:4px; border-bottom:1px solid #eee;">${expensePart.description}</td>
+                            <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">${monto.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                            <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">-</td>
+                        </tr>
+                        <tr>
+                            <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
+                            <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
+                            <td style="padding:4px; border-bottom:1px solid #ccc; padding-left:20px;"><b>${sourceAsset.code}</b><br/><span style="font-size:10px;">${sourceAsset.name}</span></td>
+                            <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
+                            <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">-</td>
+                            <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">${monto.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                        </tr>
+                    `);
+                    return;
+                }
+            }
+
+            const { debit, credit } = resolveAccountingRow(t);
+            const dVal = parseFloat(debit?.value) || 0;
+            const cVal = parseFloat(credit?.value) || 0;
+            totalDebit += dVal;
+            totalCredit += cVal;
+
+            printRows.push(`
+                <tr>
+                    <td style="padding:4px; border-bottom:1px solid #eee;">${displayDate}</td>
+                    <td style="padding:4px; border-bottom:1px solid #eee; font-weight:bold;">${vId}</td>
+                    <td style="padding:4px; border-bottom:1px solid #eee;"><b>${debit?.code || 'N/A'}</b><br/><span style="font-size:10px;">${debit?.name || '-'}</span></td>
+                    <td style="padding:4px; border-bottom:1px solid #eee;">${t.description}</td>
+                    <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">${dVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">-</td>
+                </tr>
+                <tr>
+                    <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
+                    <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
+                    <td style="padding:4px; border-bottom:1px solid #ccc; padding-left:20px;"><b>${credit?.code || 'N/A'}</b><br/><span style="font-size:10px;">${credit?.name || '-'}</span></td>
+                    <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
+                    <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">-</td>
+                    <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">${cVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                </tr>
+            `);
+        });
+
+        const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+              <head>
+                  <title>Libro_Diario_${monthName}_${selectedYear}</title>
+                  <style>
+                      @media print {
+                          @page { margin: 15mm; size: portrait; }
+                          body { font-family: Arial, sans-serif; font-size: 12px; }
+                          table { page-break-inside: auto; border-collapse: collapse; width: 100%; }
+                          tr { page-break-inside: avoid; page-break-after: auto; }
+                          thead { display: table-header-group; }
+                          /* 🚀 Numeración reglamentaria de páginas */
+                          #pageFooter { display: block; position: fixed; bottom: 0; width: 100%; text-align: right; font-size: 10px; }
+                          #pageFooter:after { content: "Página " counter(page); }
+                      }
+                      body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 20px; }
+                      th { background-color: #f1f5f9; padding: 8px; text-align: left; border-bottom: 2px solid #000; }
+                  </style>
+              </head>
+              <body>
+                  <div style="border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px;">
+                      <h1 style="font-size: 18px; margin: 0; text-transform: uppercase;">${activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO"}</h1>
+                      <p style="margin: 2px 0; font-size: 12px;">NIT: ${activeCompany?.doc || "802012765"}</p>
+                      <h2 style="font-size: 16px; margin: 10px 0 0 0; text-align: center;">LIBRO DIARIO OFICIAL</h2>
+                      <p style="margin: 5px 0 0 0; text-align: center; font-weight: bold; text-transform: uppercase;">${periodText}</p>
+                  </div>
+                  
+                  <table>
+                      <thead>
+                          <tr>
+                              <th style="width:10%;">Fecha</th>
+                              <th style="width:10%;">Comp.</th>
+                              <th style="width:30%;">Cuenta (PUC)</th>
+                              <th style="width:30%;">Detalle</th>
+                              <th style="width:10%; text-align:right;">Débito</th>
+                              <th style="width:10%; text-align:right;">Crédito</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          ${printRows.join('')}
+                      </tbody>
+                      <tfoot>
+                          <tr>
+                              <td colspan="4" style="text-align:right; font-weight:bold; padding:10px;">SUMAS IGUALES:</td>
+                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; border-bottom:4px double #000;">${totalDebit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; border-bottom:4px double #000;">${totalCredit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                          </tr>
+                          ${!isBalanced ? \`<tr><td colspan="6" style="text-align:center; color:red; font-weight:bold; padding:5px;">ADVERTENCIA: LAS SUMAS NO SON IGUALES. REVISE LOS ASIENTOS.</td></tr>\` : ''}
+                      </tfoot>
+                  </table>
+                  
+                  <div id="pageFooter"></div>
+                  
+                  <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
+                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
+                  </div>
+              </body>
+          </html>
+        `);
+
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); printWindow.close(); setIsPrinting(false); }, 500);
+    };
+
     const handlePrint = (t) => {
         let debit, credit;
         if (t._isMerged) {
@@ -1328,12 +1489,13 @@ const Transactions = () => {
                                             saveTransactions(transactions.map(t => idsToLock.has(t.id) ? { ...t, isLocked: true } : t));
                                             
                                             // 2. Exportar
-                                            handleExportAccounting();
+                                            handlePrintDiarioPdf(); // 🚀 Cambiamos el comportamiento a PDF Legal
                                             toast({ title: "Libro Oficializado", description: "Los registros fueron bloqueados permanentemente por auditoría." });
                                         }} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
                                             <Lock className="w-4 h-4 mr-2" /> Oficializar Mes
                                         </Button>
-                                        <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel</Button>
+                                        <Button variant="outline" size="sm" onClick={handlePrintDiarioPdf} className="bg-white shadow-sm"><Printer className="w-4 h-4 mr-2" /> Imprimir Diario Oficial</Button>
+                                        <Button variant="ghost" size="sm" onClick={handleExportAccounting}><Download className="w-4 h-4 mr-2" /> Excel</Button>
                                     </>
                                 ) : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
                             </div>
