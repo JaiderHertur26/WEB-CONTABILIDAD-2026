@@ -28,8 +28,18 @@ const Reports = () => {
   
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
 
-  const [reportData, setReportData] = useState({ incomeStatement: [], balanceSheet: { assets: [], liabilities: [], equity: [], totals: {} }, summary: { totalIncome: 0, totalExpenses: 0, netProfit: 0, profitMargin: 0 } });
+  const [reportData, setReportData] = useState({ incomeStatement: [], balanceSheet: { assets: [], liabilities: [], equity: [], totals: {} }, cashFlow: { initial: 0, sources: [], uses: [], final: 0 }, summary: { totalIncome: 0, totalExpenses: 0, netProfit: 0, profitMargin: 0 } });
   const { toast } = useToast();
+
+  // Estados para el cuadro de diálogo de firmas e impresión
+  const [printConfigOpen, setPrintConfigOpen] = useState(false);
+  const [printType, setPrintType] = useState(null);
+  const [signatures, setSignatures] = useState({
+      repLegalName: 'JESÚS MARTINEZ THORNE',
+      repLegalId: 'C.C. 1.140.888.204',
+      contadorName: 'YENIFER VILORIA CHINCHILLA',
+      contadorId: 'T.P. 319783-T'
+  });
 
   const getSafeYear = (dateStr) => {
       if (!dateStr) return 0;
@@ -462,7 +472,31 @@ const Reports = () => {
     ];
 
     const balanceSheet = { assets: assets.filter(a => a.amount != null || a.isBold || a.isSubtotal), liabilities: liabilities.filter(l => l.amount != null || l.isBold), equity: equity.filter(e => e.amount != null || e.isBold), totals: { assets: totalAssets, liabilities: totalLiabilities, equity: totalEquity, liabilitiesAndEquity: totalLiabilities + totalEquity } };
-    setReportData({ summary: summaryData, incomeStatement, balanceSheet });
+
+    // --- CÁLCULO DEL FLUJO DE EFECTIVO ---
+    const initialBank = fBankAccounts.reduce((sum, acc) => {
+        const creationYear = getAccountCreationYear(acc.id, acc.date);
+        if (creationYear <= parseInt(currentYear)) return sum + safeParseFloat(acc.initialBalance);
+        return sum;
+    }, 0);
+    const initialCashTotal = initialCash + initialBank;
+
+    const cashFlow = {
+        initial: initialCashTotal,
+        sources: [
+            ...incomeAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: calculateTotalForCategory(acc.name, '4') })).filter(i => i.amount !== 0)
+        ],
+        uses: [
+            ...expenseAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '5')) })).filter(i => i.amount !== 0),
+            ...costAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '6')) })).filter(i => i.amount !== 0),
+            { item: 'Inversiones y Adquisiciones Activos', amount: manualFixedAssetsValue + construccionesValue }
+        ],
+        totalSources: totalIncome,
+        totalUses: totalExpenses + totalCosts + manualFixedAssetsValue + construccionesValue,
+        final: cajaGeneralValue
+    };
+
+    setReportData({ summary: summaryData, incomeStatement, balanceSheet, cashFlow });
   };
   
   const handleExportReport = (data, name) => { 
@@ -488,6 +522,150 @@ const Reports = () => {
 
       exportToExcel(dataToExport, `Estado_de_Resultados_${selectedYear}`); 
       toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
+  };
+
+  const handlePrintClick = (type) => {
+      setPrintType(type);
+      setPrintConfigOpen(true);
+  };
+
+  const executePrint = () => {
+      setPrintConfigOpen(false);
+      const printWindow = window.open('', '_blank', 'width=1000,height=800');
+      if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); return; }
+
+      const companyName = activeCompany?.name || 'PARROQUIA LA SANTA CRUZ';
+      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
+      const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
+      const fechaCorte = `A 31 DE DICIEMBRE DE ${selectedYear}`;
+
+      const styles = `
+          <style>
+              @media print {
+                  @page { margin: 20mm; size: letter portrait; }
+                  body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; }
+              }
+              body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; padding: 20px; }
+              h1, h2, h3 { text-align: center; margin: 2px 0; font-size: 14px; font-weight: bold; }
+              .header { text-align: center; margin-bottom: 30px; font-weight: bold; font-size: 13px; line-height: 1.3; }
+              .table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+              .td { padding: 4px 0; vertical-align: bottom; }
+              .td-right { text-align: right; }
+              .border-bottom { border-bottom: 1px solid black; }
+              .border-bottom-double { border-bottom: 3px double black; }
+              .bold { font-weight: bold; }
+              .indent-1 { padding-left: 20px; }
+              .indent-2 { padding-left: 50px; }
+              .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
+              .sig-box { text-align: center; width: 40%; font-size: 12px; }
+              .sig-line { border-top: 1px solid black; margin-bottom: 5px; }
+          </style>
+      `;
+
+      let content = '';
+
+      if (printType === 'balance') {
+          const { assets, liabilities, equity, totals } = reportData.balanceSheet;
+          
+          const renderItems = (items) => items.map(item => {
+              if (item.isBold && !item.amount) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
+              let amountStr = item.amount != null ? \`$ \${item.amount.toLocaleString('es-CO', {minimumFractionDigits: 2})}\` : '';
+              let rowClass = item.isTotal ? 'bold border-bottom-double' : (item.isSubtotal ? 'bold border-bottom' : '');
+              return \`<tr><td class="td \${item.isBold ? 'bold' : ''} \${item.amount != null ? 'indent-1' : ''}">\${item.item.trim().toUpperCase()}</td><td class="td td-right \${rowClass}">\${amountStr}</td></tr>\`;
+          }).join('');
+
+          content = `
+              <div class="header">
+                  ${arquidiocesis}<br/>
+                  ${companyName}<br/>
+                  ${companyNit}<br/>
+                  BALANCE GENERAL ${fechaCorte}
+              </div>
+              <table class="table">
+                  <tr><td class="td bold" colspan="2">ACTIVO</td></tr>
+                  ${renderItems(assets)}
+                  <tr><td class="td bold"><br/>TOTAL ACTIVO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.assets.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold" colspan="2"><br/>PASIVO</td></tr>
+                  ${renderItems(liabilities)}
+                  <tr><td class="td bold"><br/>TOTAL PASIVOS</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilities.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold" colspan="2"><br/>PATRIMONIO</td></tr>
+                  ${renderItems(equity)}
+                  <tr><td class="td bold"><br/>TOTAL PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.equity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold"><br/>TOTAL PASIVO + PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilitiesAndEquity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+              </table>
+          `;
+      } else if (printType === 'pnl') {
+          content = `
+              <div class="header">
+                  ${arquidiocesis}<br/>
+                  ${companyName}<br/>
+                  ${companyNit}<br/>
+                  ESTADO DE RESULTADO ${fechaCorte}
+              </div>
+              <table class="table">
+                  ${reportData.incomeStatement.map(item => {
+                      if (item.isBold && !item.amount && !item.isTotal) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
+                      let amountStr = item.amount != null ? \`$ \${Math.abs(item.amount).toLocaleString('es-CO', {minimumFractionDigits: 2})}\` : '';
+                      let rowClass = item.isTotal || item.isSubtotal ? 'bold border-bottom-double' : '';
+                      return \`<tr><td class="td \${item.isBold ? 'bold' : ''} \${item.amount != null ? 'indent-1' : ''}">\${item.item.trim().toUpperCase()}</td><td class="td td-right \${rowClass}">\${amountStr}</td></tr>\`;
+                  }).join('')}
+              </table>
+          `;
+      } else if (printType === 'cashflow') {
+          const { initial, sources, uses, totalSources, totalUses, final } = reportData.cashFlow;
+          content = `
+              <div class="header">
+                  ${arquidiocesis}<br/>
+                  ${companyName}<br/>
+                  ${companyNit}<br/>
+                  FLUJO DE EFECTIVO ${fechaCorte}
+              </div>
+              <table class="table">
+                  <tr><td class="td bold" colspan="2">Fuentes:</td></tr>
+                  <tr><td class="td indent-1">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${initial.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  <tr><td class="td bold indent-1">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${totalSources.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  ${sources.map(s => `<tr><td class="td indent-2">${s.item}</td><td class="td td-right border-bottom">${s.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
+                  <tr><td class="td bold indent-1"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${(initial + totalSources).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold" colspan="2"><br/>Usos de Fondo:</td></tr>
+                  <tr><td class="td bold indent-1">Menos: Gastos y Costos Realizados</td><td class="td td-right bold border-bottom">${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  ${uses.map(u => `<tr><td class="td indent-2">${u.item}</td><td class="td td-right border-bottom">${u.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
+                  <tr><td class="td bold indent-1"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold indent-1"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${final.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+              </table>
+          `;
+      }
+
+      printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head><title>Reporte_${printType}</title>${styles}</head>
+          <body>
+              ${content}
+              <div class="signatures">
+                  <div class="sig-box">
+                      <div class="sig-line"></div>
+                      <span class="bold">${signatures.repLegalName}</span><br/>
+                      REPRESENTANTE LEGAL<br/>
+                      ${signatures.repLegalId}
+                  </div>
+                  <div class="sig-box">
+                      <div class="sig-line"></div>
+                      <span class="bold">${signatures.contadorName}</span><br/>
+                      CONTADOR PÚBLICO<br/>
+                      ${signatures.contadorId}
+                  </div>
+              </div>
+          </body>
+          </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
   };
 
   const handleExportBalanceSheet = () => { 
@@ -545,9 +723,90 @@ const Reports = () => {
       <div className="space-y-8">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between md:items-center gap-4"><h1 className="text-4xl font-bold text-slate-900 mb-2">Reportes Financieros</h1><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select" className="font-medium">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px] bg-white"><SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-green-100 p-6 rounded-lg border border-green-200"><p className="text-sm text-green-800">Ingresos Operacionales (P&L)</p><p className="text-2xl font-bold text-green-900">${reportData.summary.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-red-100 p-6 rounded-lg border border-red-200"><p className="text-sm text-red-800">Costos y Gastos (P&L)</p><p className="text-2xl font-bold text-red-900">${reportData.summary.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-blue-100 p-6 rounded-lg border border-blue-200"><p className="text-sm text-blue-800">Utilidad Neta</p><p className="text-2xl font-bold text-blue-900">${reportData.summary.netProfit.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-purple-100 p-6 rounded-lg border border-purple-200"><p className="text-sm text-purple-800">Margen de Ganancia</p><p className="text-2xl font-bold text-purple-900">{reportData.summary.profitMargin}%</p></div></div>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Balance General</h2><Button onClick={handleExportBalanceSheet} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8"><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Activos</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.assets)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Activos</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.assets?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Pasivos y Patrimonio</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.liabilities)}</tbody></table><table className="w-full mt-2"><tbody>{renderSheetTable(reportData.balanceSheet.equity)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Pasivo + Patrimonio</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.liabilitiesAndEquity?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div></div><div className={`p-4 text-center border-t text-sm font-semibold ${Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? '¡El balance está cuadrado!' : 'El balance no está cuadrado'}</div></div></motion.div>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}><div className="bg-white rounded-xl shadow-lg border"><div className="flex justify-between items-center p-6 border-b"><h2 className="text-xl font-bold text-slate-900">Estado de Resultados</h2><Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div><div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${item.item.search(/\S/) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div></div></motion.div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+            <div className="bg-white rounded-xl shadow-lg border">
+                <div className="flex justify-between items-center p-6 border-b">
+                    <h2 className="text-xl font-bold text-slate-900">Balance General</h2>
+                    <div className="flex gap-2">
+                        <Button onClick={() => handlePrintClick('balance')} className="bg-blue-600 hover:bg-blue-700 text-white"><Printer className="w-4 h-4 mr-2" /> Imprimir PDF</Button>
+                        <Button onClick={handleExportBalanceSheet} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
+                    </div>
+                </div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8"><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Activos</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.assets)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Activos</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.assets?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Pasivos y Patrimonio</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.liabilities)}</tbody></table><table className="w-full mt-2"><tbody>{renderSheetTable(reportData.balanceSheet.equity)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Pasivo + Patrimonio</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.liabilitiesAndEquity?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div></div><div className={`p-4 text-center border-t text-sm font-semibold ${Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? '¡El balance está cuadrado!' : 'El balance no está cuadrado'}</div>
+            </div>
+        </motion.div>
+        
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <div className="bg-white rounded-xl shadow-lg border">
+                <div className="flex justify-between items-center p-6 border-b">
+                    <h2 className="text-xl font-bold text-slate-900">Estado de Resultados</h2>
+                    <div className="flex gap-2">
+                        <Button onClick={() => handlePrintClick('pnl')} className="bg-blue-600 hover:bg-blue-700 text-white"><Printer className="w-4 h-4 mr-2" /> Imprimir PDF</Button>
+                        <Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
+                    </div>
+                </div>
+                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${item.item.search(/\S/) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
+            </div>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+            <div className="bg-white rounded-xl shadow-lg border">
+                <div className="flex justify-between items-center p-6 border-b">
+                    <h2 className="text-xl font-bold text-slate-900">Flujo de Efectivo</h2>
+                    <div className="flex gap-2">
+                        <Button onClick={() => handlePrintClick('cashflow')} className="bg-blue-600 hover:bg-blue-700 text-white"><Printer className="w-4 h-4 mr-2" /> Imprimir PDF</Button>
+                    </div>
+                </div>
+                <div className="p-6">
+                    <table className="w-full text-sm">
+                        <tbody>
+                            <tr className="border-b"><td className="py-2 font-bold text-slate-800" colSpan="2">Fuentes:</td></tr>
+                            <tr className="border-b"><td className="py-2 pl-4 text-slate-600">Disponible Inicial (Caja-Bancos)</td><td className="py-2 text-right font-mono">${reportData.cashFlow?.initial.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Más: Ingresos Ordinarios / del Mes</td><td className="py-2 text-right font-mono font-bold text-green-700">${reportData.cashFlow?.totalSources.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Disponible</td><td className="py-2 text-right font-mono font-bold text-slate-900">${((reportData.cashFlow?.initial || 0) + (reportData.cashFlow?.totalSources || 0)).toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            
+                            <tr className="border-b mt-4"><td className="py-2 font-bold text-slate-800" colSpan="2"><br/>Usos de Fondo:</td></tr>
+                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Menos: Gastos y Costos Realizados</td><td className="py-2 text-right font-mono font-bold text-red-700">${reportData.cashFlow?.totalUses.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Usos de Fondo</td><td className="py-2 text-right font-mono font-bold text-slate-900">${reportData.cashFlow?.totalUses.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            
+                            <tr className="bg-blue-100/50"><td className="py-3 pl-4 font-bold text-blue-900 text-lg">Saldo Disponible Final</td><td className="py-3 text-right font-mono font-bold text-blue-900 text-lg">${reportData.cashFlow?.final.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </motion.div>
       </div>
+
+      <Dialog open={printConfigOpen} onOpenChange={setPrintConfigOpen}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+                <DialogTitle>Configuración de Firmas</DialogTitle>
+                <DialogDescription>Confirma los nombres que aparecerán en la firma del documento antes de imprimir.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                    <Label>Nombre Representante Legal</Label>
+                    <input type="text" className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={signatures.repLegalName} onChange={e => setSignatures({...signatures, repLegalName: e.target.value})} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Documento Representante</Label>
+                    <input type="text" className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={signatures.repLegalId} onChange={e => setSignatures({...signatures, repLegalId: e.target.value})} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Nombre Contador Público</Label>
+                    <input type="text" className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={signatures.contadorName} onChange={e => setSignatures({...signatures, contadorName: e.target.value})} />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Tarjeta Profesional Contador</Label>
+                    <input type="text" className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" value={signatures.contadorId} onChange={e => setSignatures({...signatures, contadorId: e.target.value})} />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setPrintConfigOpen(false)}>Cancelar</Button>
+                <Button onClick={executePrint} className="bg-blue-600 hover:bg-blue-700 text-white">Generar PDF Oficial</Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
