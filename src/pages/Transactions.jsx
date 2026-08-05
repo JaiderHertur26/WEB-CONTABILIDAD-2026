@@ -125,7 +125,15 @@ const Transactions = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState('all');
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+    const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0')); // 🚀 Selector de Mes Legal
     const [viewMode, setViewMode] = useState('balances');
+    
+    const meses = [
+        { val: '01', label: 'Enero' }, { val: '02', label: 'Febrero' }, { val: '03', label: 'Marzo' },
+        { val: '04', label: 'Abril' }, { val: '05', label: 'Mayo' }, { val: '06', label: 'Junio' },
+        { val: '07', label: 'Julio' }, { val: '08', label: 'Agosto' }, { val: '09', label: 'Septiembre' },
+        { val: '10', label: 'Octubre' }, { val: '11', label: 'Noviembre' }, { val: '12', label: 'Diciembre' }
+    ];
     
     // 🚀 FILTRO MÚLTIPLE DE CUENTAS
     const [accountFilters, setAccountFilters] = useState([]);
@@ -384,12 +392,20 @@ const Transactions = () => {
     useEffect(() => {
         let result = [...processedTransactions];
         
-        // Filtro de Año
+        // 🚀 Filtro Estricto de Año y Mes (Máximo 1 mes como manda la ley)
         result = result.filter(t => {
-            const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
-                ? t.date.split('-')[0] 
-                : new Date(t.date).getFullYear().toString();
-            return tYear === selectedYear;
+            if (!t.date) return false;
+            let tYear, tMonth;
+            if (typeof t.date === 'string' && t.date.includes('-')) {
+                const parts = t.date.split('-');
+                tYear = parts[0];
+                tMonth = parts[1];
+            } else {
+                const d = new Date(t.date);
+                tYear = d.getFullYear().toString();
+                tMonth = (d.getMonth() + 1).toString().padStart(2, '0');
+            }
+            return tYear === selectedYear && tMonth === selectedMonth;
         });
 
         // Filtro de Tipo de Transacción
@@ -424,7 +440,7 @@ const Transactions = () => {
         
         result.sort((a, b) => new Date(a.date) - new Date(b.date));
         setFilteredTransactions(result);
-    }, [processedTransactions, searchTerm, filterType, selectedYear, accountFilters]);
+    }, [processedTransactions, searchTerm, filterType, selectedYear, selectedMonth, accountFilters]);
 
     const getDisplayTransactions = () => {
         const groups = [];
@@ -1266,7 +1282,14 @@ const Transactions = () => {
                                 )}                                
                             </div>
 
-                            <select className="text-sm border rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
+                            <div className="flex gap-2">
+                                <select className="text-sm border-slate-300 rounded-md px-3 py-2 bg-white font-medium" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+                                    {meses.map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
+                                </select>
+                                <select className="text-sm border-slate-300 rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
+                                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            </div>
                             
                             <div className="flex bg-slate-100 rounded-lg p-1">
                                 <button onClick={() => setViewMode('balances')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'balances' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><TableIcon className="w-3 h-3 inline mr-1" /> Control</button>
@@ -1295,7 +1318,24 @@ const Transactions = () => {
                                 <Button variant="outline" size="sm" onClick={() => setPrintFilteredOpen(true)} className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Reporte
                                 </Button>
-                                {viewMode === 'accounting' ? <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel (Doble)</Button> : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
+                                {viewMode === 'accounting' ? (
+                                    <>
+                                        <Button variant="outline" size="sm" onClick={() => {
+                                            if (!window.confirm("ADVERTENCIA LEGAL: Al oficializar el Libro Diario, todos los registros de este mes quedarán INALTERABLES y no podrán ser modificados ni eliminados. ¿Deseas proceder?")) return;
+                                            
+                                            // 1. Bloquear Inalterabilidad
+                                            const idsToLock = new Set(displayTransactions.map(t => t.id));
+                                            saveTransactions(transactions.map(t => idsToLock.has(t.id) ? { ...t, isLocked: true } : t));
+                                            
+                                            // 2. Exportar
+                                            handleExportAccounting();
+                                            toast({ title: "Libro Oficializado", description: "Los registros fueron bloqueados permanentemente por auditoría." });
+                                        }} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
+                                            <Lock className="w-4 h-4 mr-2" /> Oficializar Mes
+                                        </Button>
+                                        <Button variant="outline" size="sm" onClick={handleExportAccounting} className="bg-white shadow-sm"><Download className="w-4 h-4 mr-2" /> Excel</Button>
+                                    </>
+                                ) : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
                             </div>
                         </div>
                     )}
@@ -1348,8 +1388,14 @@ const Transactions = () => {
                                                             </Button>
                                                         )}
 
-                                                        {(canEdit || canAdd) && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }}><Edit2 className="w-3 h-3" /></Button>}
-                                                        {canDelete && <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => handleDelete(t.id)}><Trash2 className="w-3 h-3" /></Button>}
+                                                        {!t.isLocked ? (
+                                                            <>
+                                                                {(canEdit || canAdd) && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }}><Edit2 className="w-3 h-3" /></Button>}
+                                                                {canDelete && <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => handleDelete(t.id)}><Trash2 className="w-3 h-3" /></Button>}
+                                                            </>
+                                                        ) : (
+                                                            <Lock className="w-4 h-4 text-slate-300 ml-2" title="Registro oficializado e inalterable" />
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>
