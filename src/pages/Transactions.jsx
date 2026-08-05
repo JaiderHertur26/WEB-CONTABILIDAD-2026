@@ -1158,7 +1158,7 @@ const Transactions = () => {
                               <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; border-bottom:4px double #000;">${totalDebit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                               <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; border-bottom:4px double #000;">${totalCredit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                           </tr>
-                          ${!isBalanced ? \`<tr><td colspan="6" style="text-align:center; color:red; font-weight:bold; padding:5px;">ADVERTENCIA: LAS SUMAS NO SON IGUALES. REVISE LOS ASIENTOS.</td></tr>\` : ''}
+                          ${!isBalanced ? `<tr><td colspan="6" style="text-align:center; color:red; font-weight:bold; padding:5px;">ADVERTENCIA: LAS SUMAS NO SON IGUALES. REVISE LOS ASIENTOS.</td></tr>` : ''}
                       </tfoot>
                   </table>
                   
