@@ -1160,7 +1160,7 @@ const Transactions = () => {
                       </tbody>
                   </table>
                   
-                  
+                  <div id="pageFooter"></div>
                   
                   <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
                       Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
