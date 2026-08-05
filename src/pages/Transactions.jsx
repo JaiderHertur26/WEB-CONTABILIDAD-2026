@@ -1785,44 +1785,8 @@ const Transactions = () => {
                                         );
                                     })}
                                      {displayTransactions.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay registros contables</td></tr>)}
-                                
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    ) : viewMode === 'mayor' ? (
-                        <div className="overflow-x-auto">
-                            <div className="bg-purple-50 p-4 border-b border-purple-100 flex justify-between items-center">
-                                <div>
-                                    <h3 className="font-bold text-purple-900 text-lg">Libro Mayor y de Balances</h3>
-                                    <p className="text-xs text-purple-700">Consolidación algorítmica de saldos reglamentarios</p>
-                                </div>
-                                <Button variant="outline" size="sm" onClick={handlePrintMayorPdf} className="bg-white border-purple-200 text-purple-700 shadow-sm hover:bg-purple-100"><Printer className="w-4 h-4 mr-2" /> Imprimir Mayor Oficial (PDF)</Button>
-                            </div>
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-800 text-slate-200 font-medium">
-                                    <tr>
-                                        <th className="px-4 py-3">Código PUC</th>
-                                        <th className="px-4 py-3 w-1/3">Cuenta</th>
-                                        <th className="px-4 py-3 text-right">Saldo Anterior</th>
-                                        <th className="px-4 py-3 text-right text-blue-300">Mov. Débito</th>
-                                        <th className="px-4 py-3 text-right text-orange-300">Mov. Crédito</th>
-                                        <th className="px-4 py-3 text-right">Nuevo Saldo</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-slate-100">
-                                    {libroMayorData.map(acc => (
-                                        <tr key={acc.code} className="hover:bg-slate-50 transition-colors">
-                                            <td className="px-4 py-3 font-mono font-bold text-slate-700">{acc.code}</td>
-                                            <td className="px-4 py-3 text-xs uppercase text-slate-600">{acc.name}</td>
-                                            <td className="px-4 py-3 text-right font-mono text-slate-500">{acc.saldoAnterior.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                                            <td className="px-4 py-3 text-right font-mono text-blue-600 font-medium">{acc.debito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                                            <td className="px-4 py-3 text-right font-mono text-orange-600 font-medium">{acc.credito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                                            <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">{acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                                        </tr>
-                                    ))}
-                                    {libroMayorData.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo</td></tr>)}
                                 </tbody>
+
                             </table>
                         </div>
                     ) : (
