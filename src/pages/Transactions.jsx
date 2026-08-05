@@ -927,6 +927,7 @@ const Transactions = () => {
         toast({ title: "¡Exportado!", description: "Libro Diario exportado a Excel." });
     };
 
+   
     // 🚀 FUNCIÓN DE IMPRESIÓN DEL LIBRO AUXILIAR / REPORTE FILTRADO
     const handlePrintFilteredPdf = () => {
         if (!filteredPrintRef.current) return;
@@ -945,22 +946,6 @@ const Transactions = () => {
         } else if (accountFilters.length > 1) {
             accountName = `MÚLTIPLES CUENTAS (${accountFilters.length} seleccionadas)`;
         }
-
-        // 🚀 CALCULAR TOTALES PARA EL REPORTE IMPRESO
-        let totalDebitos = 0;
-        let totalCreditos = 0;
-        
-        displayTransactions.forEach(t => {
-            if (t._isMerged) return;
-            const { debit, credit } = resolveAccountingRow(t);
-            const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
-            const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
-            
-            if (showDebit) totalDebitos += parseFloat(debit?.value || 0);
-            if (showCredit) totalCreditos += parseFloat(credit?.value || 0);
-        });
-
-        const saldoNeto = Math.abs(totalDebitos - totalCreditos);
 
         printWindow.document.write(`
           <!DOCTYPE html>
@@ -995,20 +980,6 @@ const Transactions = () => {
                       </div>
                   </div>
                   ${printContent}
-                  
-                  <!-- 🚀 FILA DE TOTALES DEL REPORTE -->
-                  <div class="mt-6 border-t-2 border-slate-800 pt-2">
-                      <table class="w-full text-xs text-left">
-                          <tbody>
-                              <tr class="font-bold text-slate-900 text-sm">
-                                  <td class="py-2 text-right w-3/4 pr-4 uppercase">Sumas Iguales / Totales del Periodo:</td>
-                                  <td class="py-2 text-right w-32 border-b-4 border-double border-slate-800">${totalDebitos.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                                  <td class="py-2 text-right w-32 border-b-4 border-double border-slate-800">${totalCreditos.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                              </tr>
-                          </tbody>
-                      </table>
-                  </div>
-
                   <div class="mt-12 pt-4 border-t text-xs text-slate-500 text-center">
                       Documento generado por Sistema Contable Automatizado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
                   </div>
@@ -1933,52 +1904,53 @@ const Transactions = () => {
                                         {displayTransactions.length === 0 && (
                                             <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la(s) cuenta(s) seleccionada(s).</td></tr>
                                         )}
+
+                                        {/* 🚀 TOTALES Y SALDO NETO COMO FILAS NORMALES (EVITA QUE SE REPITAN POR PÁGINA) */}
+                                        {displayTransactions.length > 0 && (
+                                            <>
+                                                <tr className="border-t-2 border-slate-800 bg-slate-50 font-bold text-slate-900 text-sm">
+                                                    <td colSpan="4" className="py-3 px-2 text-right uppercase tracking-wider">
+                                                        Sumas Iguales del Periodo:
+                                                    </td>
+                                                    <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
+                                                        {displayTransactions.reduce((acc, t) => {
+                                                            if (t._isMerged) return acc;
+                                                            const { debit } = resolveAccountingRow(t);
+                                                            if (accountFilters.length > 0 && !accountFilters.some(f => debit?.code.startsWith(f))) return acc;
+                                                            return acc + (parseFloat(debit?.value) || 0);
+                                                        }, 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
+                                                        {displayTransactions.reduce((acc, t) => {
+                                                            if (t._isMerged) return acc;
+                                                            const { credit } = resolveAccountingRow(t);
+                                                            if (accountFilters.length > 0 && !accountFilters.some(f => credit?.code.startsWith(f))) return acc;
+                                                            return acc + (parseFloat(credit?.value) || 0);
+                                                        }, 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}
+                                                    </td>
+                                                </tr>
+                                                <tr className="font-black text-blue-900 text-sm bg-blue-50/50">
+                                                    <td colSpan="4" className="py-3 px-2 text-right uppercase tracking-wider">
+                                                        Saldo Neto del Filtro:
+                                                    </td>
+                                                    <td colSpan="2" className="py-3 px-2 text-center text-lg">
+                                                        {(() => {
+                                                            let d = 0, c = 0;
+                                                            displayTransactions.forEach(t => {
+                                                                if (t._isMerged) return;
+                                                                const { debit, credit } = resolveAccountingRow(t);
+                                                                if (accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f))) d += (parseFloat(debit?.value) || 0);
+                                                                if (accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f))) c += (parseFloat(credit?.value) || 0);
+                                                            });
+                                                            const diff = Math.abs(d - c);
+                                                            const naturaleza = d > c ? '(Naturaleza Débito)' : (c > d ? '(Naturaleza Crédito)' : '');
+                                                            return `$${diff.toLocaleString('es-CO', { minimumFractionDigits: 2 })} ${naturaleza}`;
+                                                        })()}
+                                                    </td>
+                                                </tr>
+                                            </>
+                                        )}
                                     </tbody>
-                                    {/* 🚀 TOTALES Y SALDO NETO INTEGRADOS EN LA TABLA PRINCIPAL */}
-                                    {displayTransactions.length > 0 && (
-                                        <tfoot className="border-t-2 border-slate-800 bg-slate-50">
-                                            <tr className="font-bold text-slate-900 text-sm">
-                                                <td colSpan="4" className="py-3 px-2 text-right uppercase tracking-wider">
-                                                    Sumas Iguales del Periodo:
-                                                </td>
-                                                <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
-                                                    {displayTransactions.reduce((acc, t) => {
-                                                        if (t._isMerged) return acc;
-                                                        const { debit } = resolveAccountingRow(t);
-                                                        if (accountFilters.length > 0 && !accountFilters.some(f => debit?.code.startsWith(f))) return acc;
-                                                        return acc + (parseFloat(debit?.value) || 0);
-                                                    }, 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}
-                                                </td>
-                                                <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
-                                                    {displayTransactions.reduce((acc, t) => {
-                                                        if (t._isMerged) return acc;
-                                                        const { credit } = resolveAccountingRow(t);
-                                                        if (accountFilters.length > 0 && !accountFilters.some(f => credit?.code.startsWith(f))) return acc;
-                                                        return acc + (parseFloat(credit?.value) || 0);
-                                                    }, 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}
-                                                </td>
-                                            </tr>
-                                            <tr className="font-black text-blue-900 text-sm bg-blue-50/50">
-                                                <td colSpan="4" className="py-3 px-2 text-right uppercase tracking-wider">
-                                                    Saldo Neto del Filtro:
-                                                </td>
-                                                <td colSpan="2" className="py-3 px-2 text-center text-lg">
-                                                    {(() => {
-                                                        let d = 0, c = 0;
-                                                        displayTransactions.forEach(t => {
-                                                            if (t._isMerged) return;
-                                                            const { debit, credit } = resolveAccountingRow(t);
-                                                            if (accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f))) d += (parseFloat(debit?.value) || 0);
-                                                            if (accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f))) c += (parseFloat(credit?.value) || 0);
-                                                        });
-                                                        const diff = Math.abs(d - c);
-                                                        const naturaleza = d > c ? '(Naturaleza Débito)' : (c > d ? '(Naturaleza Crédito)' : '');
-                                                        return `$${diff.toLocaleString('es-CO', { minimumFractionDigits: 2 })} ${naturaleza}`;
-                                                    })()}
-                                                </td>
-                                            </tr>
-                                        </tfoot>
-                                    )}
                                 </table>
                             </div>
                         </div>
