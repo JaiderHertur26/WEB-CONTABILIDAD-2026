@@ -1524,7 +1524,7 @@ const Transactions = () => {
                   </table>
                   
                   <div class="footer">
-                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
+                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit', second:'2-digit', hour12: true })}
                   </div>
               </body>
           </html>
@@ -1834,7 +1834,7 @@ const Transactions = () => {
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-800 text-slate-200 font-medium">
                                     <tr>
-                                        <th className="px-4 py-3">Código PUC</th>
+                                        <th className="px-4 py-3">Código</th>
                                         <th className="px-4 py-3 w-1/3">Cuenta</th>
                                         <th className="px-4 py-3 text-right">Saldo Anterior</th>
                                         <th className="px-4 py-3 text-right text-blue-300">Mov. Débito</th>
@@ -1853,6 +1853,15 @@ const Transactions = () => {
                                             <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">{acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                                         </tr>
                                     ))}
+                                    {libroMayorData.length > 0 && (
+                                        <tr className="bg-slate-100 font-bold text-slate-900 border-t-2 border-slate-800">
+                                            <td colSpan="2" className="px-4 py-4 text-right uppercase tracking-wider">SUMAS DEL PERIODO:</td>
+                                            <td className="px-4 py-4 text-right font-mono">{libroMayorData.reduce((sum, a) => sum + a.saldoAnterior, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-4 text-right font-mono text-blue-700">{libroMayorData.reduce((sum, a) => sum + a.debito, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-4 text-right font-mono text-orange-700">{libroMayorData.reduce((sum, a) => sum + a.credito, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-4 text-right font-mono">{libroMayorData.reduce((sum, a) => sum + a.nuevoSaldo, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                        </tr>
+                                    )}
                                     {libroMayorData.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo</td></tr>)}
                                 </tbody>
                             </table>
