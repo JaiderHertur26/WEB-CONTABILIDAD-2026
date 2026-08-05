@@ -2490,5 +2490,4 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
         </Dialog>
     );
 };
-
 export default Transactions;
