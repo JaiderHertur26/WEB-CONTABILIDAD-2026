@@ -1864,15 +1864,14 @@ const Transactions = () => {
                                     </thead>
                                     <tbody className="divide-y divide-slate-200">
                                         {(() => {
-                                            const runningBalances = {}; // 🚀 Mapa inteligente para saldos individuales
-                                            const rowsToRender = [];
-
+                                            // 1. Extraer y aplanar todas las filas contables
+                                            const flatRows = [];
+                                            
                                             displayTransactions.forEach(t => {
                                                 if (t._isMerged) return;
                                                 let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
                                                 const { debit, credit } = resolveAccountingRow(t);
                                                 
-                                                // Extraer Tercero
                                                 let tercero = t.contact || '-';
                                                 if (tercero === '-' && t.contactId && contacts) {
                                                     const foundContact = contacts.find(c => String(c.id) === String(t.contactId));
@@ -1882,57 +1881,69 @@ const Transactions = () => {
                                                 const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
                                                 const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
 
-                                                if (showDebit) {
-                                                    const dVal = parseFloat(debit?.value) || 0;
-                                                    const code = debit?.code || '';
-                                                    // Naturaleza PUC: 1(Activo), 5(Gasto), 6(Costo), 8(Orden) suman en Débito
-                                                    const isDebitNature = ['1', '5', '6', '8'].includes(code.charAt(0));
-                                                    
-                                                    // Actualizar saldo de esta cuenta específica
-                                                    runningBalances[code] = (runningBalances[code] || 0) + (isDebitNature ? dVal : -dVal);
-                                                    
-                                                    rowsToRender.push(
-                                                        <tr key={`${t.id}-d`}>
-                                                            <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(t.date)}</td>
-                                                            <td className="py-2 px-1 font-mono font-bold text-slate-500 whitespace-nowrap">{vId}</td>
-                                                            <td className="py-2 px-1">
-                                                                <span className="font-bold text-slate-800 block">{debit?.code || 'N/A'}</span>
-                                                                <span className="uppercase text-slate-500 text-[10px] line-clamp-1" title={debit?.name}>{debit?.name || '-'}</span>
-                                                            </td>
-                                                            <td className="py-2 px-1 text-slate-700 font-medium truncate max-w-[120px]" title={tercero}>{tercero}</td>
-                                                            <td className="py-2 px-1 text-slate-700 italic truncate max-w-[150px]" title={t.description}>{t.description}</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{dVal.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                                                            <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalances[code].toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                                                        </tr>
-                                                    );
+                                                if (showDebit && debit?.code) {
+                                                    flatRows.push({ ...t, vId, tercero, pCode: debit.code, pName: debit.name, isDebit: true, val: parseFloat(debit.value) || 0 });
+                                                }
+                                                if (showCredit && credit?.code) {
+                                                    flatRows.push({ ...t, vId, tercero, pCode: credit.code, pName: credit.name, isDebit: false, val: parseFloat(credit.value) || 0 });
+                                                }
+                                            });
+
+                                            // 2. 🚀 Ordenar PRIMERO por Cuenta PUC, y SEGUNDO por Fecha
+                                            flatRows.sort((a, b) => {
+                                                const codeCompare = a.pCode.localeCompare(b.pCode);
+                                                if (codeCompare !== 0) return codeCompare;
+                                                return new Date(a.date) - new Date(b.date);
+                                            });
+
+                                            // 3. Renderizar calculando el saldo continuo por cuenta
+                                            const runningBalances = {};
+                                            const rowsToRender = [];
+                                            let currentAccount = null;
+
+                                            flatRows.forEach((row, index) => {
+                                                // Separador visual si cambiamos de cuenta PUC
+                                                if (currentAccount !== row.pCode) {
+                                                    if (currentAccount !== null) {
+                                                        rowsToRender.push(<tr key={`sep-${index}`}><td colSpan="8" className="bg-slate-200 h-1"></td></tr>);
+                                                    }
+                                                    currentAccount = row.pCode;
                                                 }
 
-                                                if (showCredit) {
-                                                    const cVal = parseFloat(credit?.value) || 0;
-                                                    const code = credit?.code || '';
-                                                    // Naturaleza PUC: 2(Pasivo), 3(Patrimonio), 4(Ingreso) suman en Crédito
-                                                    const isDebitNature = ['1', '5', '6', '8'].includes(code.charAt(0));
-                                                    
-                                                    // Actualizar saldo de esta cuenta específica
-                                                    runningBalances[code] = (runningBalances[code] || 0) + (isDebitNature ? -cVal : cVal);
-
-                                                    rowsToRender.push(
-                                                        <tr key={`${t.id}-c`}>
-                                                            <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(t.date)}</td>
-                                                            <td className="py-2 px-1 font-mono font-bold text-slate-500 whitespace-nowrap">{vId}</td>
-                                                            <td className="py-2 px-1">
-                                                                <span className="font-bold text-slate-800 block">{credit?.code || 'N/A'}</span>
-                                                                <span className="uppercase text-slate-500 text-[10px] line-clamp-1" title={credit?.name}>{credit?.name || '-'}</span>
-                                                            </td>
-                                                            <td className="py-2 px-1 text-slate-700 font-medium truncate max-w-[120px]" title={tercero}>{tercero}</td>
-                                                            <td className="py-2 px-1 text-slate-700 italic truncate max-w-[150px]" title={t.description}>{t.description}</td>
-                                                            <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{cVal.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalances[code].toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                                                        </tr>
-                                                    );
+                                                const isDebitNature = ['1', '5', '6', '8'].includes(row.pCode.charAt(0));
+                                                
+                                                if (row.isDebit) {
+                                                    runningBalances[row.pCode] = (runningBalances[row.pCode] || 0) + (isDebitNature ? row.val : -row.val);
+                                                } else {
+                                                    runningBalances[row.pCode] = (runningBalances[row.pCode] || 0) + (isDebitNature ? -row.val : row.val);
                                                 }
+
+                                                rowsToRender.push(
+                                                    <tr key={`${row.id}-${row.isDebit ? 'd' : 'c'}-${index}`} className="hover:bg-slate-50">
+                                                        <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(row.date)}</td>
+                                                        <td className="py-2 px-1 font-mono font-bold text-slate-500 whitespace-nowrap">{row.vId}</td>
+                                                        <td className="py-2 px-1">
+                                                            <span className="font-bold text-slate-800 block">{row.pCode}</span>
+                                                            <span className="uppercase text-slate-500 text-[10px] line-clamp-1" title={row.pName}>{row.pName}</span>
+                                                        </td>
+                                                        <td className="py-2 px-1 text-slate-700 font-medium truncate max-w-[120px]" title={row.tercero}>{row.tercero}</td>
+                                                        <td className="py-2 px-1 text-slate-700 italic truncate max-w-[150px]" title={row.description}>{row.description}</td>
+                                                        
+                                                        {row.isDebit ? (
+                                                            <>
+                                                                <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{row.val.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                                <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
+                                                                <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{row.val.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                            </>
+                                                        )}
+                                                        
+                                                        <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalances[row.pCode].toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                    </tr>
+                                                );
                                             });
 
                                             return rowsToRender;
