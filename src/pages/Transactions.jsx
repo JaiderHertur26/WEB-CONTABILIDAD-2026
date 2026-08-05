@@ -434,7 +434,7 @@ const Transactions = () => {
         
         result.sort((a, b) => new Date(a.date) - new Date(b.date));
         setFilteredTransactions(result);
-    }, [processedTransactions, searchTerm, filterType, selectedYear, selectedMonth, accountFilters]);
+    }, [processedTransactions, searchTerm, filterType, startDate, endDate, accountFilters]);
 
     const getDisplayTransactions = () => {
         const groups = [];
@@ -1114,7 +1114,7 @@ const Transactions = () => {
           <!DOCTYPE html>
           <html>
               <head>
-                  <title>Libro_Diario_${monthName}_${selectedYear}</title>
+                  <title>Libro_Diario_${selectedYear}</title>
                   <style>
                       @media print {
                           /* 🚀 Aumentamos el margen inferior (25mm) para que no corte la paginación */
