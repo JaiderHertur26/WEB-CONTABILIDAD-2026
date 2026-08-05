@@ -1354,7 +1354,7 @@ const Transactions = () => {
     };
 
     // =========================================================================
-    // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES
+    // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES (CORREGIDO)
     // =========================================================================
     const libroMayorData = useMemo(() => {
         const mayor = {};
@@ -1383,14 +1383,39 @@ const Transactions = () => {
             }
         });
 
-        // 3. Procesar todas las transacciones
+        // 3. Procesar todas las transacciones evitando duplicar o invertir gemelos contables
+        const processedIdsForMayor = new Set();
+        
         processedTransactions.forEach(t => {
-            if (t.isInternalTransfer && !t.debitAccount) return; 
+            if (processedIdsForMayor.has(t.id)) return;
             
+            let debitToProcess = null;
+            let creditToProcess = null;
             const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
-            const { debit, credit } = resolveAccountingRow(t);
+            const amount = parseFloat(t.amount) || 0;
 
-            const processEntry = (accCode, accName, amount, isDebitEntry) => {
+            if (t.isInternalTransfer && !t.debitAccount) {
+                return; // Transferencia simple entre cuentas de efectivo ya manejada por flujo
+            }
+
+            if (t.isInternalTransfer && t.debitAccount && t.creditAccount) {
+                // Es un Comprobante de Ajuste / Nota Contable con partida doble gemela (-exp y -inc)
+                const baseId = t.id.replace(/-exp$|-inc$/, '');
+                const siblingId = baseId + (t.id.endsWith('-exp') ? '-inc' : '-exp');
+                processedIdsForMayor.add(t.id);
+                processedIdsForMayor.add(siblingId); // Bloqueamos el gemelo para que no se procese dos veces
+
+                // Tomamos siempre la estructura limpia del registro principal (-exp)
+                const expRecord = t.id.endsWith('-exp') ? t : processedTransactions.find(x => x.id === siblingId) || t;
+                debitToProcess = expRecord.debitAccount;
+                creditToProcess = expRecord.creditAccount;
+            } else {
+                const resolved = resolveAccountingRow(t);
+                debitToProcess = resolved.debit;
+                creditToProcess = resolved.credit;
+            }
+
+            const processEntry = (accCode, accName, entryAmount, isDebitEntry) => {
                 if (!accCode) return;
                 const codeStr = String(accCode);
                 if (!mayor[codeStr]) mayor[codeStr] = { code: codeStr, name: accName || 'N/A', saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
@@ -1398,18 +1423,16 @@ const Transactions = () => {
                 const isDebitNature = ['1', '5', '6', '8'].includes(codeStr.charAt(0));
 
                 if (tDate < startDate) {
-                    // Historial antes de la fecha inicial va al Saldo Anterior
-                    if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
-                    else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
+                    if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? entryAmount : -entryAmount);
+                    else mayor[codeStr].saldoAnterior += (isDebitNature ? -entryAmount : entryAmount);
                 } else if (tDate >= startDate && tDate <= endDate) {
-                    // Movimientos del rango seleccionado
-                    if (isDebitEntry) mayor[codeStr].debito += amount;
-                    else mayor[codeStr].credito += amount;
+                    if (isDebitEntry) mayor[codeStr].debito += entryAmount;
+                    else mayor[codeStr].credito += entryAmount;
                 }
             };
 
-            if (debit?.code) processEntry(debit.code, debit.name, parseFloat(debit.value) || 0, true);
-            if (credit?.code) processEntry(credit.code, credit.name, parseFloat(credit.value) || 0, false);
+            if (debitToProcess?.code) processEntry(debitToProcess.code, debitToProcess.name, parseFloat(debitToProcess.value || amount) || 0, true);
+            if (creditToProcess?.code) processEntry(creditToProcess.code, creditToProcess.name, parseFloat(creditToProcess.value || amount) || 0, false);
         });
 
         // 4. Aplicar Ecuación Contable para Nuevo Saldo
@@ -1425,7 +1448,7 @@ const Transactions = () => {
                 return acc;
             })
             .sort((a, b) => a.code.localeCompare(b.code));
-    }, [processedTransactions, accounts, initialBalances, bankAccounts, startDate, endDate]);
+    }, [processedTransactions, accounts, initialBalances, bankAccounts, startDate, endDate, isRelevant]);
 
     const handlePrintMayorPdf = () => {
         if (libroMayorData.length === 0) { 
