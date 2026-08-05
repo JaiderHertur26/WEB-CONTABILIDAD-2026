@@ -524,8 +524,144 @@ const Reports = () => {
       toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
   };
 
-  const handleExportBalanceSheet = () => { 
-      const { assets, liabilities, equity, totals } = reportData.balanceSheet; 
+  const executePrint = () => {
+      setPrintConfigOpen(false);
+      const printWindow = window.open('', '_blank', 'width=1000,height=800');
+      if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); return; }
+
+      const companyName = activeCompany?.name || 'PARROQUIA LA SANTA CRUZ';
+      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
+      const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
+      const fechaCorte = `A 31 DE DICIEMBRE DE ${selectedYear}`;
+
+      const styles = `
+          <style>
+              @media print {
+                  @page { margin: 20mm; size: letter portrait; }
+                  body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; }
+              }
+              body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; padding: 20px; }
+              h1, h2, h3 { text-align: center; margin: 2px 0; font-size: 14px; font-weight: bold; }
+              .header { text-align: center; margin-bottom: 30px; font-weight: bold; font-size: 13px; line-height: 1.3; }
+              .table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+              .td { padding: 4px 0; vertical-align: bottom; }
+              .td-right { text-align: right; }
+              .border-bottom { border-bottom: 1px solid black; }
+              .border-bottom-double { border-bottom: 3px double black; }
+              .bold { font-weight: bold; }
+              .indent-1 { padding-left: 20px; }
+              .indent-2 { padding-left: 50px; }
+              .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
+              .sig-box { text-align: center; width: 40%; font-size: 12px; }
+              .sig-line { border-top: 1px solid black; margin-bottom: 5px; }
+          </style>
+      `;
+
+      let content = '';
+
+      if (printType === 'balance') {
+          const { assets, liabilities, equity, totals } = reportData.balanceSheet;
+          
+          const renderItems = (items) => items.map(item => {
+              if (item.isBold && !item.amount) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
+              let amountStr = item.amount != null ? `$ ${item.amount.toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
+              let rowClass = item.isTotal ? 'bold border-bottom-double' : (item.isSubtotal ? 'bold border-bottom' : '');
+              return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item.trim().toUpperCase()}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
+          }).join('');
+
+          content = `
+              <div class="header">
+                  ${arquidiocesis}<br/>
+                  ${companyName}<br/>
+                  ${companyNit}<br/>
+                  BALANCE GENERAL ${fechaCorte}
+              </div>
+              <table class="table">
+                  <tr><td class="td bold" colspan="2">ACTIVO</td></tr>
+                  ${renderItems(assets)}
+                  <tr><td class="td bold"><br/>TOTAL ACTIVO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.assets.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold" colspan="2"><br/>PASIVO</td></tr>
+                  ${renderItems(liabilities)}
+                  <tr><td class="td bold"><br/>TOTAL PASIVOS</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilities.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold" colspan="2"><br/>PATRIMONIO</td></tr>
+                  ${renderItems(equity)}
+                  <tr><td class="td bold"><br/>TOTAL PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.equity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold"><br/>TOTAL PASIVO + PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilitiesAndEquity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+              </table>
+          `;
+      } else if (printType === 'pnl') {
+          content = `
+              <div class="header">
+                  ${arquidiocesis}<br/>
+                  ${companyName}<br/>
+                  ${companyNit}<br/>
+                  ESTADO DE RESULTADO ${fechaCorte}
+              </div>
+              <table class="table">
+                  ${reportData.incomeStatement.map(item => {
+                      if (item.isBold && !item.amount && !item.isTotal) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
+                      let amountStr = item.amount != null ? `$ ${Math.abs(item.amount).toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
+                      let rowClass = item.isTotal || item.isSubtotal ? 'bold border-bottom-double' : '';
+                      return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item.trim().toUpperCase()}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
+                  }).join('')}
+              </table>
+          `;
+      } else if (printType === 'cashflow') {
+          const { initial, sources, uses, totalSources, totalUses, final } = reportData.cashFlow;
+          content = `
+              <div class="header">
+                  ${arquidiocesis}<br/>
+                  ${companyName}<br/>
+                  ${companyNit}<br/>
+                  FLUJO DE EFECTIVO ${fechaCorte}
+              </div>
+              <table class="table">
+                  <tr><td class="td bold" colspan="2">Fuentes:</td></tr>
+                  <tr><td class="td indent-1">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${initial.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  <tr><td class="td bold indent-1">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${totalSources.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  ${sources.map(s => `<tr><td class="td indent-2">${s.item}</td><td class="td td-right border-bottom">${s.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
+                  <tr><td class="td bold indent-1"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${(initial + totalSources).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold" colspan="2"><br/>Usos de Fondo:</td></tr>
+                  <tr><td class="td bold indent-1">Menos: Gastos Realizados</td><td class="td td-right bold border-bottom">${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  ${uses.map(u => `<tr><td class="td indent-2">${u.item}</td><td class="td td-right border-bottom">${u.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
+                  <tr><td class="td bold indent-1"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  
+                  <tr><td class="td bold indent-1"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${final.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+              </table>
+          `;
+      }
+
+      printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head><title>Reporte_${printType}</title>${styles}</head>
+          <body>
+              ${content}
+              <div class="signatures">
+                  <div class="sig-box">
+                      <div class="sig-line"></div>
+                      <span class="bold">${signatures.repLegalName}</span><br/>
+                      REPRESENTANTE LEGAL<br/>
+                      ${signatures.repLegalId}
+                  </div>
+                  <div class="sig-box">
+                      <div class="sig-line"></div>
+                      <span class="bold">${signatures.contadorName}</span><br/>
+                      CONTADOR PÚBLICO<br/>
+                      ${signatures.contadorId}
+                  </div>
+              </div>
+          </body>
+          </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+  }; 
       const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
       const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
