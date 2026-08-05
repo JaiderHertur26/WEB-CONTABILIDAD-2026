@@ -1854,62 +1854,88 @@ const Transactions = () => {
                                         <tr>
                                             <th className="py-2 px-1">Fecha</th>
                                             <th className="py-2 px-1">Comprobante</th>
-                                            <th className="py-2 px-1 w-1/4">Cuenta (PUC)</th>
-                                            <th className="py-2 px-1 w-1/3">Detalle</th>
+                                            <th className="py-2 px-1 w-48">Cuenta (PUC)</th>
+                                            <th className="py-2 px-1 w-40">Tercero / Contacto</th>
+                                            <th className="py-2 px-1 w-48">Detalle</th>
                                             <th className="py-2 px-1 text-right">Débito</th>
                                             <th className="py-2 px-1 text-right">Crédito</th>
+                                            <th className="py-2 px-1 text-right">Saldo</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-200">
-                                        {displayTransactions.map(t => {
-                                            if (t._isMerged) return null;
-                                            let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
-                                            const { debit, credit } = resolveAccountingRow(t);
-                                            
-                                            // Lógica Multi-Filtro: Mostrar fila si aplica
-                                            const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
-                                            const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
+                                        {(() => {
+                                            let runningBalance = 0;
+                                            const rowsToRender = [];
 
-                                            return (
-                                                <React.Fragment key={t.id}>
-                                                    {showDebit && (
-                                                        <tr>
+                                            displayTransactions.forEach(t => {
+                                                if (t._isMerged) return;
+                                                let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+                                                const { debit, credit } = resolveAccountingRow(t);
+                                                
+                                                // 🚀 Extraer Tercero Inteligente
+                                                let tercero = t.contact || '-';
+                                                if (tercero === '-' && t.contactId && contacts) {
+                                                    const foundContact = contacts.find(c => String(c.id) === String(t.contactId));
+                                                    if (foundContact) tercero = foundContact.name;
+                                                }
+
+                                                // Lógica Multi-Filtro: Mostrar fila si aplica
+                                                const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
+                                                const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
+
+                                                if (showDebit) {
+                                                    const dVal = parseFloat(debit?.value) || 0;
+                                                    runningBalance += dVal; // Débito suma al saldo
+                                                    rowsToRender.push(
+                                                        <tr key={`${t.id}-d`}>
                                                             <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(t.date)}</td>
                                                             <td className="py-2 px-1 font-mono font-bold text-slate-500 whitespace-nowrap">{vId}</td>
                                                             <td className="py-2 px-1">
                                                                 <span className="font-bold text-slate-800 block">{debit?.code || 'N/A'}</span>
-                                                                <span className="uppercase text-slate-500 text-[10px]">{debit?.name || '-'}</span>
+                                                                <span className="uppercase text-slate-500 text-[10px] line-clamp-1" title={debit?.name}>{debit?.name || '-'}</span>
                                                             </td>
-                                                            <td className="py-2 px-1 text-slate-700 italic">{t.description}</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{(debit?.value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                            <td className="py-2 px-1 text-slate-700 font-medium truncate max-w-[120px]" title={tercero}>{tercero}</td>
+                                                            <td className="py-2 px-1 text-slate-700 italic truncate max-w-[150px]" title={t.description}>{t.description}</td>
+                                                            <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{dVal.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
                                                             <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
+                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalance.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
                                                         </tr>
-                                                    )}
-                                                    {showCredit && (
-                                                        <tr>
+                                                    );
+                                                }
+
+                                                if (showCredit) {
+                                                    const cVal = parseFloat(credit?.value) || 0;
+                                                    runningBalance -= cVal; // Crédito resta al saldo
+                                                    rowsToRender.push(
+                                                        <tr key={`${t.id}-c`}>
                                                             <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(t.date)}</td>
                                                             <td className="py-2 px-1 font-mono font-bold text-slate-500 whitespace-nowrap">{vId}</td>
                                                             <td className="py-2 px-1">
                                                                 <span className="font-bold text-slate-800 block">{credit?.code || 'N/A'}</span>
-                                                                <span className="uppercase text-slate-500 text-[10px]">{credit?.name || '-'}</span>
+                                                                <span className="uppercase text-slate-500 text-[10px] line-clamp-1" title={credit?.name}>{credit?.name || '-'}</span>
                                                             </td>
-                                                            <td className="py-2 px-1 text-slate-700 italic">{t.description}</td>
+                                                            <td className="py-2 px-1 text-slate-700 font-medium truncate max-w-[120px]" title={tercero}>{tercero}</td>
+                                                            <td className="py-2 px-1 text-slate-700 italic truncate max-w-[150px]" title={t.description}>{t.description}</td>
                                                             <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{(credit?.value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                            <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{cVal.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalance.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
                                                         </tr>
-                                                    )}
-                                                </React.Fragment>
-                                            );
-                                        })}
+                                                    );
+                                                }
+                                            });
+
+                                            return rowsToRender;
+                                        })()}
+
                                         {displayTransactions.length === 0 && (
-                                            <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la cuenta seleccionada.</td></tr>
+                                            <tr><td colSpan="8" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la cuenta seleccionada.</td></tr>
                                         )}
                                         
-                                        {/* 🚀 TOTALES Y SALDO NETO COMO FILAS NORMALES (AL FINAL DE LA TABLA) */}
+                                        {/* 🚀 TOTALES Y SALDO NETO (AJUSTADO A 8 COLUMNAS) */}
                                         {displayTransactions.length > 0 && (
                                             <>
                                                 <tr className="border-t-2 border-slate-800 bg-slate-50 font-bold text-slate-900 text-sm">
-                                                    <td colSpan="4" className="py-3 px-2 text-right uppercase tracking-wider">
+                                                    <td colSpan="5" className="py-3 px-2 text-right uppercase tracking-wider">
                                                         Total Movimientos (Cuentas Filtradas):
                                                     </td>
                                                     <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
@@ -1928,12 +1954,13 @@ const Transactions = () => {
                                                             return acc + (parseFloat(credit?.value) || 0);
                                                         }, 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}
                                                     </td>
+                                                    <td className="py-3 px-2 bg-slate-200 border-b-4 border-double border-slate-800"></td>
                                                 </tr>
                                                 <tr className="font-black text-blue-900 text-sm bg-blue-50/50">
-                                                    <td colSpan="4" className="py-3 px-2 text-right uppercase tracking-wider">
+                                                    <td colSpan="5" className="py-3 px-2 text-right uppercase tracking-wider">
                                                         Saldo Neto del Filtro:
                                                     </td>
-                                                    <td colSpan="2" className="py-3 px-2 text-center text-lg">
+                                                    <td colSpan="3" className="py-3 px-2 text-center text-lg">
                                                         {(() => {
                                                             let d = 0, c = 0;
                                                             displayTransactions.forEach(t => {
