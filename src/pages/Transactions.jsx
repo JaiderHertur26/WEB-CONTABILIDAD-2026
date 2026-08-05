@@ -124,16 +124,19 @@ const Transactions = () => {
     const [filteredTransactions, setFilteredTransactions] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState('all');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-    const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0')); // 🚀 Selector de Mes Legal
+    // 🚀 Rangos de Fecha Personalizables (Desde - Hasta)
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    });
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    });
+    // Mantenemos selectedYear oculto para no romper otras funciones que lo usan como referencia
+    const selectedYear = startDate ? startDate.split('-')[0] : new Date().getFullYear().toString();
     const [viewMode, setViewMode] = useState('balances');
-    
-    const meses = [
-        { val: '01', label: 'Enero' }, { val: '02', label: 'Febrero' }, { val: '03', label: 'Marzo' },
-        { val: '04', label: 'Abril' }, { val: '05', label: 'Mayo' }, { val: '06', label: 'Junio' },
-        { val: '07', label: 'Julio' }, { val: '08', label: 'Agosto' }, { val: '09', label: 'Septiembre' },
-        { val: '10', label: 'Octubre' }, { val: '11', label: 'Noviembre' }, { val: '12', label: 'Diciembre' }
-    ];
     
     // 🚀 FILTRO MÚLTIPLE DE CUENTAS
     const [accountFilters, setAccountFilters] = useState([]);
@@ -392,20 +395,11 @@ const Transactions = () => {
     useEffect(() => {
         let result = [...processedTransactions];
         
-        // 🚀 Filtro Estricto de Año y Mes (Máximo 1 mes como manda la ley)
+        // 🚀 Filtro Estricto por Rango de Fechas
         result = result.filter(t => {
             if (!t.date) return false;
-            let tYear, tMonth;
-            if (typeof t.date === 'string' && t.date.includes('-')) {
-                const parts = t.date.split('-');
-                tYear = parts[0];
-                tMonth = parts[1];
-            } else {
-                const d = new Date(t.date);
-                tYear = d.getFullYear().toString();
-                tMonth = (d.getMonth() + 1).toString().padStart(2, '0');
-            }
-            return tYear === selectedYear && tMonth === selectedMonth;
+            const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
+            return tDate >= startDate && tDate <= endDate;
         });
 
         // Filtro de Tipo de Transacción
@@ -1026,9 +1020,15 @@ const Transactions = () => {
         const printWindow = window.open('', '_blank', 'width=1000,height=800');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
-        const monthName = meses.find(m => m.val === selectedMonth)?.label || '';
-        const daysInMonth = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
-        const periodText = `DEL 01 DE ${monthName.toUpperCase()} AL ${daysInMonth} DE ${monthName.toUpperCase()} DE ${selectedYear}`;
+        // 🚀 Validación Legal: Máximo 31 días
+        const diffDays = differenceInDays(new Date(endDate), new Date(startDate));
+        if (diffDays > 31 || diffDays < 0) {
+            toast({ variant: 'destructive', title: "Rango Inválido", description: "El Libro Diario no puede generarse por un periodo mayor a 31 días continuos según normativa." });
+            setIsPrinting(false);
+            return;
+        }
+
+        const periodText = `DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}`;
 
         // Generar filas del Libro Diario (Partida Doble Estricta)
         let totalDebit = 0;
@@ -1442,13 +1442,23 @@ const Transactions = () => {
                                 )}                                
                             </div>
 
-                            <div className="flex gap-2">
-                                <select className="text-sm border-slate-300 rounded-md px-3 py-2 bg-white font-medium" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-                                    {meses.map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
-                                </select>
-                                <select className="text-sm border-slate-300 rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
-                                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                                </select>
+                            {/* 🚀 Calendarios de Rango */}
+                            <div className="flex items-center gap-2 bg-white p-1 rounded-md border border-slate-200">
+                                <input 
+                                    type="date" 
+                                    className="text-xs px-2 py-1.5 outline-none text-slate-700 font-mono bg-transparent" 
+                                    value={startDate} 
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    title="Fecha Inicial"
+                                />
+                                <span className="text-slate-300">-</span>
+                                <input 
+                                    type="date" 
+                                    className="text-xs px-2 py-1.5 outline-none text-slate-700 font-mono bg-transparent" 
+                                    value={endDate} 
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    title="Fecha Final"
+                                />
                             </div>
                             
                             <div className="flex bg-slate-100 rounded-lg p-1">
