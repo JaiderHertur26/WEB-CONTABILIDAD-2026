@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Download, Calendar } from 'lucide-react';
+import { Download, Calendar, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { exportToExcel } from '@/lib/excel';
@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { isValid, parseISO } from 'date-fns';
-import { Download, Calendar, Printer } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
 const Reports = () => {
@@ -30,7 +29,12 @@ const Reports = () => {
   
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
 
-  const [reportData, setReportData] = useState({ incomeStatement: [], balanceSheet: { assets: [], liabilities: [], equity: [], totals: {} }, cashFlow: { initial: 0, sources: [], uses: [], final: 0 }, summary: { totalIncome: 0, totalExpenses: 0, netProfit: 0, profitMargin: 0 } });
+  const [reportData, setReportData] = useState({ 
+      incomeStatement: [], 
+      balanceSheet: { assets: [], liabilities: [], equity: [], totals: {} }, 
+      cashFlow: { initial: 0, sources: [], uses: [], final: 0 }, 
+      summary: { totalIncome: 0, totalExpenses: 0, netProfit: 0, profitMargin: 0 } 
+  });
   const { toast } = useToast();
 
   // Estados para el cuadro de diálogo de firmas e impresión
@@ -71,7 +75,9 @@ const Reports = () => {
       return Array.from(years).sort((a, b) => b - a).map(String);
   }, [transactions, filterByCompany]);
 
-  useEffect(() => { generateReportData(); }, [transactions, accounts, bankAccounts, initialBalance, cashAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, inventory, selectedYear, isConsolidated, filterByCompany]);
+  useEffect(() => { 
+      generateReportData(); 
+  }, [transactions, accounts, bankAccounts, initialBalance, cashAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, inventory, selectedYear, isConsolidated, filterByCompany]);
 
   const generateReportData = () => {
     const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
@@ -398,7 +404,6 @@ const Reports = () => {
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
-    // 1. ACTIVOS FIJOS (Lee tu tabla clonada intacta, trae los $8.862.130 sin borrarlos)
     const totalDepreciacionInventario = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
         if (asset.year) return asset.year.toString() === currentYear.toString();
@@ -406,25 +411,19 @@ const Reports = () => {
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    // 2. PROPIEDADES (Lógica de viaje en el tiempo)
-    // Toma el acumulado global actual de la propiedad
     const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
         if (estate.status === 'Dado de Baja') return false;
         return getSafeYear(estate.date) <= parseInt(currentYear);
     }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
 
-    // Identifica las transacciones de depreciación que ocurrieron DESPUÉS del año consultado
     const depreciacionesFuturasPropiedades = validTransactions.filter(t => {
         return t.category === 'Depreciación Acumulada Activos Fijos' && 
                String(t.description).includes('Edificaciones') && 
                getSafeYear(t.date) > parseInt(currentYear);
     }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
 
-    // Al valor global le restamos el futuro para obtener el valor exacto en el año seleccionado
     const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
 
-    // 3. SUMA PERFECTA
-    // Suma los Activos Fijos ($8.8M) + Propiedades ($1M) sin que ninguno sobreescriba al otro
     depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
@@ -459,9 +458,9 @@ const Reports = () => {
             { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
         ];
         
-        const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
+    const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
         
-        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
+    const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
     const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
     const totalEquity = totalAssets - totalLiabilities; 
     
@@ -524,6 +523,11 @@ const Reports = () => {
 
       exportToExcel(dataToExport, `Estado_de_Resultados_${selectedYear}`); 
       toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
+  };
+
+  const handlePrintClick = (type) => {
+      setPrintType(type);
+      setPrintConfigOpen(true);
   };
 
   const executePrint = () => {
@@ -659,14 +663,14 @@ const Reports = () => {
               </div>
           </body>
           </html>
-      `);     
+      `);
       printWindow.document.close();
       printWindow.focus();
       setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-  }; // Cierre de executePrint
+  };
 
-  // 👇 AGREGA ESTA LÍNEA 👇
-  const handleExportBalanceSheet = () => {
+  const handleExportBalanceSheet = () => { 
+      const { assets, liabilities, equity, totals } = reportData.balanceSheet; 
       const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
       const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
@@ -710,7 +714,7 @@ const Reports = () => {
 
       exportToExcel(dataToExport, `Balance_General_${selectedYear}`); 
       toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
-  }; // <-- Esta llave ahora cierra correctamente handleExportBalanceSheet y no el componente
+  };
 
   const renderSheetTable = (items) => (items.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''}`}><td className={`py-2 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${item.isSubtotal ? 'font-semibold' : ''}`} style={{ paddingLeft: item.item.search(/\S/) * 4 }}>{item.item.trim()}</td><td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold' : ''}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>)));
 
