@@ -124,16 +124,17 @@ const Transactions = () => {
     const [filteredTransactions, setFilteredTransactions] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState('all');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
-    const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0')); // 🚀 Selector de Mes Legal
+    // 🚀 Rangos de Fecha Personalizables
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    });
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
+    });
     const [viewMode, setViewMode] = useState('balances');
-    
-    const meses = [
-        { val: '01', label: 'Enero' }, { val: '02', label: 'Febrero' }, { val: '03', label: 'Marzo' },
-        { val: '04', label: 'Abril' }, { val: '05', label: 'Mayo' }, { val: '06', label: 'Junio' },
-        { val: '07', label: 'Julio' }, { val: '08', label: 'Agosto' }, { val: '09', label: 'Septiembre' },
-        { val: '10', label: 'Octubre' }, { val: '11', label: 'Noviembre' }, { val: '12', label: 'Diciembre' }
-    ];
     
     // 🚀 FILTRO MÚLTIPLE DE CUENTAS
     const [accountFilters, setAccountFilters] = useState([]);
@@ -392,20 +393,11 @@ const Transactions = () => {
     useEffect(() => {
         let result = [...processedTransactions];
         
-        // 🚀 Filtro Estricto de Año y Mes (Máximo 1 mes como manda la ley)
+        // 🚀 Filtro por Rango de Fechas
         result = result.filter(t => {
             if (!t.date) return false;
-            let tYear, tMonth;
-            if (typeof t.date === 'string' && t.date.includes('-')) {
-                const parts = t.date.split('-');
-                tYear = parts[0];
-                tMonth = parts[1];
-            } else {
-                const d = new Date(t.date);
-                tYear = d.getFullYear().toString();
-                tMonth = (d.getMonth() + 1).toString().padStart(2, '0');
-            }
-            return tYear === selectedYear && tMonth === selectedMonth;
+            const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
+            return tDate >= startDate && tDate <= endDate;
         });
 
         // Filtro de Tipo de Transacción
@@ -440,7 +432,7 @@ const Transactions = () => {
         
         result.sort((a, b) => new Date(a.date) - new Date(b.date));
         setFilteredTransactions(result);
-    }, [processedTransactions, searchTerm, filterType, selectedYear, selectedMonth, accountFilters]);
+    }, [processedTransactions, searchTerm, filterType, startDate, endDate, accountFilters]);
 
     const getDisplayTransactions = () => {
         const groups = [];
@@ -890,7 +882,7 @@ const Transactions = () => {
             }
         });
         
-        exportToExcel(dataToExport, `Transacciones_Control_${selectedYear}`, {});
+        exportToExcel(dataToExport, `Transacciones_Control_${startDate}_al_${endDate}`, {});
         toast({ title: "¡Exportado!", description: "Informe de Control exportado a Excel." });
     };
 
@@ -992,7 +984,7 @@ const Transactions = () => {
                       </div>
                       <div class="text-right">
                           <h2 class="text-xl font-bold text-slate-800 uppercase">LIBRO AUXILIAR / REPORTES</h2>
-                          <p class="text-sm font-mono mt-1">AÑO FISCAL: ${selectedYear}</p>
+                          <p class="text-sm font-mono mt-1">RANGO: ${startDate} al ${endDate}</p>
                           <p class="text-sm font-mono font-bold text-blue-700 mt-1">CUENTA: ${accountName}</p>
                       </div>
                   </div>
@@ -1026,9 +1018,15 @@ const Transactions = () => {
         const printWindow = window.open('', '_blank', 'width=1000,height=800');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
-        const monthName = meses.find(m => m.val === selectedMonth)?.label || '';
-        const daysInMonth = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
-        const periodText = `DEL 01 DE ${monthName.toUpperCase()} AL ${daysInMonth} DE ${monthName.toUpperCase()} DE ${selectedYear}`;
+        // 🚀 Validación Legal: Máximo 31 días
+        const diffDays = differenceInDays(new Date(endDate), new Date(startDate));
+        if (diffDays > 31 || diffDays < 0) {
+            toast({ variant: 'destructive', title: "Rango Inválido", description: "El Libro Diario no puede generarse por un periodo mayor a 31 días continuos según normativa." });
+            setIsPrinting(false);
+            return;
+        }
+
+        const periodText = `DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}`;
 
         // Generar filas del Libro Diario (Partida Doble Estricta)
         let totalDebit = 0;
@@ -1124,8 +1122,7 @@ const Transactions = () => {
                           tr { page-break-inside: avoid; page-break-after: auto; }
                           thead { display: table-header-group; }
                           /* 🚀 Subimos un poco el footer para que quede dentro del área de impresión */
-                          #pageFooter { display: block; position: fixed; bottom: 0px; right: 0px; width: 100%; text-align: right; font-size: 10px; }
-                          #pageFooter:after { content: "Página " counter(page); }
+                          
                       }
                       body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 20px; }
                       th { background-color: #f1f5f9; padding: 8px; text-align: left; border-bottom: 2px solid #000; }
@@ -1163,7 +1160,7 @@ const Transactions = () => {
                       </tbody>
                   </table>
                   
-                  <div id="pageFooter"></div>
+                  
                   
                   <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
                       Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
@@ -1444,13 +1441,23 @@ const Transactions = () => {
                                 )}                                
                             </div>
 
-                            <div className="flex gap-2">
-                                <select className="text-sm border-slate-300 rounded-md px-3 py-2 bg-white font-medium" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
-                                    {meses.map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
-                                </select>
-                                <select className="text-sm border-slate-300 rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
-                                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                                </select>
+                            {/* 🚀 Calendarios de Rango */}
+                            <div className="flex items-center gap-2 bg-white p-1 rounded-md border border-slate-200">
+                                <input 
+                                    type="date" 
+                                    className="text-xs px-2 py-1 outline-none text-slate-700 font-mono" 
+                                    value={startDate} 
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    title="Fecha Inicial"
+                                />
+                                <span className="text-slate-300">-</span>
+                                <input 
+                                    type="date" 
+                                    className="text-xs px-2 py-1 outline-none text-slate-700 font-mono" 
+                                    value={endDate} 
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    title="Fecha Final"
+                                />
                             </div>
                             
                             <div className="flex bg-slate-100 rounded-lg p-1">
