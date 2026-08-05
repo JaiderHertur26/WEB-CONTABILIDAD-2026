@@ -130,6 +130,7 @@ const Transactions = () => {
     // 🚀 FILTRO MÚLTIPLE DE CUENTAS
     const [accountFilters, setAccountFilters] = useState([]);
     const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+    const [accountSearchTerm, setAccountSearchTerm] = useState(''); // <-- Nuevo estado para el buscador
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -1196,15 +1197,42 @@ const Transactions = () => {
                                     <div className="absolute top-full mt-2 right-0 md:left-0 w-80 bg-white border border-slate-200 shadow-2xl rounded-xl z-50 flex flex-col">
                                         <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
                                             <span className="font-bold text-slate-700 text-sm">Filtrar por Cuentas</span>
-                                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-blue-600 hover:bg-blue-50" onClick={() => { setAccountFilters([]); setIsAccountMenuOpen(false); }}>Limpiar</Button>
+                                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-blue-600 hover:bg-blue-50" onClick={() => { setAccountFilters([]); setAccountSearchTerm(''); setIsAccountMenuOpen(false); }}>Limpiar</Button>
                                         </div>
+                                        
+                                        {/* 🚀 BARRA DE BÚSQUEDA INTEGRADA */}
+                                        <div className="p-2 border-b border-slate-100 bg-white">
+                                            <div className="relative">
+                                                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Buscar número o concepto..." 
+                                                    value={accountSearchTerm}
+                                                    onChange={(e) => setAccountSearchTerm(e.target.value)}
+                                                    className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
                                         <div className="max-h-64 overflow-y-auto p-2 space-y-1">
-                                            <label className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer transition-colors border border-transparent hover:border-slate-200">
-                                                <input type="checkbox" checked={accountFilters.length === 0} onChange={() => setAccountFilters([])} className="w-4 h-4 text-blue-600 rounded" />
-                                                <span className="font-semibold text-slate-800 text-sm">Mostrar Todas</span>
-                                            </label>
-                                            <hr className="my-1 border-slate-100 mx-2" />
-                                            {activeAccountsInYear.map(acc => (
+                                            {/* Si estamos buscando, escondemos "Mostrar todas" para limpiar visualmente */}
+                                            {!accountSearchTerm && (
+                                                <>
+                                                    <label className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer transition-colors border border-transparent hover:border-slate-200">
+                                                        <input type="checkbox" checked={accountFilters.length === 0} onChange={() => setAccountFilters([])} className="w-4 h-4 text-blue-600 rounded" />
+                                                        <span className="font-semibold text-slate-800 text-sm">Mostrar Todas</span>
+                                                    </label>
+                                                    <hr className="my-1 border-slate-100 mx-2" />
+                                                </>
+                                            )}
+                                            
+                                            {/* Filtrar lista según el número o el concepto */}
+                                            {activeAccountsInYear
+                                                .filter(acc => 
+                                                    acc.number.includes(accountSearchTerm) || 
+                                                    (acc.name || '').toLowerCase().includes(accountSearchTerm.toLowerCase())
+                                                )
+                                                .map(acc => (
                                                 <label key={acc.id} className={`flex items-center gap-3 p-2 rounded cursor-pointer transition-colors border ${accountFilters.includes(acc.number) ? 'bg-blue-50/50 border-blue-200' : 'border-transparent hover:bg-slate-50 hover:border-slate-200'}`}>
                                                     <input 
                                                         type="checkbox" 
@@ -1221,6 +1249,12 @@ const Transactions = () => {
                                                     </div>
                                                 </label>
                                             ))}
+
+                                            {/* Mensajes si no hay resultados */}
+                                            {activeAccountsInYear.length > 0 && activeAccountsInYear.filter(acc => acc.number.includes(accountSearchTerm) || (acc.name || '').toLowerCase().includes(accountSearchTerm.toLowerCase())).length === 0 && (
+                                                <div className="p-4 text-center text-xs text-slate-500">No hay coincidencias para "{accountSearchTerm}"</div>
+                                            )}
+
                                             {activeAccountsInYear.length === 0 && (
                                                 <div className="p-4 text-center text-xs text-slate-400">No hay cuentas con movimientos este año.</div>
                                             )}
@@ -1229,7 +1263,7 @@ const Transactions = () => {
                                             <Button className="w-full bg-slate-800 hover:bg-slate-900" size="sm" onClick={() => setIsAccountMenuOpen(false)}>Aplicar Filtro</Button>
                                         </div>
                                     </div>
-                                )}
+                                )}                                
                             </div>
 
                             <select className="text-sm border rounded-md px-3 py-2 bg-white" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
