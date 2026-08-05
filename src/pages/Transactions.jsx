@@ -1159,12 +1159,10 @@ const Transactions = () => {
                           ${!isBalanced ? `<tr><td colspan="6" style="text-align:center; color:red; font-weight:bold; padding:5px;">ADVERTENCIA: LAS SUMAS NO SON IGUALES. REVISE LOS ASIENTOS.</td></tr>` : ''}
                       </tbody>
                   </table>
-                  
-                  
-                  
-                  <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
-                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
-                  </div>
+                  
+                  <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
+                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
+                  </div>
               </body>
           </html>
         `);
