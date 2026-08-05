@@ -1459,11 +1459,13 @@ const Transactions = () => {
                           thead { display: table-header-group; }
                       }
                       body { font-family: 'Times New Roman', Times, serif; font-size: 11px; color: black; margin: 0; padding: 20px; }
-                      .header { text-align: left; margin-bottom: 25px; line-height: 1.4; border-bottom: 2px solid black; padding-bottom: 10px;}
+                      
+                      /* 🚀 AQUÍ ESTÁ LA MAGIA DEL CENTRADO ABSOLUTO */
+                      .header { text-align: center; margin-bottom: 25px; line-height: 1.4; border-bottom: 2px solid black; padding-bottom: 10px;}
                       .header-title { font-size: 16px; font-weight: bold; text-transform: uppercase; margin: 0; }
                       .header-sub { font-size: 12px; font-weight: bold; margin: 0; }
-                      .header-center { text-align: center; margin-top: 10px; }
-                      .header-center-title { font-size: 14px; font-weight: bold; margin: 0; }
+                      .header-center-title { font-size: 14px; font-weight: bold; margin: 10px 0 0 0; }
+                      
                       table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
                       th { border-bottom: 1px solid black; border-top: 1px solid black; padding: 6px 4px; text-align: right; font-weight: bold; font-size: 11px; }
                       th:nth-child(1), th:nth-child(2) { text-align: left; }
@@ -1479,10 +1481,8 @@ const Transactions = () => {
                   <div class="header">
                       <p class="header-title">${companyName}</p>
                       <p class="header-sub">NIT: ${companyNit}</p>
-                      <div class="header-center">
-                          <p class="header-center-title">LIBRO MAYOR Y DE BALANCES</p>
-                          <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}</p>
-                      </div>
+                      <p class="header-center-title">LIBRO MAYOR Y DE BALANCES</p>
+                      <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}</p>
                   </div>
                   
                   <table>
