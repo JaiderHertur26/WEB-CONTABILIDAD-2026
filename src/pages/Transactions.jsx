@@ -1062,20 +1062,20 @@ const Transactions = () => {
 
                     printRows.push(`
                         <tr>
-                            <td style="padding:4px; border-bottom:1px solid #eee;">${displayDate}</td>
-                            <td style="padding:4px; border-bottom:1px solid #eee; font-weight:bold;">${vId}</td>
-                            <td style="padding:4px; border-bottom:1px solid #eee;"><b>${destAsset.code}</b><br/><span style="font-size:10px;">${destAsset.name}</span></td>
-                            <td style="padding:4px; border-bottom:1px solid #eee;">${expensePart.description}</td>
-                            <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">${monto.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                            <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">-</td>
+                            <td class="td-center">${displayDate}</td>
+                            <td class="td-center bold">${vId}</td>
+                            <td class="td-left"><span class="bold">${destAsset.code}</span><br/><span class="sub-text">${destAsset.name}</span></td>
+                            <td class="td-left">${expensePart.description}</td>
+                            <td class="td-num">${monto.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                            <td class="td-num">-</td>
                         </tr>
                         <tr>
-                            <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
-                            <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
-                            <td style="padding:4px; border-bottom:1px solid #ccc; padding-left:20px;"><b>${sourceAsset.code}</b><br/><span style="font-size:10px;">${sourceAsset.name}</span></td>
-                            <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
-                            <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">-</td>
-                            <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">${monto.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                            <td class="td-center border-b"></td>
+                            <td class="td-center border-b"></td>
+                            <td class="td-left indent-1 border-b"><span class="bold">${sourceAsset.code}</span><br/><span class="sub-text">${sourceAsset.name}</span></td>
+                            <td class="td-left border-b"></td>
+                            <td class="td-num border-b">-</td>
+                            <td class="td-num border-b">${monto.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                         </tr>
                     `);
                     return;
@@ -1090,25 +1090,27 @@ const Transactions = () => {
 
             printRows.push(`
                 <tr>
-                    <td style="padding:4px; border-bottom:1px solid #eee;">${displayDate}</td>
-                    <td style="padding:4px; border-bottom:1px solid #eee; font-weight:bold;">${vId}</td>
-                    <td style="padding:4px; border-bottom:1px solid #eee;"><b>${debit?.code || 'N/A'}</b><br/><span style="font-size:10px;">${debit?.name || '-'}</span></td>
-                    <td style="padding:4px; border-bottom:1px solid #eee;">${t.description}</td>
-                    <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">${dVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                    <td style="padding:4px; border-bottom:1px solid #eee; text-align:right;">-</td>
+                    <td class="td-center">${displayDate}</td>
+                    <td class="td-center bold">${vId}</td>
+                    <td class="td-left"><span class="bold">${debit?.code || 'N/A'}</span><br/><span class="sub-text">${debit?.name || '-'}</span></td>
+                    <td class="td-left">${t.description}</td>
+                    <td class="td-num">${dVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-num">-</td>
                 </tr>
                 <tr>
-                    <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
-                    <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
-                    <td style="padding:4px; border-bottom:1px solid #ccc; padding-left:20px;"><b>${credit?.code || 'N/A'}</b><br/><span style="font-size:10px;">${credit?.name || '-'}</span></td>
-                    <td style="padding:4px; border-bottom:1px solid #ccc;"></td>
-                    <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">-</td>
-                    <td style="padding:4px; border-bottom:1px solid #ccc; text-align:right;">${cVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-center border-b"></td>
+                    <td class="td-center border-b"></td>
+                    <td class="td-left indent-1 border-b"><span class="bold">${credit?.code || 'N/A'}</span><br/><span class="sub-text">${credit?.name || '-'}</span></td>
+                    <td class="td-left border-b"></td>
+                    <td class="td-num border-b">-</td>
+                    <td class="td-num border-b">${cVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                 </tr>
             `);
         });
 
         const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+        const companyName = activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO";
+        const companyNit = activeCompany?.doc || "802012765";
 
         printWindow.document.write(`
           <!DOCTYPE html>
@@ -1117,54 +1119,67 @@ const Transactions = () => {
                   <title>Libro_Diario_${selectedYear}</title>
                   <style>
                       @media print {
-                          /* 🚀 Aumentamos el margen inferior (25mm) para que no corte la paginación */
-                          @page { margin: 15mm 15mm 25mm 15mm; size: portrait; }
-                          body { font-family: Arial, sans-serif; font-size: 12px; }
+                          @page { margin: 15mm; size: portrait; }
+                          body { font-family: 'Times New Roman', Times, serif; font-size: 11px; color: black; }
                           table { page-break-inside: auto; border-collapse: collapse; width: 100%; }
                           tr { page-break-inside: avoid; page-break-after: auto; }
                           thead { display: table-header-group; }
-                          /* 🚀 Subimos un poco el footer para que quede dentro del área de impresión */
-                          #pageFooter { display: block; position: fixed; bottom: 0px; right: 0px; width: 100%; text-align: right; font-size: 10px; }
-                          #pageFooter:after { content: "Página " counter(page); }
                       }
-                      body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 20px; }
-                      th { background-color: #f1f5f9; padding: 8px; text-align: left; border-bottom: 2px solid #000; }
+                      body { font-family: 'Times New Roman', Times, serif; font-size: 11px; color: black; margin: 0; padding: 20px; }
+                      
+                      .header { text-align: center; margin-bottom: 25px; line-height: 1.4; border-bottom: 2px solid black; padding-bottom: 10px;}
+                      .header-title { font-size: 16px; font-weight: bold; text-transform: uppercase; margin: 0; }
+                      .header-sub { font-size: 12px; font-weight: bold; margin: 0; }
+                      .header-center-title { font-size: 14px; font-weight: bold; margin: 10px 0 0 0; text-transform: uppercase; }
+                      
+                      table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                      th { border-bottom: 1px solid black; border-top: 1px solid black; padding: 6px 4px; font-weight: bold; font-size: 11px; }
+                      td { padding: 4px; vertical-align: top; }
+                      .border-b { border-bottom: 1px solid #ccc; }
+                      .td-center { text-align: center; width: 10%; }
+                      .td-left { text-align: left; width: 30%; }
+                      .td-num { width: 10%; text-align: right; }
+                      .bold { font-weight: bold; }
+                      .sub-text { font-size: 10px; text-transform: uppercase; color: #333; }
+                      .indent-1 { padding-left: 20px; }
+                      
+                      .totals-row td { font-weight: bold; border-top: 2px solid black; border-bottom: 4px double black; padding-top: 8px; padding-bottom: 8px; font-size: 12px; }
+                      .warning-row td { text-align: center; color: red; font-weight: bold; padding: 5px; border-bottom: none !important; }
+                      .footer { margin-top: 40px; text-align: center; font-size: 9px; }
                   </style>
               </head>
               <body>
-                  <div style="border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px;">
-                      <h1 style="font-size: 18px; margin: 0; text-transform: uppercase;">${activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO"}</h1>
-                      <p style="margin: 2px 0; font-size: 12px;">NIT: ${activeCompany?.doc || "802012765"}</p>
-                      <h2 style="font-size: 16px; margin: 10px 0 0 0; text-align: center;">LIBRO DIARIO OFICIAL</h2>
-                      <p style="margin: 5px 0 0 0; text-align: center; font-weight: bold; text-transform: uppercase;">${periodText}</p>
+                  <div class="header">
+                      <p class="header-title">${companyName}</p>
+                      <p class="header-sub">NIT: ${companyNit}</p>
+                      <p class="header-center-title">LIBRO DIARIO OFICIAL</p>
+                      <p class="header-sub">${periodText}</p>
                   </div>
                   
                   <table>
                       <thead>
                           <tr>
-                              <th style="width:10%;">Fecha</th>
-                              <th style="width:10%;">Comp.</th>
-                              <th style="width:30%;">Cuenta (PUC)</th>
-                              <th style="width:30%;">Detalle</th>
-                              <th style="width:10%; text-align:right;">Débito</th>
-                              <th style="width:10%; text-align:right;">Crédito</th>
+                              <th style="text-align:center;">Fecha</th>
+                              <th style="text-align:center;">Comp.</th>
+                              <th style="text-align:left;">Cuenta (PUC)</th>
+                              <th style="text-align:left;">Detalle</th>
+                              <th style="text-align:right;">Débito</th>
+                              <th style="text-align:right;">Crédito</th>
                           </tr>
                       </thead>
                       <tbody>
                           ${printRows.join('')}
-                          
-                          
-                          <tr>
-                              <td colspan="4" style="text-align:right; font-weight:bold; padding:10px;">SUMAS IGUALES:</td>
-                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; border-bottom:4px double #000;">${totalDebit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; border-bottom:4px double #000;">${totalCredit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                          <tr class="totals-row">
+                              <td colspan="4" style="text-align:right;">SUMAS IGUALES:</td>
+                              <td class="td-num">${totalDebit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td class="td-num">${totalCredit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                           </tr>
-                          ${!isBalanced ? `<tr><td colspan="6" style="text-align:center; color:red; font-weight:bold; padding:5px;">ADVERTENCIA: LAS SUMAS NO SON IGUALES. REVISE LOS ASIENTOS.</td></tr>` : ''}
+                          ${!isBalanced ? `<tr class="warning-row"><td colspan="6">ADVERTENCIA: LAS SUMAS NO SON IGUALES. REVISE LOS ASIENTOS.</td></tr>` : ''}
                       </tbody>
                   </table>
                   
-                  <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
-                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
+                  <div class="footer">
+                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute:'2-digit', second:'2-digit', hour12: true })}
                   </div>
               </body>
           </html>
