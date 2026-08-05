@@ -676,8 +676,7 @@ const Reports = () => {
   };
   // 👆 FIN DE LAS FUNCIONES DE IMPRESIÓN FALTANTES 👆
 
-  const handleExportBalanceSheet = () => { 
-      const { assets, liabilities, equity, totals } = reportData.balanceSheet;
+  
 
   const executePrint = () => {
       setPrintConfigOpen(false);
