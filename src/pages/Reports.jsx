@@ -41,10 +41,10 @@ const Reports = () => {
   const [printConfigOpen, setPrintConfigOpen] = useState(false);
   const [printType, setPrintType] = useState(null);
   const [signatures, setSignatures] = useState({
-      repLegalName: 'JESÚS MARTINEZ THORNE',
-      repLegalId: 'C.C. 1.140.888.204',
-      contadorName: 'YENIFER VILORIA CHINCHILLA',
-      contadorId: 'T.P. 319783-T'
+      repLegalName: '',
+      repLegalId: 'C.C. ',
+      contadorName: '',
+      contadorId: 'T.P. '
   });
 
   const getSafeYear = (dateStr) => {
@@ -507,7 +507,7 @@ const Reports = () => {
   
   const handleExportReport = (data, name) => { 
       try {
-          const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+          const companyName = activeCompany?.name || ' ';
           const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
           const dataToExport = [
@@ -550,7 +550,7 @@ const Reports = () => {
           const printWindow = window.open('', '_blank', 'width=1000,height=800');
           if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); return; }
 
-          const companyName = activeCompany?.name || 'PARROQUIA LA SANTA CRUZ';
+          const companyName = activeCompany?.name || ' ';
           const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
           const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
           const fechaCorte = `A 31 DE DICIEMBRE DE ${selectedYear}`;
@@ -690,7 +690,7 @@ const Reports = () => {
   const handleExportBalanceSheet = () => { 
       try {
           const { assets, liabilities, equity, totals } = reportData.balanceSheet; 
-          const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+          const companyName = activeCompany?.name || ' ';
           const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
           const dataToExport = [
