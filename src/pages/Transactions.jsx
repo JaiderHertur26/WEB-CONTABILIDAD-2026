@@ -1864,7 +1864,7 @@ const Transactions = () => {
                                     </thead>
                                     <tbody className="divide-y divide-slate-200">
                                         {(() => {
-                                            let runningBalance = 0;
+                                            const runningBalances = {}; // 🚀 Mapa inteligente para saldos individuales
                                             const rowsToRender = [];
 
                                             displayTransactions.forEach(t => {
@@ -1872,20 +1872,25 @@ const Transactions = () => {
                                                 let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
                                                 const { debit, credit } = resolveAccountingRow(t);
                                                 
-                                                // 🚀 Extraer Tercero Inteligente
+                                                // Extraer Tercero
                                                 let tercero = t.contact || '-';
                                                 if (tercero === '-' && t.contactId && contacts) {
                                                     const foundContact = contacts.find(c => String(c.id) === String(t.contactId));
                                                     if (foundContact) tercero = foundContact.name;
                                                 }
 
-                                                // Lógica Multi-Filtro: Mostrar fila si aplica
                                                 const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
                                                 const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
 
                                                 if (showDebit) {
                                                     const dVal = parseFloat(debit?.value) || 0;
-                                                    runningBalance += dVal; // Débito suma al saldo
+                                                    const code = debit?.code || '';
+                                                    // Naturaleza PUC: 1(Activo), 5(Gasto), 6(Costo), 8(Orden) suman en Débito
+                                                    const isDebitNature = ['1', '5', '6', '8'].includes(code.charAt(0));
+                                                    
+                                                    // Actualizar saldo de esta cuenta específica
+                                                    runningBalances[code] = (runningBalances[code] || 0) + (isDebitNature ? dVal : -dVal);
+                                                    
                                                     rowsToRender.push(
                                                         <tr key={`${t.id}-d`}>
                                                             <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(t.date)}</td>
@@ -1898,14 +1903,20 @@ const Transactions = () => {
                                                             <td className="py-2 px-1 text-slate-700 italic truncate max-w-[150px]" title={t.description}>{t.description}</td>
                                                             <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{dVal.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
                                                             <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalance.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalances[code].toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
                                                         </tr>
                                                     );
                                                 }
 
                                                 if (showCredit) {
                                                     const cVal = parseFloat(credit?.value) || 0;
-                                                    runningBalance -= cVal; // Crédito resta al saldo
+                                                    const code = credit?.code || '';
+                                                    // Naturaleza PUC: 2(Pasivo), 3(Patrimonio), 4(Ingreso) suman en Crédito
+                                                    const isDebitNature = ['1', '5', '6', '8'].includes(code.charAt(0));
+                                                    
+                                                    // Actualizar saldo de esta cuenta específica
+                                                    runningBalances[code] = (runningBalances[code] || 0) + (isDebitNature ? -cVal : cVal);
+
                                                     rowsToRender.push(
                                                         <tr key={`${t.id}-c`}>
                                                             <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(t.date)}</td>
@@ -1918,7 +1929,7 @@ const Transactions = () => {
                                                             <td className="py-2 px-1 text-slate-700 italic truncate max-w-[150px]" title={t.description}>{t.description}</td>
                                                             <td className="py-2 px-1 text-right font-mono text-slate-300">-</td>
                                                             <td className="py-2 px-1 text-right font-mono font-bold text-slate-900">{cVal.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalance.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                            <td className="py-2 px-1 text-right font-mono font-bold text-blue-700">{runningBalances[code].toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
                                                         </tr>
                                                     );
                                                 }
@@ -1931,7 +1942,7 @@ const Transactions = () => {
                                             <tr><td colSpan="8" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la cuenta seleccionada.</td></tr>
                                         )}
                                         
-                                        {/* 🚀 TOTALES Y SALDO NETO (AJUSTADO A 8 COLUMNAS) */}
+                                        {/* 🚀 TOTALES AL FINAL DE LA TABLA */}
                                         {displayTransactions.length > 0 && (
                                             <>
                                                 <tr className="border-t-2 border-slate-800 bg-slate-50 font-bold text-slate-900 text-sm">
