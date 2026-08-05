@@ -1432,15 +1432,18 @@ const Transactions = () => {
             
             return `
                 <tr>
-                    <td style="padding:6px; border-bottom:1px solid #eee; font-weight:bold;">${acc.code}</td>
-                    <td style="padding:6px; border-bottom:1px solid #eee; text-transform:uppercase; font-size:10px;">${acc.name}</td>
-                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right;">${acc.saldoAnterior.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right; color:#2563eb;">${acc.debito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right; color:#ea580c;">${acc.credito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right; font-weight:bold;">${acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-code">${acc.code}</td>
+                    <td class="td-name">${acc.name}</td>
+                    <td class="td-num">${acc.saldoAnterior.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-num">${acc.debito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-num">${acc.credito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-num">${acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                 </tr>
             `;
         }).join('');
+
+        const companyName = activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO";
+        const companyNit = activeCompany?.doc || "802012765";
 
         printWindow.document.write(`
           <!DOCTYPE html>
@@ -1450,47 +1453,62 @@ const Transactions = () => {
                   <style>
                       @media print {
                           @page { margin: 15mm; size: portrait; }
-                          body { font-family: Arial, sans-serif; font-size: 11px; }
+                          body { font-family: 'Times New Roman', Times, serif; font-size: 11px; color: black; }
                           table { page-break-inside: auto; border-collapse: collapse; width: 100%; }
                           tr { page-break-inside: avoid; page-break-after: auto; }
                           thead { display: table-header-group; }
                       }
-                      body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 20px; }
-                      th { background-color: #f1f5f9; padding: 8px; text-align: right; border-bottom: 2px solid #000; }
+                      body { font-family: 'Times New Roman', Times, serif; font-size: 11px; color: black; margin: 0; padding: 20px; }
+                      .header { text-align: left; margin-bottom: 25px; line-height: 1.4; border-bottom: 2px solid black; padding-bottom: 10px;}
+                      .header-title { font-size: 16px; font-weight: bold; text-transform: uppercase; margin: 0; }
+                      .header-sub { font-size: 12px; font-weight: bold; margin: 0; }
+                      .header-center { text-align: center; margin-top: 10px; }
+                      .header-center-title { font-size: 14px; font-weight: bold; margin: 0; }
+                      table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                      th { border-bottom: 1px solid black; border-top: 1px solid black; padding: 6px 4px; text-align: right; font-weight: bold; font-size: 11px; }
                       th:nth-child(1), th:nth-child(2) { text-align: left; }
+                      td { padding: 4px; vertical-align: top; }
+                      .td-code { width: 12%; font-weight: bold; }
+                      .td-name { width: 28%; text-transform: uppercase; font-size: 10px; }
+                      .td-num { width: 15%; text-align: right; }
+                      .totals-row td { font-weight: bold; border-top: 1px solid black; border-bottom: 3px double black; padding-top: 8px; padding-bottom: 8px; }
+                      .footer { margin-top: 40px; text-align: center; font-size: 9px; }
                   </style>
               </head>
               <body>
-                  <div style="border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px;">
-                      <h1 style="font-size: 18px; margin: 0; text-transform: uppercase;">${activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO"}</h1>
-                      <p style="margin: 2px 0; font-size: 12px;">NIT: ${activeCompany?.doc || "802012765"}</p>
-                      <h2 style="font-size: 16px; margin: 10px 0 0 0; text-align: center;">LIBRO MAYOR Y DE BALANCES</h2>
-                      <p style="margin: 5px 0 0 0; text-align: center; font-weight: bold; text-transform: uppercase;">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}</p>
+                  <div class="header">
+                      <p class="header-title">${companyName}</p>
+                      <p class="header-sub">NIT: ${companyNit}</p>
+                      <div class="header-center">
+                          <p class="header-center-title">LIBRO MAYOR Y DE BALANCES</p>
+                          <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}</p>
+                      </div>
                   </div>
                   
                   <table>
                       <thead>
                           <tr>
-                              <th style="width:10%;">Código</th>
-                              <th style="width:30%;">Cuenta</th>
-                              <th style="width:15%;">Saldo Anterior</th>
-                              <th style="width:15%;">Mov. Débito</th>
-                              <th style="width:15%;">Mov. Crédito</th>
-                              <th style="width:15%;">Nuevo Saldo</th>
+                              <th>Código</th>
+                              <th>Cuenta</th>
+                              <th>Saldo Anterior</th>
+                              <th>Mov. Débito</th>
+                              <th>Mov. Crédito</th>
+                              <th>Nuevo Saldo</th>
                           </tr>
                       </thead>
                       <tbody>
                           ${rowsHtml}
-                          <tr>
-                              <td colspan="2" style="text-align:right; font-weight:bold; padding:10px;">SUMAS DEL PERIODO:</td>
-                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000;">${totalAnt.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; color:#2563eb;">${totalDeb.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; color:#ea580c;">${totalCred.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000;">${totalNuev.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                          <tr class="totals-row">
+                              <td colspan="2" style="text-align:right;">SUMAS DEL PERIODO:</td>
+                              <td class="td-num">${totalAnt.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td class="td-num">${totalDeb.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td class="td-num">${totalCred.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td class="td-num">${totalNuev.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                           </tr>
                       </tbody>
                   </table>
-                  <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
+                  
+                  <div class="footer">
                       Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
                   </div>
               </body>
