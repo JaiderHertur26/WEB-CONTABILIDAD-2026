@@ -1153,7 +1153,7 @@ const Transactions = () => {
                       <tbody>
                           ${printRows.join('')}
                           
-                          {/* 🚀 Pasamos los totales al TBODY para que solo impriman al final del documento */}
+                          
                           <tr>
                               <td colspan="4" style="text-align:right; font-weight:bold; padding:10px;">SUMAS IGUALES:</td>
                               <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; border-bottom:4px double #000;">${totalDebit.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
