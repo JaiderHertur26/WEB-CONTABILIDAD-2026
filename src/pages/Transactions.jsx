@@ -1902,15 +1902,15 @@ const Transactions = () => {
                                             );
                                         })}
                                         {displayTransactions.length === 0 && (
-                                            <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la(s) cuenta(s) seleccionada(s).</td></tr>
+                                            <tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo para la cuenta seleccionada.</td></tr>
                                         )}
-
-                                        {/* 🚀 TOTALES Y SALDO NETO COMO FILAS NORMALES (EVITA QUE SE REPITAN POR PÁGINA) */}
+                                        
+                                        {/* 🚀 TOTALES Y SALDO NETO COMO FILAS NORMALES (AL FINAL DE LA TABLA) */}
                                         {displayTransactions.length > 0 && (
                                             <>
                                                 <tr className="border-t-2 border-slate-800 bg-slate-50 font-bold text-slate-900 text-sm">
                                                     <td colSpan="4" className="py-3 px-2 text-right uppercase tracking-wider">
-                                                        Sumas Iguales del Periodo:
+                                                        Total Movimientos (Cuentas Filtradas):
                                                     </td>
                                                     <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
                                                         {displayTransactions.reduce((acc, t) => {
