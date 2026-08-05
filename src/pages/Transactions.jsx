@@ -768,38 +768,61 @@ const Transactions = () => {
             const debitAccObj = (accounts || []).find(a => a.name === transferData.debitAccount) || { number: '150805', name: transferData.debitAccount };
             const creditAccObj = (accounts || []).find(a => a.name === transferData.creditAccount) || { number: '133005', name: transferData.creditAccount };
 
-            const voucherNumber = getNextVoucherNumber('adjustment', transferData.date);
-            const transactionId = `${Date.now()}`;
+            const checkCashOrBank = (codeStr, nameStr) => {
+                const c = String(codeStr || '').trim();
+                const n = String(nameStr || '').toUpperCase().trim();
+                if (c.startsWith('11') || c.startsWith('1295') || c === 'caja_principal') return true;
+                if (n.includes('CAJA') || n.includes('COOPERATIVA') || n.includes('BANCO')) return true;
+                return false;
+            };
+            const hasCash = checkCashOrBank(debitAccObj.number, debitAccObj.name) || checkCashOrBank(creditAccObj.number, creditAccObj.name);
+            const lookupType = hasCash ? 'transfer' : 'adjustment';
+            voucherNumber = getNextVoucherNumber(lookupType, transferData.date);
 
-            const accountingTransaction = {
-                id: transactionId,
-                type: 'adjustment',
-                voucherPrefix: 'A',
-                voucherNumber,
-                date: transferData.date,
-                description: transferData.description,
+            const expenseTransaction = {
+                id: `${now}-exp`,
+                type: 'expense',
+                description: `Cruce: ${transferData.description}`,
                 amount: parseFloat(transferData.amount),
-                category: debitAccObj.name,
+                category: transferData.debitAccount, 
+                date: transferData.date,
+                destination: `${creditAccObj.number}|${creditAccObj.name.toUpperCase()}`, 
                 isInternalTransfer: true,
-                debitAccount: { code: debitAccObj.number, name: debitAccObj.name },
-                creditAccount: { code: creditAccObj.number, name: creditAccObj.name },
+                voucherNumber,
                 company_id: activeCompany?.id,
-                companyId: activeCompany?.id
+                companyId: activeCompany?.id,
+                debitAccount: { code: debitAccObj.number, name: debitAccObj.name },
+                creditAccount: { code: creditAccObj.number, name: creditAccObj.name }
             };
 
-            // Registro automático en Activos Fijos si la cuenta débito pertenece a la clase 15 (excepto construcciones/depreciación)
+            const incomeTransaction = {
+                id: `${now}-inc`,
+                type: 'income',
+                description: `Cruce: ${transferData.description}`,
+                amount: parseFloat(transferData.amount),
+                category: transferData.creditAccount, 
+                date: transferData.date,
+                destination: `${debitAccObj.number}|${debitAccObj.name.toUpperCase()}`, 
+                isInternalTransfer: true,
+                voucherNumber,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id,
+                debitAccount: { code: creditAccObj.number, name: creditAccObj.name }, // Contrapartida
+                creditAccount: { code: debitAccObj.number, name: debitAccObj.name }
+            };
+
             if (debitAccObj.number.startsWith('15') && !debitAccObj.number.startsWith('1508') && !debitAccObj.number.startsWith('1592')) {
                 const assetPayload = {
                     date: transferData.date,
                     name: transferData.description, 
                     value: parseFloat(transferData.amount),
                     year: new Date(transferData.date).getFullYear().toString(),
-                    transactionId: transactionId
+                    transactionId: expenseTransaction.id
                 };
 
                 const newAsset = {
                     ...assetPayload,
-                    id: `asset-${transactionId}`,
+                    id: `asset-${expenseTransaction.id}`,
                     status: 'Bueno',
                     quantity: 1,
                     category: debitAccObj.name,
@@ -810,8 +833,8 @@ const Transactions = () => {
                 saveFixedAssets([...(fixedAssets || []), newAsset]);
             }
 
-            saveTransactions([...transactions, accountingTransaction]);
-            toast({ title: "Cruce contable aplicado", description: "Los saldos en el Balance General y Libros han sido ajustados." });
+            saveTransactions([...transactions, expenseTransaction, incomeTransaction]);
+            toast({ title: "Cruce contable aplicado", description: "Los saldos en el Balance General han sido ajustados." });
             setTransferDialogOpen(false);
             return;
         }
@@ -1331,7 +1354,7 @@ const Transactions = () => {
     };
 
     // =========================================================================
-    // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES (UNIFICADO)
+    // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES
     // =========================================================================
     const libroMayorData = useMemo(() => {
         const mayor = {};
@@ -1360,8 +1383,10 @@ const Transactions = () => {
             }
         });
 
-        // 3. Procesar todas las transacciones de manera unificada
+        // 3. Procesar todas las transacciones
         processedTransactions.forEach(t => {
+            if (t.isInternalTransfer && !t.debitAccount) return; 
+            
             const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
             const { debit, credit } = resolveAccountingRow(t);
 
@@ -1373,9 +1398,11 @@ const Transactions = () => {
                 const isDebitNature = ['1', '5', '6', '8'].includes(codeStr.charAt(0));
 
                 if (tDate < startDate) {
+                    // Historial antes de la fecha inicial va al Saldo Anterior
                     if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
                     else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
                 } else if (tDate >= startDate && tDate <= endDate) {
+                    // Movimientos del rango seleccionado
                     if (isDebitEntry) mayor[codeStr].debito += amount;
                     else mayor[codeStr].credito += amount;
                 }
@@ -1398,7 +1425,7 @@ const Transactions = () => {
                 return acc;
             })
             .sort((a, b) => a.code.localeCompare(b.code));
-    }, [processedTransactions, accounts, initialBalances, bankAccounts, startDate, endDate, isRelevant]);
+    }, [processedTransactions, accounts, initialBalances, bankAccounts, startDate, endDate]);
 
     const handlePrintMayorPdf = () => {
         if (libroMayorData.length === 0) { 
