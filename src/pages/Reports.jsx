@@ -506,363 +506,238 @@ const Reports = () => {
   };
   
   const handleExportReport = (data, name) => { 
-      const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
-      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
+      try {
+          const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+          const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
-      const dataToExport = [
-          { 'Concepto': companyName, 'Monto': '' },
-          { 'Concepto': companyNit, 'Monto': '' },
-          { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
-          { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
-          { 'Concepto': '', 'Monto': '' }, 
-          { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
-          { 'Concepto': '', 'Monto': '' } 
-      ];
+          const dataToExport = [
+              { 'Concepto': companyName, 'Monto': '' },
+              { 'Concepto': companyNit, 'Monto': '' },
+              { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
+              { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
+              { 'Concepto': '', 'Monto': '' }, 
+              { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
+              { 'Concepto': '', 'Monto': '' } 
+          ];
 
-      data.forEach(row => {
-          dataToExport.push({
-              'Concepto': row.item.trim(),
-              'Monto': row.amount != null ? row.amount : ''
+          (data || []).forEach(row => {
+              dataToExport.push({
+                  'Concepto': row.item ? String(row.item).trim() : '',
+                  'Monto': row.amount != null ? row.amount : ''
+              });
           });
-      });
 
-      exportToExcel(dataToExport, `Estado_de_Resultados_${selectedYear}`); 
-      toast({ title: 'Exportado a Excel', description: 'El Estado de Resultados se ha exportado exitosamente con la estructura formal.' }); 
+          // Se agrega el parámetro {} faltante para que no colapse
+          exportToExcel(dataToExport, `${name}_${selectedYear}`, {}); 
+          toast({ title: 'Exportado a Excel', description: 'El reporte se ha exportado exitosamente.' }); 
+      } catch (error) {
+          toast({ variant: 'destructive', title: 'Error de Exportación', description: error.message });
+      }
   };
 
-  // 👇 INICIO DE LAS FUNCIONES DE IMPRESIÓN FALTANTES 👇
   const handlePrintClick = (type) => {
-      setPrintType(type);
-      setPrintConfigOpen(true);
+      try {
+          setPrintType(type);
+          setPrintConfigOpen(true);
+      } catch (error) {
+          toast({ variant: 'destructive', title: 'Error', description: error.message });
+      }
   };
 
   const executePrint = () => {
-      setPrintConfigOpen(false);
-      const printWindow = window.open('', '_blank', 'width=1000,height=800');
-      if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); return; }
+      try {
+          setPrintConfigOpen(false);
+          const printWindow = window.open('', '_blank', 'width=1000,height=800');
+          if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); return; }
 
-      const companyName = activeCompany?.name || 'PARROQUIA LA SANTA CRUZ';
-      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
-      const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
-      const fechaCorte = `A 31 DE DICIEMBRE DE ${selectedYear}`;
+          const companyName = activeCompany?.name || 'PARROQUIA LA SANTA CRUZ';
+          const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
+          const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
+          const fechaCorte = `A 31 DE DICIEMBRE DE ${selectedYear}`;
 
-      const styles = `
-          <style>
-              @media print {
-                  @page { margin: 20mm; size: letter portrait; }
-                  body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; }
-              }
-              body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; padding: 20px; }
-              h1, h2, h3 { text-align: center; margin: 2px 0; font-size: 14px; font-weight: bold; }
-              .header { text-align: center; margin-bottom: 30px; font-weight: bold; font-size: 13px; line-height: 1.3; }
-              .table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-              .td { padding: 4px 0; vertical-align: bottom; }
-              .td-right { text-align: right; }
-              .border-bottom { border-bottom: 1px solid black; }
-              .border-bottom-double { border-bottom: 3px double black; }
-              .bold { font-weight: bold; }
-              .indent-1 { padding-left: 20px; }
-              .indent-2 { padding-left: 50px; }
-              .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
-              .sig-box { text-align: center; width: 40%; font-size: 12px; }
-              .sig-line { border-top: 1px solid black; margin-bottom: 5px; }
-          </style>
-      `;
-
-      let content = '';
-
-      if (printType === 'balance') {
-          const { assets, liabilities, equity, totals } = reportData.balanceSheet;
-          
-          const renderItems = (items) => items.map(item => {
-              if (item.isBold && !item.amount) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
-              let amountStr = item.amount != null ? `$ ${item.amount.toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
-              let rowClass = item.isTotal ? 'bold border-bottom-double' : (item.isSubtotal ? 'bold border-bottom' : '');
-              return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item.trim().toUpperCase()}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
-          }).join('');
-
-          content = `
-              <div class="header">
-                  ${arquidiocesis}<br/>
-                  ${companyName}<br/>
-                  ${companyNit}<br/>
-                  BALANCE GENERAL ${fechaCorte}
-              </div>
-              <table class="table">
-                  <tr><td class="td bold" colspan="2">ACTIVO</td></tr>
-                  ${renderItems(assets)}
-                  <tr><td class="td bold"><br/>TOTAL ACTIVO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.assets.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold" colspan="2"><br/>PASIVO</td></tr>
-                  ${renderItems(liabilities)}
-                  <tr><td class="td bold"><br/>TOTAL PASIVOS</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilities.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold" colspan="2"><br/>PATRIMONIO</td></tr>
-                  ${renderItems(equity)}
-                  <tr><td class="td bold"><br/>TOTAL PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.equity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold"><br/>TOTAL PASIVO + PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilitiesAndEquity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-              </table>
+          const styles = `
+              <style>
+                  @media print {
+                      @page { margin: 20mm; size: letter portrait; }
+                      body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; }
+                  }
+                  body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; padding: 20px; }
+                  h1, h2, h3 { text-align: center; margin: 2px 0; font-size: 14px; font-weight: bold; }
+                  .header { text-align: center; margin-bottom: 30px; font-weight: bold; font-size: 13px; line-height: 1.3; }
+                  .table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                  .td { padding: 4px 0; vertical-align: bottom; }
+                  .td-right { text-align: right; }
+                  .border-bottom { border-bottom: 1px solid black; }
+                  .border-bottom-double { border-bottom: 3px double black; }
+                  .bold { font-weight: bold; }
+                  .indent-1 { padding-left: 20px; }
+                  .indent-2 { padding-left: 50px; }
+                  .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
+                  .sig-box { text-align: center; width: 40%; font-size: 12px; }
+                  .sig-line { border-top: 1px solid black; margin-bottom: 5px; }
+              </style>
           `;
-      } else if (printType === 'pnl') {
-          content = `
-              <div class="header">
-                  ${arquidiocesis}<br/>
-                  ${companyName}<br/>
-                  ${companyNit}<br/>
-                  ESTADO DE RESULTADO ${fechaCorte}
-              </div>
-              <table class="table">
-                  ${reportData.incomeStatement.map(item => {
-                      if (item.isBold && !item.amount && !item.isTotal) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
-                      let amountStr = item.amount != null ? `$ ${Math.abs(item.amount).toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
-                      let rowClass = item.isTotal || item.isSubtotal ? 'bold border-bottom-double' : '';
-                      return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item.trim().toUpperCase()}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
-                  }).join('')}
-              </table>
-          `;
-      } else if (printType === 'cashflow') {
-          const { initial, sources, uses, totalSources, totalUses, final } = reportData.cashFlow;
-          content = `
-              <div class="header">
-                  ${arquidiocesis}<br/>
-                  ${companyName}<br/>
-                  ${companyNit}<br/>
-                  FLUJO DE EFECTIVO ${fechaCorte}
-              </div>
-              <table class="table">
-                  <tr><td class="td bold" colspan="2">Fuentes:</td></tr>
-                  <tr><td class="td indent-1">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${initial.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  <tr><td class="td bold indent-1">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${totalSources.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  ${sources.map(s => `<tr><td class="td indent-2">${s.item}</td><td class="td td-right border-bottom">${s.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
-                  <tr><td class="td bold indent-1"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${(initial + totalSources).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold" colspan="2"><br/>Usos de Fondo:</td></tr>
-                  <tr><td class="td bold indent-1">Menos: Gastos Realizados</td><td class="td td-right bold border-bottom">${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  ${uses.map(u => `<tr><td class="td indent-2">${u.item}</td><td class="td td-right border-bottom">${u.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
-                  <tr><td class="td bold indent-1"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold indent-1"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${final.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-              </table>
-          `;
+
+          let content = '';
+
+          if (printType === 'balance') {
+              const { assets, liabilities, equity, totals } = reportData.balanceSheet;
+              
+              const renderItems = (items) => (items || []).map(item => {
+                  if (item.isBold && !item.amount) return `<tr><td class="td bold" colspan="2"><br/>${item.item ? String(item.item).trim().toUpperCase() : ''}</td></tr>`;
+                  let amountStr = item.amount != null ? `$ ${item.amount.toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
+                  let rowClass = item.isTotal ? 'bold border-bottom-double' : (item.isSubtotal ? 'bold border-bottom' : '');
+                  return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item ? String(item.item).trim().toUpperCase() : ''}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
+              }).join('');
+
+              content = `
+                  <div class="header">
+                      ${arquidiocesis}<br/>
+                      ${companyName}<br/>
+                      ${companyNit}<br/>
+                      BALANCE GENERAL ${fechaCorte}
+                  </div>
+                  <table class="table">
+                      <tr><td class="td bold" colspan="2">ACTIVO</td></tr>
+                      ${renderItems(assets)}
+                      <tr><td class="td bold"><br/>TOTAL ACTIVO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.assets?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                      
+                      <tr><td class="td bold" colspan="2"><br/>PASIVO</td></tr>
+                      ${renderItems(liabilities)}
+                      <tr><td class="td bold"><br/>TOTAL PASIVOS</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.liabilities?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                      
+                      <tr><td class="td bold" colspan="2"><br/>PATRIMONIO</td></tr>
+                      ${renderItems(equity)}
+                      <tr><td class="td bold"><br/>TOTAL PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.equity?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                      
+                      <tr><td class="td bold"><br/>TOTAL PASIVO + PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.liabilitiesAndEquity?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                  </table>
+              `;
+          } else if (printType === 'pnl') {
+              content = `
+                  <div class="header">
+                      ${arquidiocesis}<br/>
+                      ${companyName}<br/>
+                      ${companyNit}<br/>
+                      ESTADO DE RESULTADO ${fechaCorte}
+                  </div>
+                  <table class="table">
+                      ${(reportData.incomeStatement || []).map(item => {
+                          if (item.isBold && !item.amount && !item.isTotal) return `<tr><td class="td bold" colspan="2"><br/>${item.item ? String(item.item).trim().toUpperCase() : ''}</td></tr>`;
+                          let amountStr = item.amount != null ? `$ ${Math.abs(item.amount).toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
+                          let rowClass = item.isTotal || item.isSubtotal ? 'bold border-bottom-double' : '';
+                          return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item ? String(item.item).trim().toUpperCase() : ''}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
+                      }).join('')}
+                  </table>
+              `;
+          } else if (printType === 'cashflow') {
+              const { initial, sources, uses, totalSources, totalUses, final } = reportData.cashFlow;
+              content = `
+                  <div class="header">
+                      ${arquidiocesis}<br/>
+                      ${companyName}<br/>
+                      ${companyNit}<br/>
+                      FLUJO DE EFECTIVO ${fechaCorte}
+                  </div>
+                  <table class="table">
+                      <tr><td class="td bold" colspan="2">Fuentes:</td></tr>
+                      <tr><td class="td indent-1">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${(initial || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      <tr><td class="td bold indent-1">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${(totalSources || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      ${(sources || []).map(s => `<tr><td class="td indent-2">${s.item}</td><td class="td td-right border-bottom">${(s.amount || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
+                      <tr><td class="td bold indent-1"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${((initial || 0) + (totalSources || 0)).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      
+                      <tr><td class="td bold" colspan="2"><br/>Usos de Fondo:</td></tr>
+                      <tr><td class="td bold indent-1">Menos: Gastos Realizados</td><td class="td td-right bold border-bottom">${(totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      ${(uses || []).map(u => `<tr><td class="td indent-2">${u.item}</td><td class="td td-right border-bottom">${(u.amount || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
+                      <tr><td class="td bold indent-1"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${(totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      
+                      <tr><td class="td bold indent-1"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${(final || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                  </table>
+              `;
+          }
+
+          printWindow.document.write(`
+              <!DOCTYPE html>
+              <html>
+              <head><title>Reporte_${printType}</title>${styles}</head>
+              <body>
+                  ${content}
+                  <div class="signatures">
+                      <div class="sig-box">
+                          <div class="sig-line"></div>
+                          <span class="bold">${signatures.repLegalName}</span><br/>
+                          REPRESENTANTE LEGAL<br/>
+                          ${signatures.repLegalId}
+                      </div>
+                      <div class="sig-box">
+                          <div class="sig-line"></div>
+                          <span class="bold">${signatures.contadorName}</span><br/>
+                          CONTADOR PÚBLICO<br/>
+                          ${signatures.contadorId}
+                      </div>
+                  </div>
+              </body>
+              </html>
+          `);
+          printWindow.document.close();
+          printWindow.focus();
+          setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+      } catch (error) {
+          toast({ variant: 'destructive', title: 'Error', description: 'Hubo un error generando el PDF: ' + error.message });
       }
-
-      printWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-          <head><title>Reporte_${printType}</title>${styles}</head>
-          <body>
-              ${content}
-              <div class="signatures">
-                  <div class="sig-box">
-                      <div class="sig-line"></div>
-                      <span class="bold">${signatures.repLegalName}</span><br/>
-                      REPRESENTANTE LEGAL<br/>
-                      ${signatures.repLegalId}
-                  </div>
-                  <div class="sig-box">
-                      <div class="sig-line"></div>
-                      <span class="bold">${signatures.contadorName}</span><br/>
-                      CONTADOR PÚBLICO<br/>
-                      ${signatures.contadorId}
-                  </div>
-              </div>
-          </body>
-          </html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
   };
-  // 👆 FIN DE LAS FUNCIONES DE IMPRESIÓN FALTANTES 👆
 
-  
+  const handleExportBalanceSheet = () => { 
+      try {
+          const { assets, liabilities, equity, totals } = reportData.balanceSheet; 
+          const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+          const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
-  const executePrint = () => {
-      setPrintConfigOpen(false);
-      const printWindow = window.open('', '_blank', 'width=1000,height=800');
-      if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); return; }
+          const dataToExport = [
+              { 'Concepto': companyName, 'Monto': '' },
+              { 'Concepto': companyNit, 'Monto': '' },
+              { 'Concepto': `BALANCE GENERAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
+              { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
+              { 'Concepto': '', 'Monto': '' }, 
+              { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
+              { 'Concepto': '', 'Monto': '' } 
+          ];
 
-      const companyName = activeCompany?.name || 'PARROQUIA LA SANTA CRUZ';
-      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
-      const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
-      const fechaCorte = `A 31 DE DICIEMBRE DE ${selectedYear}`;
+          (assets || []).forEach(a => {
+              dataToExport.push({
+                  'Concepto': a.item ? String(a.item).trim() : '',
+                  'Monto': a.amount != null ? a.amount : ''
+              });
+          });
+          dataToExport.push({ 'Concepto': 'TOTAL ACTIVOS', 'Monto': totals?.assets || 0 });
+          dataToExport.push({ 'Concepto': '', 'Monto': '' });
 
-      const styles = `
-          <style>
-              @media print {
-                  @page { margin: 20mm; size: letter portrait; }
-                  body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; }
-              }
-              body { font-family: 'Times New Roman', Times, serif; font-size: 12px; color: black; padding: 20px; }
-              h1, h2, h3 { text-align: center; margin: 2px 0; font-size: 14px; font-weight: bold; }
-              .header { text-align: center; margin-bottom: 30px; font-weight: bold; font-size: 13px; line-height: 1.3; }
-              .table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-              .td { padding: 4px 0; vertical-align: bottom; }
-              .td-right { text-align: right; }
-              .border-bottom { border-bottom: 1px solid black; }
-              .border-bottom-double { border-bottom: 3px double black; }
-              .bold { font-weight: bold; }
-              .indent-1 { padding-left: 20px; }
-              .indent-2 { padding-left: 50px; }
-              .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
-              .sig-box { text-align: center; width: 40%; font-size: 12px; }
-              .sig-line { border-top: 1px solid black; margin-bottom: 5px; }
-          </style>
-      `;
+          (liabilities || []).forEach(l => {
+              dataToExport.push({
+                  'Concepto': l.item ? String(l.item).trim() : '',
+                  'Monto': l.amount != null ? l.amount : ''
+              });
+          });
+          dataToExport.push({ 'Concepto': 'TOTAL PASIVOS', 'Monto': totals?.liabilities || 0 });
+          dataToExport.push({ 'Concepto': '', 'Monto': '' });
 
-      let content = '';
+          (equity || []).forEach(e => {
+              dataToExport.push({
+                  'Concepto': e.item ? String(e.item).trim() : '',
+                  'Monto': e.amount != null ? e.amount : ''
+              });
+          });
+          dataToExport.push({ 'Concepto': 'TOTAL PATRIMONIO', 'Monto': totals?.equity || 0 });
+          dataToExport.push({ 'Concepto': '', 'Monto': '' });
+          dataToExport.push({ 'Concepto': 'TOTAL PASIVO + PATRIMONIO', 'Monto': totals?.liabilitiesAndEquity || 0 });
 
-      if (printType === 'balance') {
-          const { assets, liabilities, equity, totals } = reportData.balanceSheet;
-          
-          const renderItems = (items) => items.map(item => {
-              if (item.isBold && !item.amount) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
-              let amountStr = item.amount != null ? `$ ${item.amount.toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
-              let rowClass = item.isTotal ? 'bold border-bottom-double' : (item.isSubtotal ? 'bold border-bottom' : '');
-              return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item.trim().toUpperCase()}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
-          }).join('');
-
-          content = `
-              <div class="header">
-                  ${arquidiocesis}<br/>
-                  ${companyName}<br/>
-                  ${companyNit}<br/>
-                  BALANCE GENERAL ${fechaCorte}
-              </div>
-              <table class="table">
-                  <tr><td class="td bold" colspan="2">ACTIVO</td></tr>
-                  ${renderItems(assets)}
-                  <tr><td class="td bold"><br/>TOTAL ACTIVO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.assets.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold" colspan="2"><br/>PASIVO</td></tr>
-                  ${renderItems(liabilities)}
-                  <tr><td class="td bold"><br/>TOTAL PASIVOS</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilities.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold" colspan="2"><br/>PATRIMONIO</td></tr>
-                  ${renderItems(equity)}
-                  <tr><td class="td bold"><br/>TOTAL PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.equity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold"><br/>TOTAL PASIVO + PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals.liabilitiesAndEquity.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-              </table>
-          `;
-      } else if (printType === 'pnl') {
-          content = `
-              <div class="header">
-                  ${arquidiocesis}<br/>
-                  ${companyName}<br/>
-                  ${companyNit}<br/>
-                  ESTADO DE RESULTADO ${fechaCorte}
-              </div>
-              <table class="table">
-                  ${reportData.incomeStatement.map(item => {
-                      if (item.isBold && !item.amount && !item.isTotal) return `<tr><td class="td bold" colspan="2"><br/>${item.item.trim().toUpperCase()}</td></tr>`;
-                      let amountStr = item.amount != null ? `$ ${Math.abs(item.amount).toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
-                      let rowClass = item.isTotal || item.isSubtotal ? 'bold border-bottom-double' : '';
-                      return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item.trim().toUpperCase()}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
-                  }).join('')}
-              </table>
-          `;
-      } else if (printType === 'cashflow') {
-          const { initial, sources, uses, totalSources, totalUses, final } = reportData.cashFlow;
-          content = `
-              <div class="header">
-                  ${arquidiocesis}<br/>
-                  ${companyName}<br/>
-                  ${companyNit}<br/>
-                  FLUJO DE EFECTIVO ${fechaCorte}
-              </div>
-              <table class="table">
-                  <tr><td class="td bold" colspan="2">Fuentes:</td></tr>
-                  <tr><td class="td indent-1">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${initial.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  <tr><td class="td bold indent-1">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${totalSources.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  ${sources.map(s => `<tr><td class="td indent-2">${s.item}</td><td class="td td-right border-bottom">${s.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
-                  <tr><td class="td bold indent-1"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${(initial + totalSources).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold" colspan="2"><br/>Usos de Fondo:</td></tr>
-                  <tr><td class="td bold indent-1">Menos: Gastos Realizados</td><td class="td td-right bold border-bottom">${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  ${uses.map(u => `<tr><td class="td indent-2">${u.item}</td><td class="td td-right border-bottom">${u.amount.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
-                  <tr><td class="td bold indent-1"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${totalUses.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                  
-                  <tr><td class="td bold indent-1"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${final.toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-              </table>
-          `;
+          // Se agrega el parámetro {} faltante para que no colapse
+          exportToExcel(dataToExport, `Balance_General_${selectedYear}`, {}); 
+          toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
+      } catch (error) {
+          toast({ variant: 'destructive', title: 'Error de Exportación', description: error.message });
       }
-
-      printWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-          <head><title>Reporte_${printType}</title>${styles}</head>
-          <body>
-              ${content}
-              <div class="signatures">
-                  <div class="sig-box">
-                      <div class="sig-line"></div>
-                      <span class="bold">${signatures.repLegalName}</span><br/>
-                      REPRESENTANTE LEGAL<br/>
-                      ${signatures.repLegalId}
-                  </div>
-                  <div class="sig-box">
-                      <div class="sig-line"></div>
-                      <span class="bold">${signatures.contadorName}</span><br/>
-                      CONTADOR PÚBLICO<br/>
-                      ${signatures.contadorId}
-                  </div>
-              </div>
-          </body>
-          </html>
-      `);      
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-  }; // Cierre de executePrint
-
-  // 👇 AGREGA ESTA LÍNEA 👇
-  const handleExportBalanceSheet = () => {
-      const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
-      const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
-
-      const dataToExport = [
-          { 'Concepto': companyName, 'Monto': '' },
-          { 'Concepto': companyNit, 'Monto': '' },
-          { 'Concepto': `BALANCE GENERAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
-          { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
-          { 'Concepto': '', 'Monto': '' }, 
-          { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
-          { 'Concepto': '', 'Monto': '' } 
-      ];
-
-      assets.forEach(a => {
-          dataToExport.push({
-              'Concepto': a.item.trim(),
-              'Monto': a.amount != null ? a.amount : ''
-          });
-      });
-      dataToExport.push({ 'Concepto': 'TOTAL ACTIVOS', 'Monto': totals.assets });
-      dataToExport.push({ 'Concepto': '', 'Monto': '' });
-
-      liabilities.forEach(l => {
-          dataToExport.push({
-              'Concepto': l.item.trim(),
-              'Monto': l.amount != null ? l.amount : ''
-          });
-      });
-      dataToExport.push({ 'Concepto': 'TOTAL PASIVOS', 'Monto': totals.liabilities });
-      dataToExport.push({ 'Concepto': '', 'Monto': '' });
-
-      equity.forEach(e => {
-          dataToExport.push({
-              'Concepto': e.item.trim(),
-              'Monto': e.amount != null ? e.amount : ''
-          });
-      });
-      dataToExport.push({ 'Concepto': 'TOTAL PATRIMONIO', 'Monto': totals.equity });
-      dataToExport.push({ 'Concepto': '', 'Monto': '' });
-      dataToExport.push({ 'Concepto': 'TOTAL PASIVO + PATRIMONIO', 'Monto': totals.liabilitiesAndEquity });
-
-      exportToExcel(dataToExport, `Balance_General_${selectedYear}`); 
-      toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
-  }; // <-- Esta llave ahora cierra correctamente handleExportBalanceSheet y no el componente
+  };
 
   
   const renderSheetTable = (items) => (items.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''}`}><td className={`py-2 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${item.isSubtotal ? 'font-semibold' : ''}`} style={{ paddingLeft: item.item.search(/\S/) * 4 }}>{item.item.trim()}</td><td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold' : ''}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>)));
