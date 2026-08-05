@@ -1489,13 +1489,12 @@ const Transactions = () => {
                                             saveTransactions(transactions.map(t => idsToLock.has(t.id) ? { ...t, isLocked: true } : t));
                                             
                                             // 2. Exportar
-                                            handlePrintDiarioPdf(); // 🚀 Cambiamos el comportamiento a PDF Legal
+                                            handleExportAccounting();
                                             toast({ title: "Libro Oficializado", description: "Los registros fueron bloqueados permanentemente por auditoría." });
                                         }} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
                                             <Lock className="w-4 h-4 mr-2" /> Oficializar Mes
                                         </Button>
-                                        <Button variant="outline" size="sm" onClick={handlePrintDiarioPdf} className="bg-white shadow-sm"><Printer className="w-4 h-4 mr-2" /> Imprimir Diario Oficial</Button>
-                                        <Button variant="ghost" size="sm" onClick={handleExportAccounting}><Download className="w-4 h-4 mr-2" /> Excel</Button>
+                                        <Button variant="outline" size="sm" onClick={handlePrintDiarioPdf} className="bg-white shadow-sm"><Printer className="w-4 h-4 mr-2" /> Imprimir Diario Legal (PDF)</Button>
                                     </>
                                 ) : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
                             </div>
