@@ -1338,6 +1338,170 @@ const Transactions = () => {
         }, 500);
     };
 
+    // =========================================================================
+    // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES
+    // =========================================================================
+    const libroMayorData = useMemo(() => {
+        const mayor = {};
+
+        // 1. Inicializar con las cuentas del catálogo
+        (accounts || []).forEach(acc => {
+            mayor[acc.number] = { code: acc.number, name: acc.name, saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
+        });
+
+        // 2. Cargar Saldos Iniciales Históricos (Bancos y Caja)
+        (initialBalances || []).filter(isRelevant).forEach(ib => {
+            const code = String(ib.accountingCode || '11050501');
+            if (!mayor[code]) mayor[code] = { code, name: ib.accountingName || 'CAJA PRINCIPAL', saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
+            mayor[code].saldoAnterior += parseFloat(ib.balance) || 0;
+        });
+
+        (bankAccounts || []).filter(isRelevant).forEach(ba => {
+            const code = String(ba.accountingCode || '111005');
+            if (!mayor[code]) mayor[code] = { code, name: ba.bankName, saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
+            mayor[code].saldoAnterior += parseFloat(ba.initialBalance) || 0;
+            
+            if (ba.initialInvestmentBalance) {
+                const invCode = '12950501';
+                if (!mayor[invCode]) mayor[invCode] = { code: invCode, name: 'APORTES COOPERATIVA', saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
+                mayor[invCode].saldoAnterior += parseFloat(ba.initialInvestmentBalance) || 0;
+            }
+        });
+
+        // 3. Procesar todas las transacciones
+        processedTransactions.forEach(t => {
+            if (t.isInternalTransfer && !t.debitAccount) return; 
+            
+            const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
+            const { debit, credit } = resolveAccountingRow(t);
+
+            const processEntry = (accCode, accName, amount, isDebitEntry) => {
+                if (!accCode) return;
+                const codeStr = String(accCode);
+                if (!mayor[codeStr]) mayor[codeStr] = { code: codeStr, name: accName || 'N/A', saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
+                
+                const isDebitNature = ['1', '5', '6', '8'].includes(codeStr.charAt(0));
+
+                if (tDate < startDate) {
+                    // Historial antes de la fecha inicial va al Saldo Anterior
+                    if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
+                    else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
+                } else if (tDate >= startDate && tDate <= endDate) {
+                    // Movimientos del rango seleccionado
+                    if (isDebitEntry) mayor[codeStr].debito += amount;
+                    else mayor[codeStr].credito += amount;
+                }
+            };
+
+            if (debit?.code) processEntry(debit.code, debit.name, parseFloat(debit.value) || 0, true);
+            if (credit?.code) processEntry(credit.code, credit.name, parseFloat(credit.value) || 0, false);
+        });
+
+        // 4. Aplicar Ecuación Contable para Nuevo Saldo
+        return Object.values(mayor)
+            .filter(acc => Math.abs(acc.saldoAnterior) > 0.01 || Math.abs(acc.debito) > 0.01 || Math.abs(acc.credito) > 0.01)
+            .map(acc => {
+                const isDebitNature = ['1', '5', '6', '8'].includes(acc.code.charAt(0));
+                if (isDebitNature) {
+                    acc.nuevoSaldo = acc.saldoAnterior + acc.debito - acc.credito;
+                } else {
+                    acc.nuevoSaldo = acc.saldoAnterior - acc.debito + acc.credito;
+                }
+                return acc;
+            })
+            .sort((a, b) => a.code.localeCompare(b.code));
+    }, [processedTransactions, accounts, initialBalances, bankAccounts, startDate, endDate]);
+
+    const handlePrintMayorPdf = () => {
+        if (libroMayorData.length === 0) { 
+            toast({ variant: 'destructive', title: "Libro Vacío", description: "No hay datos para generar el Libro Mayor." }); 
+            return; 
+        }
+
+        setIsPrinting(true);
+        const printWindow = window.open('', '_blank', 'width=1000,height=800');
+        if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
+
+        let totalAnt = 0, totalDeb = 0, totalCred = 0, totalNuev = 0;
+        
+        const rowsHtml = libroMayorData.map(acc => {
+            totalAnt += acc.saldoAnterior;
+            totalDeb += acc.debito;
+            totalCred += acc.credito;
+            totalNuev += acc.nuevoSaldo;
+            
+            return `
+                <tr>
+                    <td style="padding:6px; border-bottom:1px solid #eee; font-weight:bold;">${acc.code}</td>
+                    <td style="padding:6px; border-bottom:1px solid #eee; text-transform:uppercase; font-size:10px;">${acc.name}</td>
+                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right;">${acc.saldoAnterior.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right; color:#2563eb;">${acc.debito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right; color:#ea580c;">${acc.credito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td style="padding:6px; border-bottom:1px solid #eee; text-align:right; font-weight:bold;">${acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                </tr>
+            `;
+        }).join('');
+
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+              <head>
+                  <title>Libro_Mayor_${selectedYear}</title>
+                  <style>
+                      @media print {
+                          @page { margin: 15mm; size: portrait; }
+                          body { font-family: Arial, sans-serif; font-size: 11px; }
+                          table { page-break-inside: auto; border-collapse: collapse; width: 100%; }
+                          tr { page-break-inside: avoid; page-break-after: auto; }
+                          thead { display: table-header-group; }
+                      }
+                      body { font-family: Arial, sans-serif; font-size: 11px; margin: 0; padding: 20px; }
+                      th { background-color: #f1f5f9; padding: 8px; text-align: right; border-bottom: 2px solid #000; }
+                      th:nth-child(1), th:nth-child(2) { text-align: left; }
+                  </style>
+              </head>
+              <body>
+                  <div style="border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px;">
+                      <h1 style="font-size: 18px; margin: 0; text-transform: uppercase;">${activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO"}</h1>
+                      <p style="margin: 2px 0; font-size: 12px;">NIT: ${activeCompany?.doc || "802012765"}</p>
+                      <h2 style="font-size: 16px; margin: 10px 0 0 0; text-align: center;">LIBRO MAYOR Y DE BALANCES</h2>
+                      <p style="margin: 5px 0 0 0; text-align: center; font-weight: bold; text-transform: uppercase;">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}</p>
+                  </div>
+                  
+                  <table>
+                      <thead>
+                          <tr>
+                              <th style="width:10%;">Código</th>
+                              <th style="width:30%;">Cuenta</th>
+                              <th style="width:15%;">Saldo Anterior</th>
+                              <th style="width:15%;">Mov. Débito</th>
+                              <th style="width:15%;">Mov. Crédito</th>
+                              <th style="width:15%;">Nuevo Saldo</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          ${rowsHtml}
+                          <tr>
+                              <td colspan="2" style="text-align:right; font-weight:bold; padding:10px;">SUMAS DEL PERIODO:</td>
+                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000;">${totalAnt.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; color:#2563eb;">${totalDeb.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000; color:#ea580c;">${totalCred.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td style="text-align:right; font-weight:bold; padding:10px; border-top:2px solid #000;">${totalNuev.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                          </tr>
+                      </tbody>
+                  </table>
+                  <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #666;">
+                      Documento Oficial Generado - Fecha de impresión: ${new Date().toLocaleString('es-CO')}
+                  </div>
+              </body>
+          </html>
+        `);
+
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); printWindow.close(); setIsPrinting(false); }, 500);
+    };
+
     return (
         <>
             <Helmet><title>Transacciones - Sistema Contable</title></Helmet>
@@ -1463,8 +1627,9 @@ const Transactions = () => {
                             
                             <div className="flex bg-slate-100 rounded-lg p-1">
                                 <button onClick={() => setViewMode('balances')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'balances' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><TableIcon className="w-3 h-3 inline mr-1" /> Control</button>
-                                <button onClick={() => setViewMode('accounting')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'accounting' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BookOpen className="w-3 h-3 inline mr-1" /> Partida Doble</button>
-                                <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`}><FileText className="w-3 h-3 inline mr-1" /> Cuentas de Cobro</button>
+                                <button onClick={() => setViewMode('accounting')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'accounting' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BookOpen className="w-3 h-3 inline mr-1" /> Diario Oficial</button>
+                                <button onClick={() => setViewMode('mayor')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'mayor' ? 'bg-white shadow-sm text-purple-700' : 'text-slate-500 hover:text-purple-600'}`}><Filter className="w-3 h-3 inline mr-1" /> Mayor y Balances</button>
+                                <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`}><FileText className="w-3 h-3 inline mr-1" /> CxC</button>
                             </div>
                             {canEdit && <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>}
                         </div>
@@ -1620,8 +1785,44 @@ const Transactions = () => {
                                         );
                                     })}
                                      {displayTransactions.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay registros contables</td></tr>)}
+                                
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ) : viewMode === 'mayor' ? (
+                        <div className="overflow-x-auto">
+                            <div className="bg-purple-50 p-4 border-b border-purple-100 flex justify-between items-center">
+                                <div>
+                                    <h3 className="font-bold text-purple-900 text-lg">Libro Mayor y de Balances</h3>
+                                    <p className="text-xs text-purple-700">Consolidación algorítmica de saldos reglamentarios</p>
+                                </div>
+                                <Button variant="outline" size="sm" onClick={handlePrintMayorPdf} className="bg-white border-purple-200 text-purple-700 shadow-sm hover:bg-purple-100"><Printer className="w-4 h-4 mr-2" /> Imprimir Mayor Oficial (PDF)</Button>
+                            </div>
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-800 text-slate-200 font-medium">
+                                    <tr>
+                                        <th className="px-4 py-3">Código PUC</th>
+                                        <th className="px-4 py-3 w-1/3">Cuenta</th>
+                                        <th className="px-4 py-3 text-right">Saldo Anterior</th>
+                                        <th className="px-4 py-3 text-right text-blue-300">Mov. Débito</th>
+                                        <th className="px-4 py-3 text-right text-orange-300">Mov. Crédito</th>
+                                        <th className="px-4 py-3 text-right">Nuevo Saldo</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-slate-100">
+                                    {libroMayorData.map(acc => (
+                                        <tr key={acc.code} className="hover:bg-slate-50 transition-colors">
+                                            <td className="px-4 py-3 font-mono font-bold text-slate-700">{acc.code}</td>
+                                            <td className="px-4 py-3 text-xs uppercase text-slate-600">{acc.name}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-slate-500">{acc.saldoAnterior.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-blue-600 font-medium">{acc.debito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-orange-600 font-medium">{acc.credito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">{acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                        </tr>
+                                    ))}
+                                    {libroMayorData.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo</td></tr>)}
                                 </tbody>
-
                             </table>
                         </div>
                     ) : (
