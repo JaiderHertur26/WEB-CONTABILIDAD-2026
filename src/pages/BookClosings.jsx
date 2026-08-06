@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
     Calendar as CalendarIcon,
     Download,
@@ -15,11 +15,7 @@ import {
     Printer,
     BookOpen,
     AlertCircle,
-    ArrowUpRight,
-    Lock,
-    Unlock,
-    ShieldAlert,
-    FileCheck
+    ArrowUpRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
@@ -59,36 +55,12 @@ const BookClosings = () => {
     const [cashAccounts] = useCompanyData('cash_accounts');
     const { toast } = useToast();
 
-    // --- NUEVOS ESTADOS PARA EL CIERRE ANUAL ---
-    const [showCloseModal, setShowCloseModal] = useState(false);
-    const [confirmWord, setConfirmWord] = useState('');
-    const [annualAudit, setAnnualAudit] = useState(null);
-
     const availableYears = React.useMemo(() => {
         const years = new Set((transactions || []).map(t => new Date(t.date).getFullYear()));
         const current = new Date().getFullYear();
         years.add(current);
         return Array.from(years).sort((a, b) => b - a).map(String);
     }, [transactions]);
-
-    // --- LÓGICA DE ESTADO DEL AÑO (Abierto/Cerrado) ---
-    const yearTransactions = React.useMemo(() => {
-        return (transactions || []).filter(t => new Date(t.date).getFullYear() === parseInt(selectedYear));
-    }, [transactions, selectedYear]);
-
-    // Verificamos si ya existe un asiento de cierre para este año
-    const isYearClosed = React.useMemo(() => {
-        return yearTransactions.some(t => 
-            t.description?.toUpperCase().includes(`CIERRE FISCAL ${selectedYear}`) || 
-            t.isClosingEntry === true
-        );
-    }, [yearTransactions, selectedYear]);
-
-    // Validar si hay borradores (Pre-flight check)
-    const hasDrafts = React.useMemo(() => {
-        return yearTransactions.some(t => ['borrador', 'pendiente'].includes(t.status?.toLowerCase()));
-    }, [yearTransactions]);
-
 
     const calculateRange = () => {
         let start, end;
@@ -160,6 +132,7 @@ const BookClosings = () => {
         const incomeMap = {};
         const expenseMap = {};
 
+        // 1. INTELIGENCIA PARA LA TABLA MENSUAL
         const monthlySummary = Array.from({ length: 12 }, (_, i) => ({
             mes: months[i].toUpperCase(),
             ingresos: 0,
@@ -167,28 +140,34 @@ const BookClosings = () => {
             utilidad: 0
         }));
 
+        // 2. CLASIFICACIÓN DEL ESTADO DE RESULTADOS (P&L) Y CONCILIACIONES
         allRelevant.forEach(t => {
+            // EVITAR DOBLE CONTABILIZACIÓN DE CRUCES MANUALES: Ignorar el gemelo inverso (-inc)
             if (t.debitAccount && t.creditAccount && String(t.id).endsWith('-inc')) return;
 
             const amount = parseFloat(t.amount || 0);
             
+            // Determinar el mes exacto de la transacción
             const dateObj = new Date(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const mIndex = adjustedDate.getMonth();
 
+            // A. Asiento manual de Partida Doble
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
                 const drPrefix = drCode.charAt(0);
                 const crPrefix = crCode.charAt(0);
 
+                // INGRESOS
                 if (crPrefix === '4') { 
                     totalIncome += amount; 
                     incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount;
                     monthlySummary[mIndex].ingresos += amount;
                 }
                 
+                // GASTOS (La magia: Sumamos los gastos regulares 5,6,7 Y la salida de Catedratón 4)
                 if (['5', '6', '7', '4'].includes(drPrefix)) { 
                     totalExpense += amount; 
                     const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Salida/Débito)` : t.debitAccount.name;
@@ -196,9 +175,11 @@ const BookClosings = () => {
                     monthlySummary[mIndex].gastos += amount;
                 }
 
+                // Fondos de Terceros (Pasivos - Ej: 2365 Retención)
                 if (crPrefix === '2') tercerosIn += amount;
                 if (drPrefix === '2') tercerosOut += amount;
 
+                // Capitalizaciones e Inversiones (Activos)
                 if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
                     capitalizacion += amount;
                 }
@@ -208,6 +189,7 @@ const BookClosings = () => {
                 return;
             }
 
+            // B. Transacciones Normales o Cruces Internos Automáticos
             const accountObj = (accounts || []).find(a => a.name === t.category);
             let prefix = '0';
             
@@ -219,6 +201,7 @@ const BookClosings = () => {
                 prefix = t.type === 'income' ? '4' : '5';
             }
             
+            // P&L (Estado de Resultados)
             if (!t.isInternalTransfer) {
                 if (prefix === '4') {
                     if (t.type === 'income') {
@@ -226,6 +209,7 @@ const BookClosings = () => {
                         incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
                         monthlySummary[mIndex].ingresos += amount;
                     } else {
+                        // Si es un "Gasto" hacia una cuenta 4
                         totalExpense += amount;
                         expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
                         monthlySummary[mIndex].gastos += amount;
@@ -237,6 +221,7 @@ const BookClosings = () => {
                 }
             }
 
+            // Conciliación Automática
             if (prefix === '2') {
                 if (t.type === 'income') tercerosIn += amount;
                 if (t.type === 'expense') tercerosOut += amount;
@@ -249,10 +234,12 @@ const BookClosings = () => {
             }
         });
 
+        // Calcular utilidad mensual
         monthlySummary.forEach(m => m.utilidad = m.ingresos - m.gastos);
 
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
+        // 3. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
         const flowIn = {};
         const flowOut = {};
 
@@ -314,7 +301,7 @@ const BookClosings = () => {
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
-            monthlySummary,
+            monthlySummary, // Agregado para el PDF
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
@@ -325,83 +312,6 @@ const BookClosings = () => {
 
         toast({ title: "Cierre Generado", description: "Movimientos detallados y procesados correctamente." });
     };
-
-    // --- LÓGICA DE EJECUCIÓN DEL CIERRE ANUAL ---
-    const executeAnnualClose = () => {
-        if (confirmWord !== 'CERRAR') return;
-
-        // Paso 1: Pre-flight checks
-        if (hasDrafts) {
-            toast({ variant: 'destructive', title: "Operación Bloqueada", description: "Existen comprobantes en estado Borrador o Pendiente para este año." });
-            setShowCloseModal(false);
-            return;
-        }
-
-        const relevant = yearTransactions.filter(t => !['eliminado', 'anulado', 'cancelado'].includes(t.status?.toLowerCase()));
-        
-        let totalIncome = 0;
-        let totalExpense = 0;
-
-        // Paso 2: Simulación del Resultado
-        relevant.forEach(t => {
-            if (t.debitAccount && t.creditAccount && String(t.id).endsWith('-inc')) return;
-            const amount = parseFloat(t.amount || 0);
-
-            if (t.debitAccount && t.creditAccount) {
-                const drPrefix = String(t.debitAccount.code || '').charAt(0);
-                const crPrefix = String(t.creditAccount.code || '').charAt(0);
-                if (crPrefix === '4') totalIncome += amount;
-                if (['5', '6', '7', '4'].includes(drPrefix)) totalExpense += amount;
-            } else {
-                let prefix = '0';
-                const accountObj = (accounts || []).find(a => a.name === t.category);
-                if (accountObj) prefix = String(accountObj.number).charAt(0);
-                else prefix = t.type === 'income' ? '4' : '5';
-
-                if (!t.isInternalTransfer) {
-                    if (prefix === '4') {
-                        if (t.type === 'income') totalIncome += amount;
-                        else totalExpense += amount;
-                    } else if (['5', '6', '7'].includes(prefix)) {
-                        totalExpense += amount;
-                    }
-                }
-            }
-        });
-
-        const utilidad = totalIncome - totalExpense;
-
-        // Pasos 3, 4 y 5: Construcción del Payload para el Backend
-        const closingPayload = {
-            year: selectedYear,
-            voucherNumber: `CE-${selectedYear}`,
-            date: `${selectedYear}-12-31T23:59:59`,
-            ingresosCancelados: totalIncome,
-            gastosCancelados: totalExpense,
-            resultadoEjercicio: utilidad,
-            cuentaPatrimonio: utilidad >= 0 ? '360505 (Utilidad)' : '361005 (Pérdida)',
-            status: 'CERRADO'
-        };
-
-        /* 
-          ===============================================================
-          AQUÍ DEBES LLAMAR A TU API (BACKEND/SUPABASE) PARA GUARDAR EL ASIENTO 
-          Y BLOQUEAR LA BASE DE DATOS (MIDDLEWARE).
-          Ejemplo:
-          await api.post('/api/cierre-anual', closingPayload);
-          ===============================================================
-        */
-
-        setAnnualAudit(closingPayload);
-        setShowCloseModal(false);
-        setConfirmWord('');
-        
-        toast({ 
-            title: "Cierre Anual Exitoso", 
-            description: `Se han cancelado las cuentas de resultado y se bloqueó el año ${selectedYear}.` 
-        });
-    };
-
 
     const handleExport = () => {
         if (!report) return;
@@ -515,8 +425,8 @@ const BookClosings = () => {
                         <div class="summary-value" style="color: #2563eb;">$${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
                     </div>
                 </div>
-        
-        <div class="section-title">Resumen Mensual</div>
+		
+		<div class="section-title">Resumen Mensual</div>
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                     <thead>
                         <tr>
@@ -629,61 +539,7 @@ const BookClosings = () => {
                 </style>
             </Helmet>
 
-            {/* --- MODAL DE CONFIRMACIÓN CRÍTICA (Tailwind Puro, cero fallos de importación) --- */}
-            <AnimatePresence>
-                {showCloseModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-                        <motion.div 
-                            initial={{ opacity: 0, scale: 0.95 }} 
-                            animate={{ opacity: 1, scale: 1 }} 
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-red-200 overflow-hidden"
-                        >
-                            <div className="bg-red-50 p-6 flex flex-col items-center text-center border-b border-red-100">
-                                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
-                                    <ShieldAlert className="w-8 h-8" />
-                                </div>
-                                <h2 className="text-xl font-bold text-red-900 mb-2">¡Atención! Operación Crítica</h2>
-                                <p className="text-sm text-red-700">
-                                    Esta operación cancelará las cuentas de resultado e iniciará el nuevo año fiscal de forma irreversible. Se bloquearán los comprobantes del año {selectedYear}.
-                                </p>
-                            </div>
-                            
-                            <div className="p-6">
-                                <Label className="text-slate-700 mb-2 block">
-                                    Para confirmar, escriba la palabra <strong className="text-red-600 font-bold select-none">CERRAR</strong>
-                                </Label>
-                                <input 
-                                    type="text" 
-                                    value={confirmWord}
-                                    onChange={(e) => setConfirmWord(e.target.value)}
-                                    placeholder="Escriba CERRAR"
-                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors uppercase font-bold text-center tracking-widest"
-                                />
-                                
-                                <div className="flex gap-3 mt-6">
-                                    <Button 
-                                        variant="outline" 
-                                        onClick={() => { setShowCloseModal(false); setConfirmWord(''); }} 
-                                        className="flex-1"
-                                    >
-                                        Cancelar
-                                    </Button>
-                                    <Button 
-                                        onClick={executeAnnualClose} 
-                                        disabled={confirmWord !== 'CERRAR'}
-                                        className="flex-1 bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
-                                    >
-                                        Sí, Ejecutar Cierre
-                                    </Button>
-                                </div>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            <div className="space-y-6 max-w-7xl mx-auto relative z-10">
+            <div className="space-y-6 max-w-7xl mx-auto">
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="print:hidden">
                     <h1 className="text-4xl font-bold text-slate-900">Cierres Contables</h1>
                     <p className="text-slate-600">Genera el Acta de Cierre detallando el Estado de Resultados y el Flujo de Efectivo.</p>
@@ -700,7 +556,7 @@ const BookClosings = () => {
                         ].map(tab => (
                             <button
                                 key={tab.id}
-                                onClick={() => { setActiveTab(tab.id); setAnnualAudit(null); }}
+                                onClick={() => setActiveTab(tab.id)}
                                 className={`flex items-center px-6 py-4 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeTab === tab.id
                                     ? 'border-blue-600 text-blue-600 bg-white'
                                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100'
@@ -752,37 +608,14 @@ const BookClosings = () => {
                         )}
 
                         {activeTab === 'year' && (
-                            <div className="flex-1 flex flex-col md:flex-row gap-4 items-end justify-between">
-                                <div className="space-y-2 flex-1 min-w-[200px]">
-                                    <Label>Año Fiscal</Label>
-                                    <Select value={selectedYear} onValueChange={setSelectedYear}>
-                                        <SelectTrigger><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            {availableYears.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                
-                                {/* --- INDICADORES Y BOTONERA DE CIERRE ANUAL --- */}
-                                <div className="flex flex-wrap items-center gap-4 pb-1">
-                                    {isYearClosed ? (
-                                        <div className="flex items-center text-sm font-bold text-red-700 bg-red-100 border border-red-200 px-4 py-2 rounded-lg">
-                                            <Lock className="w-4 h-4 mr-2" /> Año Cerrado
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center text-sm font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-4 py-2 rounded-lg">
-                                            <Unlock className="w-4 h-4 mr-2" /> Año Abierto
-                                        </div>
-                                    )}
-                                    
-                                    <Button 
-                                        onClick={() => setShowCloseModal(true)} 
-                                        disabled={isYearClosed}
-                                        className="bg-slate-900 hover:bg-black text-white min-w-[220px]"
-                                    >
-                                        <BookOpen className="w-4 h-4 mr-2" /> Ejecutar Asiento de Cierre Anual
-                                    </Button>
-                                </div>
+                            <div className="space-y-2 flex-1 min-w-[200px]">
+                                <Label>Año Fiscal</Label>
+                                <Select value={selectedYear} onValueChange={setSelectedYear}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {availableYears.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         )}
 
@@ -800,62 +633,17 @@ const BookClosings = () => {
                         )}
 
                         <Button onClick={generateReport} className="bg-blue-600 hover:bg-blue-700 min-w-[140px]">
-                            <PieChart className="w-4 h-4 mr-2" /> Calcular Informe
+                            <PieChart className="w-4 h-4 mr-2" /> Calcular Cierre
                         </Button>
                     </div>
                 </motion.div>
 
-                {/* --- VISOR DE AUDITORÍA POST-CIERRE --- */}
-                {annualAudit && activeTab === 'year' && (
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-8 rounded-xl shadow-lg border border-slate-200">
-                        <div className="flex items-center justify-between mb-6 pb-6 border-b">
-                            <div>
-                                <h2 className="text-2xl font-bold text-slate-900 flex items-center">
-                                    <FileCheck className="w-6 h-6 mr-2 text-green-600" /> Auditoría de Cierre Fiscal {annualAudit.year}
-                                </h2>
-                                <p className="text-slate-500 mt-1">Comprobante generado: <strong>{annualAudit.voucherNumber}</strong></p>
-                            </div>
-                            <span className="bg-slate-900 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                                {annualAudit.status}
-                            </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            <div className="bg-slate-50 p-5 rounded-lg border">
-                                <p className="text-sm text-slate-500 font-medium mb-1">Total Ingresos Cancelados (Clase 4)</p>
-                                <p className="text-2xl font-bold text-slate-800">${annualAudit.ingresosCancelados.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-                            </div>
-                            <div className="bg-slate-50 p-5 rounded-lg border">
-                                <p className="text-sm text-slate-500 font-medium mb-1">Total Gastos Cancelados (Clases 5, 6, 7)</p>
-                                <p className="text-2xl font-bold text-slate-800">${annualAudit.gastosCancelados.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-                            </div>
-                            <div className={`p-5 rounded-lg border ${annualAudit.resultadoEjercicio >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}>
-                                <p className="text-sm font-medium mb-1 flex items-center justify-between">
-                                    <span className={annualAudit.resultadoEjercicio >= 0 ? 'text-blue-700' : 'text-red-700'}>Resultado a Patrimonio</span>
-                                    <span className="text-xs opacity-70">Cta: {annualAudit.cuentaPatrimonio}</span>
-                                </p>
-                                <p className={`text-2xl font-bold ${annualAudit.resultadoEjercicio >= 0 ? 'text-blue-900' : 'text-red-900'}`}>
-                                    ${annualAudit.resultadoEjercicio.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end">
-                            <Button variant="outline" className="border-slate-300" onClick={() => toast({ description: "La descarga de PDF de Auditoría estará disponible en breve." })}>
-                                <Download className="w-4 h-4 mr-2" /> Descargar Acta de Cierre (PDF)
-                            </Button>
-                        </div>
-                    </motion.div>
-                )}
-
-
-                {/* RESTO DEL CÓDIGO (EL REPORTE DE FLUJO/P&L ORIGINAL) */}
                 {report && (
                     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }} className="space-y-6 pb-12">
-                        {/* Se mantiene intacta la vista del reporte anterior */}
+
                         <div className="flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4 bg-white p-6 rounded-xl border shadow-sm">
                             <div>
-                                <h1 className="text-2xl font-bold text-slate-900 uppercase">Informe de Resultados</h1>
+                                <h1 className="text-2xl font-bold text-slate-900 uppercase">Acta de Cierre Contable</h1>
                                 <h2 className="text-md font-medium text-slate-700 mt-1">
                                     Periodo: {format(report.period.start, "d 'de' MMMM, yyyy", { locale: es })} al {format(report.period.end, "d 'de' MMMM, yyyy", { locale: es })}
                                 </h2>

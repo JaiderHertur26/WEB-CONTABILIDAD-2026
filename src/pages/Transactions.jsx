@@ -120,6 +120,13 @@ const Transactions = () => {
     const [billingDocuments, saveBillingDocuments] = useCompanyData('billing_documents');
     const [autoBillingCategories, setAutoBillingCategories] = useCompanyData('auto_billing_categories');
 
+    // 🚀 HOOKS Y ESTADOS PARA EL CIERRE ANUAL AUTOMATIZADO
+    const [fiscalYears, saveFiscalYears] = useCompanyData('fiscal_years');
+    const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
+    const [closeConfirmationText, setCloseConfirmationText] = useState('');
+    const [auditReport, setAuditReport] = useState(null);
+    const [closingYear, setClosingYear] = useState(new Date().getFullYear().toString());
+
     const [processedTransactions, setProcessedTransactions] = useState([]);
     const [filteredTransactions, setFilteredTransactions] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -194,6 +201,121 @@ const Transactions = () => {
         return Array.from(years).sort((a, b) => b - a);
     }, [transactions, isRelevant]);
     
+    // ======================================================================================
+    // ⚙️ MOTOR LÓGICO: EJECUCIÓN DEL CIERRE ANUAL (DECRETO 2420 DE 2015)
+    // ======================================================================================
+    const executeAnnualClosing = () => {
+        if (closeConfirmationText !== 'CERRAR') {
+            toast({ variant: 'destructive', title: 'Confirmación inválida', description: 'Debe escribir la palabra CERRAR exactamente.' });
+            return;
+        }
+
+        const safeTxs = Array.isArray(transactions) ? transactions : [];
+        const safeIBs = Array.isArray(initialBalances) ? initialBalances : [];
+        const companyTxs = safeTxs.filter(t => (t.company_id || t.companyId) === activeCompany?.id);
+        
+        const getTxYear = (dStr) => {
+            if (!dStr) return 0;
+            if (dStr.includes('-')) return parseInt(dStr.split('-')[0], 10);
+            return new Date(dStr).getFullYear();
+        };
+
+        const yearTx = companyTxs.filter(t => getTxYear(t.date).toString() === closingYear);
+
+        // PASO 1: Validación Previa
+        if (yearTx.some(t => ['borrador', 'pendiente'].includes(String(t.status).toLowerCase()))) {
+            toast({ variant: 'destructive', title: 'Auditoría Fallida', description: 'Existen comprobantes en Borrador o Pendientes. Imposible cerrar el año.' });
+            return;
+        }
+
+        const balances = {};
+        const safeParseFloat = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+
+        // Trasladar saldos históricos
+        safeIBs.filter(ib => (ib.company_id || ib.companyId) === activeCompany?.id).forEach(ib => {
+            if (getTxYear(ib.date) <= parseInt(closingYear)) {
+                const code = String(ib.accountingCode || '11050501');
+                if (!balances[code]) balances[code] = { debit: 0, credit: 0 };
+                if (['1', '5', '6', '8'].includes(code.charAt(0))) balances[code].debit += safeParseFloat(ib.balance);
+                else balances[code].credit += safeParseFloat(ib.balance);
+            }
+        });
+
+        // Sumar transacciones del año
+        yearTx.forEach(t => {
+            if (t.isInternalTransfer && !t.debitAccount) return;
+            const amount = safeParseFloat(t.amount);
+            
+            if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return;
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                if (drCode) { if (!balances[drCode]) balances[drCode] = { debit: 0, credit: 0 }; balances[drCode].debit += amount; }
+                if (crCode) { if (!balances[crCode]) balances[crCode] = { debit: 0, credit: 0 }; balances[crCode].credit += amount; }
+            } else {
+                const accObj = (accounts || []).find(a => a.name === t.category);
+                const code = accObj ? String(accObj.number) : (t.type === 'income' ? '4105' : '5105');
+                const cashCode = '11050501';
+                if (!balances[code]) balances[code] = { debit: 0, credit: 0 };
+                if (!balances[cashCode]) balances[cashCode] = { debit: 0, credit: 0 };
+                if (t.type === 'income') { balances[cashCode].debit += amount; balances[code].credit += amount; } 
+                else if (t.type === 'expense') { balances[code].debit += amount; balances[cashCode].credit += amount; }
+            }
+        });
+
+        // PASO 2: Simulación del P&L
+        let totalIncomeCancelled = 0;
+        let totalExpenseCancelled = 0;
+        Object.entries(balances).forEach(([code, data]) => {
+            const netBalance = data.debit - data.credit;
+            if (code.startsWith('4')) totalIncomeCancelled += Math.abs(netBalance);
+            else if (code.startsWith('5') || code.startsWith('6') || code.startsWith('7')) totalExpenseCancelled += Math.abs(netBalance);
+        });
+
+        const netProfit = totalIncomeCancelled - totalExpenseCancelled;
+        const equityCode = netProfit >= 0 ? '360505' : '361005';
+        const equityName = netProfit >= 0 ? 'Utilidad del Ejercicio' : 'Pérdida del Ejercicio';
+
+        // PASO 3: Inyección del Comprobante
+        const closingVoucherId = `CE-${closingYear}-${Date.now()}`;
+        const closingTransaction = {
+            id: closingVoucherId, type: 'adjustment', voucherPrefix: 'CE', voucherNumber: parseInt(closingYear),
+            date: `${closingYear}-12-31`, description: `CIERRE FISCAL ${closingYear} - CANCELACIÓN CUENTAS DE RESULTADO`,
+            amount: Math.abs(netProfit), category: equityName, isInternalTransfer: true, company_id: activeCompany?.id, companyId: activeCompany?.id,
+            debitAccount: { code: netProfit < 0 ? equityCode : '4105', name: netProfit < 0 ? equityName : 'CIERRE INGRESOS' },
+            creditAccount: { code: netProfit >= 0 ? equityCode : '5105', name: netProfit >= 0 ? equityName : 'CIERRE GASTOS' }
+        };
+
+        // PASO 4: Generación de Saldos Iniciales
+        const newInitialBalances = [];
+        Object.entries(balances).forEach(([code, data]) => {
+            if (code.startsWith('1') || code.startsWith('2') || code.startsWith('3')) {
+                let netBal = ['1'].includes(code.charAt(0)) ? (data.debit - data.credit) : (data.credit - data.debit);
+                if (code === equityCode) netBal += Math.abs(netProfit);
+                if (Math.abs(netBal) > 0.01) {
+                    newInitialBalances.push({
+                        id: `ib-${parseInt(closingYear) + 1}-${code}`, accountingCode: code, accountingName: `Saldo Trasladado ${code}`,
+                        balance: netBal, date: `${parseInt(closingYear) + 1}-01-01`, company_id: activeCompany?.id, companyId: activeCompany?.id
+                    });
+                }
+            }
+        });
+
+        // PASO 5: Bloqueo del Año
+        const safeFiscalYears = Array.isArray(fiscalYears) ? fiscalYears : [];
+        const newFiscalYearStatus = { id: `fy-${closingYear}-${activeCompany?.id}`, year: closingYear, status: 'CERRADO', companyId: activeCompany?.id };
+        const existingFYs = safeFiscalYears.filter(fy => !(String(fy.year) === closingYear && fy.companyId === activeCompany?.id));
+        
+        saveTransactions([...safeTxs, closingTransaction]);
+        saveInitialBalance([...safeIBs, ...newInitialBalances]);
+        saveFiscalYears([...existingFYs, newFiscalYearStatus]);
+
+        setIsClosingModalOpen(false);
+        setCloseConfirmationText('');
+        toast({ title: "¡Cierre Completado!", description: `El año ${closingYear} ha sido cerrado legalmente y bloqueado.` });
+        setAuditReport({ year: closingYear, incomeCancelled: totalIncomeCancelled, expenseCancelled: totalExpenseCancelled, netResult: netProfit, voucherId: closingVoucherId });
+    };
+
     const getAssetDetails = (destinationStr, categoryName = '') => {
         const relInitialBalances = (initialBalances || []).filter(isRelevant);
         if (!destinationStr) {
@@ -1516,9 +1638,29 @@ const Transactions = () => {
         <>
             <Helmet><title>Transacciones - Sistema Contable</title></Helmet>
             <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900 mb-2">Transacciones</h1><p className="text-slate-600">Control de movimientos financieros</p></div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* 🚀 BOTÓN DE CIERRE ANUAL AUTOMATIZADO */}
+                        {canAdd && (
+                            <div className="flex items-center bg-red-50 border border-red-200 rounded-lg pr-1 mr-2">
+                                <Select value={closingYear} onValueChange={setClosingYear}>
+                                    <SelectTrigger className="w-24 border-none bg-transparent shadow-none text-red-900 font-bold focus:ring-0"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {availableYears.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                                <Button 
+                                    size="sm"
+                                    onClick={() => setIsClosingModalOpen(true)} 
+                                    disabled={Array.isArray(fiscalYears) && fiscalYears.some(y => String(y.year) === closingYear && y.status === 'CERRADO')}
+                                    className="bg-red-600 hover:bg-red-700 text-white shadow-md h-8 text-xs px-3"
+                                >
+                                    <Lock className="w-3 h-3 mr-1" /> Cierre Anual
+                                </Button>
+                            </div>
+                        )}
+                        
                         {canAdd && <Button variant="outline" onClick={() => setStoreDialogOpen(true)} className="text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"><Store className="w-4 h-4 mr-2" />Tienda</Button>}
                         {canAdd && <Button variant="outline" onClick={() => setTransferDialogOpen(true)}><ArrowRightLeft className="w-4 h-4 mr-2" />Transferir</Button>}
                         {canAdd && <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"><FileSpreadsheet className="w-4 h-4 mr-2" />Conciliar Banco</Button>}
@@ -1904,6 +2046,54 @@ const Transactions = () => {
                     )}
                 </motion.div>
             </div>
+
+            {/* 🚀 VISOR DE AUDITORÍA POST-CIERRE */}
+            <AnimatePresence>
+                {auditReport && (
+                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-md">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-black text-green-900 flex items-center"><CheckCircle2 className="w-6 h-6 mr-2" /> Reporte de Auditoría de Cierre</h3>
+                            <Button variant="outline" size="sm" className="bg-white" onClick={() => setAuditReport(null)}>Aceptar</Button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
+                                <p className="text-xs text-slate-500 font-bold uppercase">Ingresos Cancelados (Clase 4)</p>
+                                <p className="text-xl font-mono font-black text-green-700 mt-1">${auditReport.incomeCancelled.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                            <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
+                                <p className="text-xs text-slate-500 font-bold uppercase">Gastos/Costos Cancelados</p>
+                                <p className="text-xl font-mono font-black text-red-700 mt-1">${auditReport.expenseCancelled.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                            <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
+                                <p className="text-xs text-slate-500 font-bold uppercase">Resultado Trasladado</p>
+                                <p className="text-xl font-mono font-black text-blue-700 mt-1">${auditReport.netResult.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                        </div>
+                        <p className="text-sm mt-4 text-green-800 font-medium">✅ El asiento de cierre fue inyectado bajo el comprobante <span className="font-mono bg-white px-2 py-1 border rounded">{auditReport.voucherId}</span>. Los saldos iniciales del próximo año fueron generados.</p>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* 🚀 MODAL CRÍTICO DE CIERRE */}
+            <Dialog open={isClosingModalOpen} onOpenChange={setIsClosingModalOpen}>
+                <DialogContent className="sm:max-w-md border-red-200">
+                    <DialogHeader>
+                        <DialogTitle className="text-red-600 flex items-center text-xl"><AlertCircle className="w-6 h-6 mr-2" /> ¡ADVERTENCIA CRÍTICA!</DialogTitle>
+                        <DialogDescription className="pt-4 text-slate-700 text-sm">
+                            Esta operación cancelará las cuentas de resultado de {closingYear} y trasladará la utilidad o pérdida al Patrimonio.<br/><br/>
+                            Copiará el Activo y Pasivo como <b>Saldos Iniciales</b> de {parseInt(closingYear) + 1}. El año {closingYear} quedará <b>BLOQUEADO</b>.<br/><br/>
+                            Escriba <b className="text-red-600">CERRAR</b> para confirmar.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <input type="text" placeholder="CERRAR" className="w-full text-center font-bold tracking-widest p-3 border-2 border-slate-300 rounded focus:border-red-500 outline-none" value={closeConfirmationText} onChange={(e) => setCloseConfirmationText(e.target.value)} />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsClosingModalOpen(false)}>Cancelar</Button>
+                        <Button onClick={executeAnnualClosing} disabled={closeConfirmationText !== 'CERRAR'} className="bg-red-600 hover:bg-red-700 text-white">Ejecutar Cierre Irreversible</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <TransactionDialog open={dialogOpen} onOpenChange={setDialogOpen} transaction={editingTransaction} onSave={handleSaveTransaction} />
             <InternalTransferDialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen} onSave={handleSaveTransfer} />
