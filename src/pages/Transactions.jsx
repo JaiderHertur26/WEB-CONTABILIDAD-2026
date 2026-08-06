@@ -1460,6 +1460,9 @@ const Transactions = () => {
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
         let totalAnt = 0, totalDeb = 0, totalCred = 0, totalNuev = 0;
+
+        // 🚀 FORMATO OFICIAL COLOMBIA: Estricto a 2 decimales y valores absolutos (sin signos menos visuales)
+        const formatNum = (val) => Math.abs(val || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         
         const rowsHtml = libroMayorData.map(acc => {
             totalAnt += acc.saldoAnterior;
@@ -1471,10 +1474,10 @@ const Transactions = () => {
                 <tr>
                     <td class="td-code">${acc.code}</td>
                     <td class="td-name">${acc.name}</td>
-                    <td class="td-num">${acc.saldoAnterior.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                    <td class="td-num">${acc.debito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                    <td class="td-num">${acc.credito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                    <td class="td-num">${acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-num">${formatNum(acc.saldoAnterior)}</td>
+                    <td class="td-num">${formatNum(acc.debito)}</td>
+                    <td class="td-num">${formatNum(acc.credito)}</td>
+                    <td class="td-num">${formatNum(acc.nuevoSaldo)}</td>
                 </tr>
             `;
         }).join('');
@@ -1537,10 +1540,10 @@ const Transactions = () => {
                           ${rowsHtml}
                           <tr class="totals-row">
                               <td colspan="2" style="text-align:right;">SUMAS DEL PERIODO:</td>
-                              <td class="td-num">${totalAnt.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                              <td class="td-num">${totalDeb.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                              <td class="td-num">${totalCred.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
-                              <td class="td-num">${totalNuev.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                              <td class="td-num">${formatNum(totalAnt)}</td>
+                              <td class="td-num">${formatNum(totalDeb)}</td>
+                              <td class="td-num">${formatNum(totalCred)}</td>
+                              <td class="td-num">${formatNum(totalNuev)}</td>
                           </tr>
                       </tbody>
                   </table>
