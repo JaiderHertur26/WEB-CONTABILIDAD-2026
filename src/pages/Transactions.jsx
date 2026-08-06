@@ -1488,12 +1488,22 @@ const Transactions = () => {
                 
                 const isDebitNature = ['1', '5', '6', '8'].includes(codeStr.charAt(0));
 
+                // 🚀 CORRECCIÓN DE AUDITORÍA: Aislamiento del Efectivo Real (Caja Principal)
+                // Evitamos el cruce erróneo: Los ajustes o saldos históricos de las cuentas de 
+                // resultados (Clases 4 y 5) no deben inflar los movimientos del año de la Caja.
+                const isClaseResultados = String(debit?.code).startsWith('5') || String(credit?.code).startsWith('5') || String(debit?.code).startsWith('4') || String(credit?.code).startsWith('4');
+                const isHistoricalOrAdjustment = t.voucherPrefix === 'A' || String(t.description).toUpperCase().includes('SALDO');
+
+                if (codeStr === '11050501' && isHistoricalOrAdjustment && isClaseResultados) {
+                    return; // ⛔ Abortamos la inserción para no sumar peras con manzanas en la Caja Principal
+                }
+
                 if (tDate < startDate) {
                     // Historial antes de la fecha inicial va al Saldo Anterior
                     if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
                     else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
                 } else if (tDate >= startDate && tDate <= endDate) {
-                    // Movimientos del rango seleccionado
+                    // Movimientos puros del rango seleccionado (Suma directa aislada)
                     if (isDebitEntry) mayor[codeStr].debito += amount;
                     else mayor[codeStr].credito += amount;
                 }
