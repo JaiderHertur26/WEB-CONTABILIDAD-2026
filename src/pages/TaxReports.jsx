@@ -485,7 +485,7 @@ const TaxReports = () => {
             { isSpacer: true },
             { Concepto: 'INGRESOS TOTALES (P&L del año)', Valor: totalIncomes, isDetail: true },
             { Concepto: 'COSTOS Y GASTOS TOTALES (P&L del año)', Valor: totalCostsAndExpenses, isDetail: true },
-            { Concepto: 'RENTA LÍQUIDA (Ingresos - Gastos)', Valor: netProfit, isTotal: true },
+            { Concepto: 'EXCEDENTE NETO DEL EJERCICIO (Fiscal/Contable)', Valor: netProfit, isTotal: true },
         ];
     }, [transactions, bankAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, accounts, initialBalance, cashAccounts, inventory, selectedYear, areAllDataLoaded, filterByCompany]);
 
@@ -551,7 +551,15 @@ const TaxReports = () => {
                                                     {row.Concepto?.trim()}
                                                 </td>
                                                 <td className={`px-6 py-3 text-sm font-mono text-right ${row.isTotal ? 'font-bold' : ''}`}>
-    {row.Valor != null ? `$${parseFloat(row.Valor).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : ''}
+    {(() => {
+        if (row.Valor == null) return '';
+        const val = parseFloat(row.Valor);
+        const isDepr = (row.Concepto || '').toLowerCase().includes('depreciación') || val < 0;
+        const absVal = Math.abs(val);
+        const formatted = absVal.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (val === 0) return '$ 0,00';
+        return isDepr ? `$ (${formatted})` : `$ ${formatted}`;
+    })()}
 </td>                                               
                                             </tr>
                                         );
