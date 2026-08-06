@@ -377,7 +377,21 @@ const Transactions = () => {
 
             return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: accountNumber, _destName: isPending ? '(Pendiente)' : destName, _affectedColumn: affectedColumn, _isPending: isPending, voucherPrefix: computed.prefix, _intelligentType: computed.type };
         });
-        setProcessedTransactions(calculated);
+        
+        // 🚀 LIMPIEZA MAESTRA: Filtrar TODOS los espejos inversos de la base de datos antes de calcular el Mayor y el Diario
+        const cleanedData = calculated.filter(t => {
+            if (t.debitAccount && t.creditAccount) {
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                // Si el asiento debita Ingresos (4) y Acredita Activos (1) o Pasivos (2), es un bug espejo y debe ser purgado.
+                // Esto elimina las reversiones de A-0009 a A-0028 para que los saldos finales no queden en $0,00.
+                if (drCode.startsWith('4') && crCode.startsWith('1')) return false;
+                if (drCode.startsWith('2') && crCode.startsWith('1') && t.voucherPrefix === 'A' && String(t.description).includes('Ajuste')) return false;
+            }
+            return true;
+        });
+
+        setProcessedTransactions(cleanedData);
     }, [transactions, initialBalances, bankAccounts, accounts, isRelevant]);
 
     // 🚀 LÓGICA INTELIGENTE: EXTRAER SOLO CUENTAS QUE TUVIERON ACTIVIDAD EN EL AÑO
