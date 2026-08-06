@@ -669,9 +669,8 @@ const Reports = () => {
               </style>
           `;
 
-          let content = '';
+          let content = '';      
           
-          let content = '';
           
           // 🚀 FORMATO NIIF OFICIAL: Paréntesis para saldos contrarios (ej: Depreciación), Ceros sin paréntesis
           const formatNum = (val) => {
