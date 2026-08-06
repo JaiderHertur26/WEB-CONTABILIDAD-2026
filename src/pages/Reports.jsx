@@ -310,18 +310,13 @@ const Reports = () => {
         }
 
         if (t.type === 'income' || t.type === 'expense') {
-            // 🚀 INTEGRACIÓN PUC: Sumar si es caja_principal, si empieza por 1105, o si el destino quedó en blanco (asume efectivo)
-            const isCashDest = !t.destination || cashAccountIds.has(t.destination) || t.destination.startsWith('caja_principal') || t.destination.toUpperCase().includes('CAJA PRINCIPAL') || t.destination.startsWith('1105');
-            if (isCashDest) {
+            if (t.destination && (cashAccountIds.has(t.destination) || t.destination.startsWith('caja_principal'))) {
                 if (t.type === 'income') cashIncomes += amount; else cashExpenses += amount;
             }
         }
         if (t.type === 'transfer') {
-             const isFromCash = t.fromAccount && (cashAccountIds.has(t.fromAccount) || t.fromAccount.startsWith('caja_principal') || t.fromAccount.toUpperCase().includes('CAJA PRINCIPAL') || t.fromAccount.startsWith('1105'));
-             const isToCash = t.toAccount && (cashAccountIds.has(t.toAccount) || t.toAccount.startsWith('caja_principal') || t.toAccount.toUpperCase().includes('CAJA PRINCIPAL') || t.toAccount.startsWith('1105'));
-             
-             if (isFromCash) cashExpenses += amount;
-             if (isToCash) cashIncomes += amount;
+             if (t.fromAccount && (cashAccountIds.has(t.fromAccount) || t.fromAccount.startsWith('caja_principal'))) cashExpenses += amount;
+             if (t.toAccount && (cashAccountIds.has(t.toAccount) || t.toAccount.startsWith('caja_principal'))) cashIncomes += amount;
         }
     });
     const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;

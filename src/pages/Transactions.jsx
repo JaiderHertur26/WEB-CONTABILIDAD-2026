@@ -204,8 +204,8 @@ const Transactions = () => {
     const getAssetDetails = (destinationStr, categoryName = '') => {
         const relInitialBalances = (initialBalances || []).filter(isRelevant);
         if (!destinationStr) {
-            const defaultCash = relInitialBalances.length > 0 ? relInitialBalances[0] : null;
-            return { code: defaultCash?.accountingCode || '11050501', name: defaultCash?.accountingName || 'CAJA PRINCIPAL' };
+            // 🚀 FIX: No forzar a Caja Principal. Si el destino está vacío, va a cuenta transitoria.
+            return { code: '238095', name: 'PARTIDAS POR CLASIFICAR' };
         }
         const [id, name] = destinationStr.split('|');
         if (id === 'pending_payable') return { code: '23050101', name: 'CUENTAS POR PAGAR' };
