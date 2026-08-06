@@ -33,16 +33,28 @@ const BankAccounts = () => {
         return accounts.map(acc => {
             const initialBalance = parseFloat(acc.initialBalance || 0);
             const initialInvestmentBalance = parseFloat(acc.initialInvestmentBalance || 0);
+            
             const movements = transactions.reduce((accBalances, t) => {
                 const amount = parseFloat(t.amount);
+                
+                // Si la transacción entra a esta cuenta bancaria
                 if (t.destination && t.destination.startsWith(acc.id)) {
-                    if (t.type === 'income') {
+                    if (t.type === 'income' || t.type === 'transfer') {
                         if (t.description && t.description.includes('Aporte Ordinario')) accBalances.investmentBalance += amount;
                         else accBalances.balance += amount;
-                    } else if (t.type === 'expense') { accBalances.balance -= amount; }
+                    } else if (t.type === 'expense') { 
+                        accBalances.balance -= amount; 
+                    }
                 }
+                
+                // Si la transacción sale de esta cuenta (transferencias enviadas desde aquí)
+                if (t.fromAccount && t.fromAccount.startsWith(acc.id) && t.type === 'transfer') {
+                    accBalances.balance -= amount;
+                }
+                
                 return accBalances;
             }, { balance: 0, investmentBalance: 0 });
+            
             return { ...acc, balance: initialBalance + movements.balance, investmentBalance: initialInvestmentBalance + movements.investmentBalance };
         });
     }, [accounts, transactions]);
@@ -159,6 +171,8 @@ const BankAccounts = () => {
             isInternalTransfer: true,
             company_id: activeCompany?.id,
             companyId: activeCompany?.id,
+            destination: `${selectedAccount.id}|${selectedAccount.bankName}`, // Ayuda al frontend a ubicar dónde entró
+            fromAccount: sourceAccount, // Ayuda al frontend a ubicar de dónde salió
             debitAccount: { code: drCode, name: drName },
             creditAccount: { code: crCode, name: crName }
         };
