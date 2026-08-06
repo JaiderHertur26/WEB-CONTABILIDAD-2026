@@ -140,11 +140,56 @@ const Reports = () => {
         return account ? String(account.number).charAt(0) : null;
     };
 
-    // 🚀 NUEVA LÓGICA DE P&L DINÁMICO (Cero gastos ocultos)
-    const dynamicPnl = { incomes: {}, costs: {}, expenses: {} };
-    let totalIncome = 0; 
-    let totalCosts = 0; 
-    let totalExpenses = 0;
+    const totalIncome = pnlTransactions.reduce((sum, t) => {
+        if (t.debitAccount && t.creditAccount) {
+            const crCode = String(t.creditAccount.code || '');
+            if (crCode.startsWith('4')) return sum + safeParseFloat(t.amount);
+            return sum;
+        }
+        if (t.isInternalTransfer) return sum;
+        
+        if (getAccountPrefix(t.category) === '4') {
+            return sum + (t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+        }
+        return sum;
+    }, 0);
+
+    const totalCosts = pnlTransactions.reduce((sum, t) => {
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            if (['6', '7'].includes(drCode.charAt(0))) return sum + safeParseFloat(t.amount);
+            return sum;
+        }
+        if (t.isInternalTransfer) return sum;
+
+        if (['6', '7'].includes(getAccountPrefix(t.category))) {
+            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+        }
+        return sum;
+    }, 0);
+
+    const totalExpenses = pnlTransactions.reduce((sum, t) => {
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            if (drCode.startsWith('5')) return sum + safeParseFloat(t.amount);
+            return sum;
+        }
+        if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
+
+        if (getAccountPrefix(t.category) === '5') {
+            return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+        }
+        return sum;
+    }, 0);
+
+    const netProfit = totalIncome - totalCosts - totalExpenses;
+    const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
+    const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
+    
+    // 🚀 NUEVA LÓGICA DE P&L DINÁMICO EXTREMADAMENTE SEGURA
+    const incomeItems = {};
+    const costItems = {};
+    const expenseItems = {};
 
     pnlTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
@@ -155,19 +200,16 @@ const Reports = () => {
             const crCode = String(t.creditAccount.code || '');
             
             if (crCode.startsWith('4')) {
-                const catName = t.creditAccount.name || t.category || 'INGRESOS VARIOS';
-                dynamicPnl.incomes[catName] = (dynamicPnl.incomes[catName] || 0) + amount;
-                totalIncome += amount;
+                const name = t.creditAccount.name || t.category || 'INGRESOS VARIOS';
+                incomeItems[name] = (incomeItems[name] || 0) + amount;
             }
             if (['6', '7'].includes(drCode.charAt(0))) {
-                const catName = t.debitAccount.name || t.category || 'COSTOS VARIOS';
-                dynamicPnl.costs[catName] = (dynamicPnl.costs[catName] || 0) + amount;
-                totalCosts += amount;
+                const name = t.debitAccount.name || t.category || 'COSTOS VARIOS';
+                costItems[name] = (costItems[name] || 0) + amount;
             }
             if (drCode.startsWith('5')) {
-                const catName = t.debitAccount.name || t.category || 'GASTOS VARIOS';
-                dynamicPnl.expenses[catName] = (dynamicPnl.expenses[catName] || 0) + amount;
-                totalExpenses += amount;
+                const name = t.debitAccount.name || t.category || 'GASTOS VARIOS';
+                expenseItems[name] = (expenseItems[name] || 0) + amount;
             }
         } else {
             if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return;
@@ -175,53 +217,50 @@ const Reports = () => {
             let prefix = getAccountPrefix(t.category);
             if (!prefix) prefix = t.type === 'income' ? '4' : (t.type === 'expense' ? '5' : null);
             
-            const catName = t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS');
+            const name = t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS');
 
             if (prefix === '4') {
                 const impact = t.type === 'income' ? amount : -amount;
-                dynamicPnl.incomes[catName] = (dynamicPnl.incomes[catName] || 0) + impact;
-                totalIncome += impact;
+                incomeItems[name] = (incomeItems[name] || 0) + impact;
             } else if (['6', '7'].includes(prefix)) {
                 const impact = t.type === 'expense' ? amount : -amount;
-                dynamicPnl.costs[catName] = (dynamicPnl.costs[catName] || 0) + impact;
-                totalCosts += impact;
+                costItems[name] = (costItems[name] || 0) + impact;
             } else if (prefix === '5') {
                 const impact = t.type === 'expense' ? amount : -amount;
-                dynamicPnl.expenses[catName] = (dynamicPnl.expenses[catName] || 0) + impact;
-                totalExpenses += impact;
+                expenseItems[name] = (expenseItems[name] || 0) + impact;
             }
         }
     });
 
-    const netProfit = totalIncome - totalCosts - totalExpenses;
-    const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
-    const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
-    const grossProfit = totalIncome - totalCosts;
-
-    // Formateador para crear las filas del P&L
-    const formatPnlRows = (obj, isNegative = false) => {
-        return Object.entries(obj)
-            .filter(([_, val]) => Math.abs(val) > 0.01)
-            .sort((a, b) => a[0].localeCompare(b[0]))
-            .map(([name, val]) => ({
-                item: `  ${name.toUpperCase()}`, 
-                amount: isNegative ? -Math.abs(val) : val 
-            }));
+    const formatPnlSection = (itemsObj, isNegative = false) => {
+        const rows = [];
+        for (const [key, value] of Object.entries(itemsObj)) {
+            if (Math.abs(value) > 0.01) {
+                const cleanKey = String(key || 'SIN CATEGORÍA').toUpperCase();
+                rows.push({
+                    item: `  ${cleanKey}`, 
+                    amount: isNegative ? -Math.abs(value) : value
+                });
+            }
+        }
+        return rows.sort((a, b) => a.item.localeCompare(b.item));
     };
+
+    const grossProfit = totalIncome - totalCosts;
 
     const incomeStatement = [
         { item: 'INGRESOS OPERACIONALES', isBold: true },
-        ...formatPnlRows(dynamicPnl.incomes, false),
+        ...formatPnlSection(incomeItems, false),
         { item: 'Total Ingresos', amount: totalIncome, isSubtotal: true, isTopBorder: true },
         
         { item: 'COSTOS DE VENTA', isBold: true },
-        ...formatPnlRows(dynamicPnl.costs, true),
+        ...formatPnlSection(costItems, true),
         { item: 'Total Costos', amount: -totalCosts, isSubtotal: true, isTopBorder: true },
         
         { item: 'UTILIDAD BRUTA', amount: grossProfit, isBold: true, isTopBorder: true },
         
         { item: 'GASTOS OPERACIONALES', isBold: true },
-        ...formatPnlRows(dynamicPnl.expenses, true),
+        ...formatPnlSection(expenseItems, true),
         { item: 'Total Gastos', amount: -totalExpenses, isSubtotal: true, isTopBorder: true },
         
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
@@ -578,7 +617,7 @@ const Reports = () => {
               
               const renderItems = (items) => (items || []).map(item => {
                   const rawName = String(item.item || '');
-                  const leadingSpaces = Math.max(rawName.search(/\\S/), 0);
+                  const leadingSpaces = Math.max(rawName.search(/\S/), 0);
                   const paddingLeft = leadingSpaces > 0 ? (leadingSpaces * 6) + 'px' : '0px';
                   const cleanName = rawName.trim().toUpperCase();
 
@@ -623,7 +662,7 @@ const Reports = () => {
                   <table class="table">
                       ${(reportData.incomeStatement || []).map(item => {
                           const rawName = String(item.item || '');
-                          const leadingSpaces = Math.max(rawName.search(/\\S/), 0);
+                          const leadingSpaces = Math.max(rawName.search(/\S/), 0);
                           const paddingLeft = leadingSpaces > 0 ? (leadingSpaces * 6) + 'px' : '0px';
                           const cleanName = rawName.trim().toUpperCase();
 
@@ -743,7 +782,7 @@ const Reports = () => {
   };
 
   const renderSheetTable = (items) => (items.map((item, index) => {
-      const leadingSpaces = Math.max(String(item.item || '').search(/\\S/), 0);
+      const leadingSpaces = Math.max(String(item.item || '').search(/\S/), 0);
       const dynamicPadding = leadingSpaces > 0 ? (leadingSpaces * 8) + 'px' : '0px';
 
       return (
@@ -787,7 +826,7 @@ const Reports = () => {
                         <Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
                     </div>
                 </div>
-                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${Math.max(String(item.item).search(/\\S/), 0) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
+                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${Math.max(String(item.item).search(/\S/), 0) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
             </div>
         </motion.div>
 
