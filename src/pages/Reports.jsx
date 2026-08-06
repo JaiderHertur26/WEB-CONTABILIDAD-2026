@@ -411,7 +411,7 @@ const Reports = () => {
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
                 else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
                 else if (drCode.startsWith('16')) intangiblesValue += amount;
-                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1295') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
                 else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
@@ -420,7 +420,7 @@ const Reports = () => {
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
                 else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
                 else if (crCode.startsWith('16')) intangiblesValue -= amount;
-                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1295') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
                 else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
@@ -439,7 +439,7 @@ const Reports = () => {
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
             else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
             else if (num.startsWith('16')) intangiblesValue += assetImpact;
-            else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
+            else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1295') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
                 otherAssetsValue += assetImpact;
             }
             else if (num.startsWith('2') && !num.startsWith('2305')) {
