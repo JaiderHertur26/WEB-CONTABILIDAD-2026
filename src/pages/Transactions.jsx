@@ -302,11 +302,8 @@ const Transactions = () => {
             const computed = getTransactionTypeAndPrefix(t);
 
             if (t.debitAccount && t.creditAccount) {
-                // 🚀 BLINDAJE: Garantizar que siempre sean strings para evitar Pantalla Blanca
-                const drCode = String(t.debitAccount.code || '');
-                const crCode = String(t.creditAccount.code || '');
-                const drName = String(t.debitAccount.name || 'S/N');
-                const crName = String(t.creditAccount.name || 'S/N');
+                const drCode = t.debitAccount.code;
+                const crCode = t.creditAccount.code;
                 let affected = 'none';
 
                 if (drCode.startsWith('1105')) { runningCash += amount; affected = 'cash'; }
@@ -314,13 +311,6 @@ const Transactions = () => {
 
                 if (crCode.startsWith('1105')) { runningCash -= amount; affected = 'cash'; }
                 else if (crCode.startsWith('1110') || crCode.startsWith('1120')) { runningBanks -= amount; affected = 'banks'; }
-
-                // 🚀 VISUAL: Si es el nuevo sistema estricto, le simulamos el texto dual de la tabla de control
-                let mergedAmountStr = undefined;
-                if (t.isInternalTransfer || computed.type === 'transfer') {
-                    const formattedAmount = amount.toLocaleString('es-CO', { minimumFractionDigits: 0 });
-                    mergedAmountStr = `-${formattedAmount} / +${formattedAmount}`;
-                }
 
                 return {
                     ...t,
@@ -331,8 +321,7 @@ const Transactions = () => {
                     _destName: t.type === 'adjustment' ? 'Ajuste Interno' : (t.destination ? t.destination.split('|')[1] || t.destination.split('|')[0] : 'INVENTARIO GENERAL'),
                     _affectedColumn: affected,
                     _isPending: false,
-                    _dualDisplay: `Dr: ${drName.substring(0, 10)} / Cr: ${crName.substring(0, 10)}`,
-                    _mergedAmount: mergedAmountStr,
+                    _dualDisplay: `Dr: ${t.debitAccount.name.substring(0, 10)} / Cr: ${t.creditAccount.name.substring(0, 10)}`,
                     voucherPrefix: computed.prefix,
                     _intelligentType: computed.type
                 };
