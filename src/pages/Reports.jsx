@@ -671,8 +671,16 @@ const Reports = () => {
 
           let content = '';
           
-          // 🚀 Formateador universal estricto a 2 decimales
-          const formatNum = (val) => parseFloat(val || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+          let content = '';
+          
+          // 🚀 FORMATO NIIF OFICIAL: Paréntesis para saldos contrarios (ej: Depreciación), Ceros sin paréntesis
+          const formatNum = (val) => {
+              const num = parseFloat(val) || 0;
+              const absVal = Math.abs(num);
+              if (absVal < 0.01) return (0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              const str = absVal.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              return num < -0.01 ? `(${str})` : str;
+          };
 
           if (printType === 'balance') {
               const { assets, liabilities, equity, totals } = reportData.balanceSheet;
@@ -846,7 +854,7 @@ const Reports = () => {
 
   // 🚀 Modificación Visual de la Tabla para aplicar indentación a sub-cuentas
   const renderSheetTable = (items) => (items.map((item, index) => {
-      const leadingSpaces = Math.max(String(item.item || '').search(/\\S/), 0);
+      const leadingSpaces = Math.max(String(item.item || '').search(/\S/), 0);
       const dynamicPadding = leadingSpaces > 0 ? (leadingSpaces * 8) + 'px' : '0px';
 
       return (
@@ -855,7 +863,14 @@ const Reports = () => {
                   {item.item.trim()}
               </td>
               <td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold text-slate-800' : ''}`}>
-                  {item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
+                  {item.amount != null ? (
+                      <span className={item.amount < -0.01 ? 'text-slate-900' : ''}>
+                          ${" "} 
+                          {item.amount < -0.01 
+                              ? `(${Math.abs(item.amount).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` 
+                              : Math.abs(item.amount || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                  ) : ''}
               </td>
           </tr>
       );
