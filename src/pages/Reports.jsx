@@ -531,20 +531,46 @@ const Reports = () => {
     }, 0);
     const initialCashTotal = initialCash + initialBank;
 
-    // 🚀 NIIF/IFRS: Depuración de partidas no monetarias (El efectivo no se ve afectado por la depreciación)
+    // 🚀 1. NIIF: Depuración de partidas no monetarias (excluir depreciación de gastos)
     const nonCashKeywords = ['depreciaci', 'amortizaci', 'agotamiento'];
     const cashExpenseAccounts = expenseAccounts.filter(acc => {
         const num = String(acc.number);
         const name = acc.name.toLowerCase();
-        // Filtramos códigos PUC asociados a provisiones y depreciaciones (Clase 5160)
         if (num.startsWith('5160') || num.startsWith('5165') || num.startsWith('5168') || num.startsWith('5199')) return false;
-        // Filtramos por palabras clave en caso de cuentas nominales creadas por el usuario
         if (nonCashKeywords.some(kw => name.includes(kw))) return false;
         return true;
     });
 
     const cashExpensesTotal = cashExpenseAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '5')), 0);
     const cashCostsTotal = costAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '6')), 0);
+
+    // 🚀 2. NIIF: Cálculo real de salidas de efectivo por inversiones (excluyendo ajustes y notas contables)
+    let cashInvestments = 0;
+    pnlTransactions.forEach(t => {
+        const amount = safeParseFloat(t.amount);
+        
+        // Descartamos Notas de Ajuste (Prefijo A) y cruces que no movieron efectivo real
+        const isAdjustment = t.voucherPrefix === 'A' || t.type === 'adjustment' || (t.isInternalTransfer && t.debitAccount && t.creditAccount);
+        if (isAdjustment) return;
+
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            // Si el débito real fue a un Activo (Clase 15) pagado en efectivo
+            if (drCode.startsWith('15') && !drCode.startsWith('1592')) {
+                cashInvestments += amount;
+            }
+        } else {
+            const accObj = allAccounts.find(a => a.name === t.category);
+            const num = accObj ? String(accObj.number) : '';
+            if ((num.startsWith('15') && !num.startsWith('1592') && t.type === 'expense') || (t.isFixedAsset && t.type === 'expense')) {
+                cashInvestments += amount;
+            }
+        }
+    });
+
+    // 🚀 3. MATEMÁTICA ORGÁNICA: Liberamos el Total para que la ecuación no sea forzada
+    const totalCalculatedUses = cashExpensesTotal + cashCostsTotal + cashInvestments;
+    const finalCalculatedCash = (initialCashTotal + totalIncome) - totalCalculatedUses;
 
     const cashFlow = {
         initial: initialCashTotal,
@@ -554,11 +580,11 @@ const Reports = () => {
         uses: [
             ...cashExpenseAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '5')) })).filter(i => i.amount !== 0),
             ...costAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '6')) })).filter(i => i.amount !== 0),
-            { item: 'Inversiones y Adquisiciones Activos', amount: manualFixedAssetsValue + construccionesValue }
+            { item: 'Inversiones y Adquisiciones Activos', amount: cashInvestments }
         ],
         totalSources: totalIncome,
-        totalUses: cashExpensesTotal + cashCostsTotal + manualFixedAssetsValue + construccionesValue,
-        final: cajaGeneralValue
+        totalUses: totalCalculatedUses,
+        final: finalCalculatedCash
     };
 
     setReportData({ summary: summaryData, incomeStatement, balanceSheet, cashFlow });
