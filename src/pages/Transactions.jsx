@@ -315,6 +315,13 @@ const Transactions = () => {
                 if (crCode.startsWith('1105')) { runningCash -= amount; affected = 'cash'; }
                 else if (crCode.startsWith('1110') || crCode.startsWith('1120')) { runningBanks -= amount; affected = 'banks'; }
 
+                // 🚀 VISUAL: Si es el nuevo sistema estricto, le simulamos el texto dual de la tabla de control
+                let mergedAmountStr = undefined;
+                if (t.isInternalTransfer || computed.type === 'transfer') {
+                    const formattedAmount = amount.toLocaleString('es-CO', { minimumFractionDigits: 0 });
+                    mergedAmountStr = `-${formattedAmount} / +${formattedAmount}`;
+                }
+
                 return {
                     ...t,
                     _calculatedCash: runningCash,
@@ -325,6 +332,7 @@ const Transactions = () => {
                     _affectedColumn: affected,
                     _isPending: false,
                     _dualDisplay: `Dr: ${drName.substring(0, 10)} / Cr: ${crName.substring(0, 10)}`,
+                    _mergedAmount: mergedAmountStr,
                     voucherPrefix: computed.prefix,
                     _intelligentType: computed.type
                 };
