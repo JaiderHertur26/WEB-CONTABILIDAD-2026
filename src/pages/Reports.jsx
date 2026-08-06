@@ -309,15 +309,19 @@ const Reports = () => {
             return; 
         }
 
-        if (t.type === 'income' || t.type === 'expense') {
-            if (t.destination && (cashAccountIds.has(t.destination) || t.destination.startsWith('caja_principal'))) {
-                if (t.type === 'income') cashIncomes += amount; else cashExpenses += amount;
-            }
-        }
-        if (t.type === 'transfer') {
-             if (t.fromAccount && (cashAccountIds.has(t.fromAccount) || t.fromAccount.startsWith('caja_principal'))) cashExpenses += amount;
-             if (t.toAccount && (cashAccountIds.has(t.toAccount) || t.toAccount.startsWith('caja_principal'))) cashIncomes += amount;
-        }
+        // 🚀 CORRECCIÓN DE BUG 1: Mapeo estricto y total de la Caja Principal
+                if (t.type === 'income' || t.type === 'expense') {
+                    const destId = t.destination ? t.destination.split('|')[0] : '';
+                    if (t.destination && (cashAccountIds.has(destId) || t.destination.startsWith('caja_principal') || t.destination.includes('11050501') || t.destination.toUpperCase().includes('CAJA PRINCIPAL'))) {
+                        if (t.type === 'income') cashIncomes += amount; else cashExpenses += amount;
+                    }
+                }
+                if (t.type === 'transfer') {
+                     const fromId = t.fromAccount ? t.fromAccount.split('|')[0] : '';
+                     const toId = t.toAccount ? t.toAccount.split('|')[0] : '';
+                     if (t.fromAccount && (cashAccountIds.has(fromId) || t.fromAccount.startsWith('caja_principal') || t.fromAccount.includes('11050501') || t.fromAccount.toUpperCase().includes('CAJA PRINCIPAL'))) cashExpenses += amount;
+                     if (t.toAccount && (cashAccountIds.has(toId) || t.toAccount.startsWith('caja_principal') || t.toAccount.includes('11050501') || t.toAccount.toUpperCase().includes('CAJA PRINCIPAL'))) cashIncomes += amount;
+                }
     });
     const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
 
@@ -368,11 +372,9 @@ const Reports = () => {
                  if (drName === acc.bankName?.toUpperCase() || (acc.accountingCode && drCode === acc.accountingCode)) currentBankBalance += amount;
                  if (crName === acc.bankName?.toUpperCase() || (acc.accountingCode && crCode === acc.accountingCode)) currentBankBalance -= amount;
                  
-                 // Saldos de Aportes a la Cooperativa / Inversiones (NUEVO BLINDAJE)
-                 if (t.destination && t.destination.startsWith(acc.id)) {
-                     if (drCode.startsWith('1295') || drName.includes('APORTE')) currentInvestmentBalance += amount;
-                     if (crCode.startsWith('1295') || crName.includes('APORTE')) currentInvestmentBalance -= amount;
-                 }
+                 // 🚀 CORRECCIÓN DE BUG 2: Aportes Ordinarios (Liberado del t.destination)
+                         if (drCode.startsWith('1295') || drName.includes('APORTE')) currentInvestmentBalance += amount;
+                         if (crCode.startsWith('1295') || crName.includes('APORTE')) currentInvestmentBalance -= amount;
                  
                  return;
             }
@@ -499,29 +501,29 @@ const Reports = () => {
     const totalEquity = totalAssets - totalLiabilities; 
     const retainedEquity = totalEquity - netProfit;
 
-    // 🚀 APLICACIÓN NIIF: Arreglo de Activos Estructurado y Jerárquico
+    // 🚀 APLICACIÓN NIIF: Arreglo de Activos Estructurado y Jerárquico    
     const assets = [
-            { item: 'ACTIVO CORRIENTE', isBold: true },
-            { item: '  Efectivo y Equivalentes', isBold: true },
-            { item: '    Caja General', amount: cajaGeneralValue, isSubtotal: true },
-            { item: '      Caja Principal', amount: cajaPrincipalBalance },
-            ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
-            { item: '      Cuentas Bancarias', amount: totalBankBalances },
-            { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
-            { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
-            { item: '  Anticipos a Proveedores', amount: anticiposValue }, 
-            { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
-            { item: 'TOTAL ACTIVO CORRIENTE', amount: totalActivoCorriente, isSubtotal: true, isTopBorder: true },
-            
-            { item: 'ACTIVO NO CORRIENTE', isBold: true },
-            { item: '  Activos Intangibles (Licencias)', amount: intangiblesValue },
-            { item: '  Construcciones en Curso', amount: construccionesValue }, 
-            { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
-            { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
-            { item: '  Inventario', amount: inventoryValue },
-            { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
-            { item: 'TOTAL ACTIVO NO CORRIENTE', amount: totalActivoNoCorriente, isSubtotal: true, isTopBorder: true },
-        ];
+        { item: 'ACTIVO CORRIENTE', isBold: true },
+        { item: '  Efectivo y Equivalentes', isBold: true },
+        { item: '    Caja General', amount: cajaGeneralValue, isSubtotal: true },
+        { item: '      Caja Principal', amount: cajaPrincipalBalance },
+        ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
+        { item: '      Cuentas Bancarias', amount: totalBankBalances },
+        { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
+        { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
+        { item: '  Anticipos a Proveedores', amount: anticiposValue }, 
+        { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
+        { item: 'TOTAL ACTIVO CORRIENTE ', amount: totalActivoCorriente, isSubtotal: true, isTopBorder: true },
+        
+        { item: 'ACTIVO NO CORRIENTE', isBold: true },
+        { item: '  Activos Intangibles (Licencias)', amount: intangiblesValue },
+        { item: '  Construcciones en Curso', amount: construccionesValue }, 
+        { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
+        { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
+        { item: '  Inventario', amount: inventoryValue },
+        { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
+        { item: 'TOTAL ACTIVO NO CORRIENTE ', amount: totalActivoNoCorriente, isSubtotal: true, isTopBorder: true },
+    ];
         
     const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
         
