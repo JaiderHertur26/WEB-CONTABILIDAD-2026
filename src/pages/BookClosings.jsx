@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     Calendar as CalendarIcon,
     Download,
@@ -15,7 +15,9 @@ import {
     Printer,
     BookOpen,
     AlertCircle,
-    ArrowUpRight
+    ArrowUpRight,
+    CheckCircle2,
+    Lock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
@@ -126,7 +128,7 @@ const BookClosings = () => {
             return;
         }
 
-        const companyTxs = transactions.filter(t => (t.company_id || t.companyId) === activeCompany?.id);
+        const companyTxs = (transactions || []).filter(t => (t.company_id || t.companyId) === activeCompany?.id);
         const yearTx = companyTxs.filter(t => getSafeYear(t.date).toString() === selectedYear);
 
         // PASO 1: Validación Previa (Pre-flight checks)
@@ -165,7 +167,6 @@ const BookClosings = () => {
                 if (drCode) { if (!balances[drCode]) balances[drCode] = { debit: 0, credit: 0 }; balances[drCode].debit += amount; }
                 if (crCode) { if (!balances[crCode]) balances[crCode] = { debit: 0, credit: 0 }; balances[crCode].credit += amount; }
             } else {
-                // Transacciones simples mapeadas a cuentas
                 const accObj = (accounts || []).find(a => a.name === t.category);
                 const code = accObj ? String(accObj.number) : (t.type === 'income' ? '4105' : '5105');
                 const cashCode = '11050501'; // Default Caja
@@ -200,7 +201,7 @@ const BookClosings = () => {
         const equityCode = netProfit >= 0 ? '360505' : '361005'; // Utilidad o Pérdida
         const equityName = netProfit >= 0 ? 'Utilidad del Ejercicio' : 'Pérdida del Ejercicio';
 
-        // PASO 3: Inyección del Comprobante Tipo "A" (Nota Contable de Cierre)
+        // PASO 3: Inyección del Comprobante Tipo "A"
         const closingVoucherId = `CE-${selectedYear}-${Date.now()}`;
         const closingDate = `${selectedYear}-12-31`;
         
@@ -223,19 +224,17 @@ const BookClosings = () => {
         // PASO 4: Generación de Saldos Iniciales para el Año Siguiente
         const newInitialBalances = [];
         Object.entries(balances).forEach(([code, data]) => {
-            // Solo trasladamos cuentas Reales (Activo, Pasivo, Patrimonio)
             if (code.startsWith('1') || code.startsWith('2') || code.startsWith('3')) {
                 const isDebitNature = ['1'].includes(code.charAt(0));
                 let netBal = isDebitNature ? (data.debit - data.credit) : (data.credit - data.debit);
                 
-                // Si es la cuenta de Utilidad, le sumamos el resultado del año cerrado
                 if (code === equityCode) {
                     netBal += Math.abs(netProfit);
                 }
 
                 if (Math.abs(netBal) > 0.01) {
                     newInitialBalances.push({
-                        id: `ib-${selectedYear + 1}-${code}`,
+                        id: `ib-${parseInt(selectedYear) + 1}-${code}`,
                         accountingCode: code,
                         accountingName: `Saldo Trasladado ${code}`,
                         balance: netBal,
@@ -258,7 +257,6 @@ const BookClosings = () => {
             company_id: activeCompany?.id
         };
 
-        // Guardamos todo en la base de datos
         saveTransactions([...(transactions || []), closingTransaction]);
         saveInitialBalance([...(initialBalance || []), ...newInitialBalances]);
         
@@ -267,9 +265,8 @@ const BookClosings = () => {
 
         setIsClosingModalOpen(false);
         setCloseConfirmationText('');
-        toast({ title: "¡Cierre Fiscal Completado!", description: `El año ${selectedYear} ha sido cerrado y los saldos trasladados con éxito.` });
+        toast({ title: "¡Cierre Fiscal Completado!", description: `El año ${selectedYear} ha sido cerrado y los saldos trasladados.` });
 
-        // Visor de Auditoría
         setAuditReport({
             year: selectedYear,
             incomeCancelled: totalIncomeCancelled,
@@ -786,7 +783,7 @@ const BookClosings = () => {
                         {activeTab === 'year' && (
                             <div className="space-y-2 flex-1 min-w-[200px] flex gap-4 items-end">
                                 <div className="flex-1">
-                                    <Label>Año Fiscal a Cerrar / Auditar</Label>
+                                    <Label>Año Fiscal</Label>
                                     <Select value={selectedYear} onValueChange={setSelectedYear}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
@@ -795,10 +792,10 @@ const BookClosings = () => {
                                     </Select>
                                 </div>
                                 <div className="hidden md:flex items-center gap-2 mb-2">
-                                    <span className="text-sm font-semibold text-slate-500">Estado del Año:</span>
+                                    <span className="text-sm font-semibold text-slate-500">Estado:</span>
                                     {currentYearStatus === 'CERRADO' ? (
                                         <span className="flex items-center px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200">
-                                            <AlertCircle className="w-3 h-3 mr-1" /> CERRADO
+                                            <Lock className="w-3 h-3 mr-1" /> CERRADO
                                         </span>
                                     ) : (
                                         <span className="flex items-center px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold border border-green-200">
@@ -833,7 +830,7 @@ const BookClosings = () => {
                                 disabled={currentYearStatus === 'CERRADO'}
                                 className={`min-w-[200px] ${currentYearStatus === 'CERRADO' ? 'bg-slate-300' : 'bg-red-600 hover:bg-red-700 text-white shadow-md'}`}
                             >
-                                <AlertCircle className="w-4 h-4 mr-2" /> Ejecutar Asiento de Cierre
+                                <Lock className="w-4 h-4 mr-2" /> Ejecutar Cierre
                             </Button>
                         )}
                     </div>
@@ -873,6 +870,59 @@ const BookClosings = () => {
                             <DialogDescription className="pt-4 text-slate-700 text-sm">
                                 Esta operación <b>cancelará definitivamente las cuentas de resultado</b> de {selectedYear} y trasladará la utilidad o pérdida al Patrimonio.<br/><br/>
                                 Además, tomará los Activos y Pasivos y los copiará como <b>Saldos Iniciales</b> para el {parseInt(selectedYear) + 1}. El año {selectedYear} quedará <b>BLOQUEADO (Cerrado)</b> irreversiblemente.<br/><br/>
+                                Para continuar, escriba <b className="text-red-600">CERRAR</b>.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4">
+                            <input 
+                                type="text" 
+                                placeholder="CERRAR" 
+                                className="w-full text-center font-bold tracking-widest p-3 border-2 border-slate-300 rounded focus:border-red-500 outline-none"
+                                value={closeConfirmationText}
+                                onChange={(e) => setCloseConfirmationText(e.target.value)}
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsClosingModalOpen(false)}>Cancelar</Button>
+                            <Button onClick={executeAnnualClosing} disabled={closeConfirmationText !== 'CERRAR'} className="bg-red-600 hover:bg-red-700 text-white">Ejecutar Cierre Irreversible</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* 🚀 VISOR DE AUDITORÍA POST-CIERRE */}
+                <AnimatePresence>
+                    {auditReport && (
+                        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-md mb-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-black text-green-900 flex items-center"><CheckCircle2 className="w-6 h-6 mr-2" /> Reporte de Auditoría de Cierre</h3>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
+                                    <p className="text-xs text-slate-500 font-bold uppercase">Ingresos Cancelados (Clase 4)</p>
+                                    <p className="text-xl font-mono font-black text-green-700 mt-1">${auditReport.incomeCancelled.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                                <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
+                                    <p className="text-xs text-slate-500 font-bold uppercase">Gastos/Costos Cancelados</p>
+                                    <p className="text-xl font-mono font-black text-red-700 mt-1">${auditReport.expenseCancelled.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                                <div className="bg-white p-4 rounded-lg border shadow-sm text-center">
+                                    <p className="text-xs text-slate-500 font-bold uppercase">Resultado Trasladado</p>
+                                    <p className="text-xl font-mono font-black text-blue-700 mt-1">${auditReport.netResult.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                            </div>
+                            <p className="text-sm mt-4 text-green-800 font-medium">✅ Asiento inyectado: <span className="font-mono bg-white px-2 py-1 border rounded">{auditReport.voucherId}</span>. Los saldos iniciales para {parseInt(selectedYear) + 1} han sido creados.</p>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* 🚀 MODAL CRÍTICO DE CIERRE */}
+                <Dialog open={isClosingModalOpen} onOpenChange={setIsClosingModalOpen}>
+                    <DialogContent className="sm:max-w-md border-red-200">
+                        <DialogHeader>
+                            <DialogTitle className="text-red-600 flex items-center text-xl"><AlertCircle className="w-6 h-6 mr-2" /> ¡ADVERTENCIA CRÍTICA!</DialogTitle>
+                            <DialogDescription className="pt-4 text-slate-700 text-sm">
+                                Esta operación cancelará definitivamente las cuentas de resultado de {selectedYear} y trasladará la utilidad o pérdida al Patrimonio.<br/><br/>
+                                Copiará los Activos y Pasivos como <b>Saldos Iniciales</b> para el {parseInt(selectedYear) + 1}. El año {selectedYear} quedará <b>BLOQUEADO</b>.<br/><br/>
                                 Para continuar, escriba <b className="text-red-600">CERRAR</b>.
                             </DialogDescription>
                         </DialogHeader>
