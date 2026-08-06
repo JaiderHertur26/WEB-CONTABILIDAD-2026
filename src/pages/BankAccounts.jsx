@@ -117,11 +117,55 @@ const BankAccounts = () => {
 
         const { sourceAccount } = movementData;
         const [sourceId, sourceName] = sourceAccount.split('|');
-        const expenseTransaction = { id: `${now}-exp`, type: 'expense', description: `Aporte Ordinario a cuenta ${selectedAccount.bankName}`, amount: amount, category: movementData.linkedAccount, date: movementDate, destination: sourceAccount, isInternalTransfer: true, voucherNumber };
-        const incomeTransaction = { id: `${now}-inc`, type: 'income', description: `Aporte Ordinario desde ${sourceName}`, amount: amount, category: movementData.linkedAccount, date: movementDate, destination: `${selectedAccount.id}|${selectedAccount.bankName}`, isInternalTransfer: true, voucherNumber };
-        saveTransactions([...(transactions || []), expenseTransaction, incomeTransaction]);
+
+        // 1. Identificar Cuenta Crédito (Sale el dinero: Origen)
+        let crCode = '11050501';
+        let crName = 'CAJA PRINCIPAL';
+        
+        if (sourceId === 'caja_principal') {
+            const defaultCash = (initialBalances || []).find(ib => (!ib.company_id && !ib.companyId) || ib.company_id === activeCompany?.id || ib.companyId === activeCompany?.id);
+            if (defaultCash) {
+                crCode = defaultCash.accountingCode || '11050501';
+                crName = defaultCash.accountingName || 'CAJA PRINCIPAL';
+            }
+        } else {
+            const bank = (bankAccounts || []).find(b => b.id === sourceId);
+            if (bank) {
+                crCode = bank.accountingCode || '111005';
+                crName = bank.accountingConcept || bank.bankName;
+            } else {
+                const cash = (cashAccounts || []).find(c => c.id === sourceId);
+                if (cash) {
+                    crCode = cash.accounting_account || '1105';
+                    crName = cash.name;
+                }
+            }
+        }
+
+        // 2. Identificar Cuenta Débito (Entra el dinero: Aporte a Cooperativa)
+        const drCode = selectedAccount.accountingCode || '12950501';
+        const drName = selectedAccount.accountingConcept || selectedAccount.bankName;
+
+        // 3. Crear Registro de Partida Doble
+        const singleTransferTransaction = {
+            id: `${now}`,
+            type: 'transfer',
+            voucherPrefix: 'T',
+            voucherNumber,
+            date: movementDate,
+            description: `Aporte Ordinario a cuenta ${selectedAccount.bankName} desde ${sourceName}`,
+            amount: amount,
+            category: movementData.linkedAccount || 'Aportes',
+            isInternalTransfer: true,
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id,
+            debitAccount: { code: drCode, name: drName },
+            creditAccount: { code: crCode, name: crName }
+        };
+
+        saveTransactions([...(transactions || []), singleTransferTransaction]);
         setMovementDialogOpen(false);
-        toast({ title: "Aporte Ordinario registrado", description: `Se creó una transferencia interna desde ${sourceName}.` });
+        toast({ title: "Aporte Ordinario registrado", description: `Transferencia procesada bajo norma de partida doble.` });
     };
 
     const handleSaveInterest = (interestData) => {
@@ -132,21 +176,34 @@ const BankAccounts = () => {
         const now = Date.now();
         const voucherNumber = getNextVoucherNumber('income', interestData.date);
 
-        const incomeTransaction = {
+        // 1. Débito (Aumenta el Banco/Cooperativa porque entró dinero)
+        const drCode = selectedAccount.accountingCode || '111005';
+        const drName = selectedAccount.accountingConcept || selectedAccount.bankName;
+
+        // 2. Crédito (Cuenta de Ingresos Financieros)
+        const accObj = (chartOfAccounts || []).find(a => a.name === interestData.linkedAccount);
+        const crCode = accObj ? accObj.number : '421005';
+        const crName = interestData.linkedAccount || 'RENDIMIENTOS FINANCIEROS';
+
+        const interestTransaction = {
             id: `${now}`,
             type: 'income',
+            voucherPrefix: 'I',
+            voucherNumber,
             description: `Abono de intereses / Rendimientos financieros`,
             amount: amount,
             category: interestData.linkedAccount,
             date: movementDate,
-            destination: `${selectedAccount.id}|${selectedAccount.bankName}`,
             isInternalTransfer: false,
-            voucherNumber
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id,
+            debitAccount: { code: drCode, name: drName },
+            creditAccount: { code: crCode, name: crName }
         };
 
-        saveTransactions([...(transactions || []), incomeTransaction]);
+        saveTransactions([...(transactions || []), interestTransaction]);
         setInterestDialogOpen(false);
-        toast({ title: "Intereses registrados", description: `Se sumaron $${amount.toLocaleString('es-ES')} a la cuenta.` });
+        toast({ title: "Intereses registrados", description: `Rendimientos guardados bajo partida doble.` });
     };
 
     return (
