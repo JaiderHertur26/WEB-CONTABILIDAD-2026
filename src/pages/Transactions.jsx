@@ -302,8 +302,11 @@ const Transactions = () => {
             const computed = getTransactionTypeAndPrefix(t);
 
             if (t.debitAccount && t.creditAccount) {
-                const drCode = t.debitAccount.code;
-                const crCode = t.creditAccount.code;
+                // 🚀 BLINDAJE: Garantizar que siempre sean strings para evitar Pantalla Blanca
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                const drName = String(t.debitAccount.name || 'S/N');
+                const crName = String(t.creditAccount.name || 'S/N');
                 let affected = 'none';
 
                 if (drCode.startsWith('1105')) { runningCash += amount; affected = 'cash'; }
@@ -321,7 +324,7 @@ const Transactions = () => {
                     _destName: t.type === 'adjustment' ? 'Ajuste Interno' : (t.destination ? t.destination.split('|')[1] || t.destination.split('|')[0] : 'INVENTARIO GENERAL'),
                     _affectedColumn: affected,
                     _isPending: false,
-                    _dualDisplay: `Dr: ${t.debitAccount.name.substring(0, 10)} / Cr: ${t.creditAccount.name.substring(0, 10)}`,
+                    _dualDisplay: `Dr: ${drName.substring(0, 10)} / Cr: ${crName.substring(0, 10)}`,
                     voucherPrefix: computed.prefix,
                     _intelligentType: computed.type
                 };
