@@ -500,7 +500,7 @@ const Reports = () => {
         
     const equity = [ 
       { item: 'Patrimonio', isBold: true }, 
-      { item: '  Capital Social (Inc. Utilidades Acum.)', amount: retainedEquity }, 
+      { item: '  Patrimonio Institucional (Inc. Utilidades Acum.)', amount: retainedEquity }, 
       { item: '  Utilidad del Ejercicio', amount: netProfit }
     ];
 
