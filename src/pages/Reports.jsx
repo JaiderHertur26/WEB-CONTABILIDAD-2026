@@ -531,18 +531,33 @@ const Reports = () => {
     }, 0);
     const initialCashTotal = initialCash + initialBank;
 
+    // 🚀 NIIF/IFRS: Depuración de partidas no monetarias (El efectivo no se ve afectado por la depreciación)
+    const nonCashKeywords = ['depreciaci', 'amortizaci', 'agotamiento'];
+    const cashExpenseAccounts = expenseAccounts.filter(acc => {
+        const num = String(acc.number);
+        const name = acc.name.toLowerCase();
+        // Filtramos códigos PUC asociados a provisiones y depreciaciones (Clase 5160)
+        if (num.startsWith('5160') || num.startsWith('5165') || num.startsWith('5168') || num.startsWith('5199')) return false;
+        // Filtramos por palabras clave en caso de cuentas nominales creadas por el usuario
+        if (nonCashKeywords.some(kw => name.includes(kw))) return false;
+        return true;
+    });
+
+    const cashExpensesTotal = cashExpenseAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '5')), 0);
+    const cashCostsTotal = costAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '6')), 0);
+
     const cashFlow = {
         initial: initialCashTotal,
         sources: [
             ...incomeAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: calculateTotalForCategory(acc.name, '4') })).filter(i => i.amount !== 0)
         ],
         uses: [
-            ...expenseAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '5')) })).filter(i => i.amount !== 0),
+            ...cashExpenseAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '5')) })).filter(i => i.amount !== 0),
             ...costAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '6')) })).filter(i => i.amount !== 0),
             { item: 'Inversiones y Adquisiciones Activos', amount: manualFixedAssetsValue + construccionesValue }
         ],
         totalSources: totalIncome,
-        totalUses: totalExpenses + totalCosts + manualFixedAssetsValue + construccionesValue,
+        totalUses: cashExpensesTotal + cashCostsTotal + manualFixedAssetsValue + construccionesValue,
         final: cajaGeneralValue
     };
 
