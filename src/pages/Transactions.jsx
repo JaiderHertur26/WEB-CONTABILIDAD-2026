@@ -302,15 +302,22 @@ const Transactions = () => {
             const computed = getTransactionTypeAndPrefix(t);
 
             if (t.debitAccount && t.creditAccount) {
-                const drCode = t.debitAccount.code;
-                const crCode = t.creditAccount.code;
+                // 🚀 BLINDAJE: Garantizar que siempre sean strings para evitar Pantalla Blanca
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                const drName = String(t.debitAccount.name || 'S/N');
+                const crName = String(t.creditAccount.name || 'S/N');
                 let affected = 'none';
 
+                // Aumentos (Débitos)
                 if (drCode.startsWith('1105')) { runningCash += amount; affected = 'cash'; }
                 else if (drCode.startsWith('1110') || drCode.startsWith('1120')) { runningBanks += amount; affected = 'banks'; }
+                else if (drCode.startsWith('1295')) { runningAportes += amount; affected = 'aportes'; }
 
+                // Disminuciones (Créditos)
                 if (crCode.startsWith('1105')) { runningCash -= amount; affected = 'cash'; }
                 else if (crCode.startsWith('1110') || crCode.startsWith('1120')) { runningBanks -= amount; affected = 'banks'; }
+                else if (crCode.startsWith('1295')) { runningAportes -= amount; affected = 'aportes'; }
 
                 return {
                     ...t,
