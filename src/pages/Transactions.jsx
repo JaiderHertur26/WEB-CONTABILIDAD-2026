@@ -1461,14 +1461,21 @@ const Transactions = () => {
 
         let totalAnt = 0, totalDeb = 0, totalCred = 0, totalNuev = 0;
 
-        // 🚀 FORMATO NIIF: Paréntesis para naturalezas contrarias (Depreciación) o saldos negativos
+        // 🚀 FORMATO NIIF: Paréntesis para naturalezas contrarias, excepto cuando el valor es CERO
         const formatearSaldoContable = (valor, codigoCuenta = '') => {
             const num = parseFloat(valor) || 0;
-            if (codigoCuenta.startsWith('1592') || num < 0) {
-                const valorAbsoluto = Math.abs(num);
-                const numeroFormateado = valorAbsoluto.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                return `(${numeroFormateado})`;
+            const valorAbsoluto = Math.abs(num);
+
+            // Si es cero (menor a un centavo), lo mostramos normal sin paréntesis
+            if (valorAbsoluto < 0.01) {
+                return (0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             }
+
+            // Si es depreciación o saldo negativo real, va con paréntesis
+            if (codigoCuenta.startsWith('1592') || num < 0) {
+                return `(${valorAbsoluto.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+            }
+            
             return num.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         };
         

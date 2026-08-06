@@ -148,6 +148,9 @@ const FixedAssets = () => {
         const updatedAssets = assets.map(asset => {
             // Ignoramos los dados de baja y los que no son del año
             if (asset.year !== yearFilter || asset.status === 'Dado de Baja') return asset;
+
+            // 🚀 PREVENCIÓN DE DUPLICIDAD: Ignorar si este activo ya se depreció en esta vigencia
+            if (asset.depreciatedYear === yearFilter) return asset; 
             
             const cat = (asset.category || '').toLowerCase();
             let rate = taxRates.general;
@@ -171,23 +174,24 @@ const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDep
             return {
                 ...asset,
                 accumulatedDepreciation: newAccumulated,
-                netBookValue: originalValue - newAccumulated
+                netBookValue: originalValue - newAccumulated,
+                depreciatedYear: yearFilter // 🚀 MARCADOR DE SEGURIDAD
             };
         });
 
         if (totalDepreciationGenerated === 0) {
-            toast({ variant: 'destructive', title: "Sin activos", description: "No hay activos fijos válidos para depreciar en este año." });
+            toast({ variant: 'destructive', title: "Ya Depreciados", description: "Todos los activos de este año ya fueron depreciados. No se duplicaron saldos." });
             setDepreciationDialogOpen(false);
             return;
         }
 
         saveAssets(updatedAssets);
 
-        // 3. Manejo del Comprobante (Actualizar si existe, crear si no)
+        // 3. Manejo del Comprobante (Actualizar sumando si existe, crear si no)
         if (existingDeprTransaction) {
             const updatedTransactions = transactions.map(t => 
                 t.id === existingDeprTransaction.id 
-                    ? { ...t, amount: totalDepreciationGenerated } 
+                    ? { ...t, amount: parseFloat(t.amount || 0) + totalDepreciationGenerated } // 🚀 SUMA AL COMPROBANTE EXISTENTE
                     : t
             );
             saveTransactions(updatedTransactions);
