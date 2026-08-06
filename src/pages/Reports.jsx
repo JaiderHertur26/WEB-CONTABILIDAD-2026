@@ -37,7 +37,6 @@ const Reports = () => {
   });
   const { toast } = useToast();
 
-  // Estados para el cuadro de diálogo de firmas e impresión
   const [printConfigOpen, setPrintConfigOpen] = useState(false);
   const [printType, setPrintType] = useState(null);
   const [signatures, setSignatures] = useState({
@@ -226,7 +225,6 @@ const Reports = () => {
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
     ];
     
-    // --- BALANCE SHEET CALCULATIONS ---
     const isAccountMatch = (targetId, accountIdOrString) => {
         if (!accountIdOrString) return false;
         if (accountIdOrString === targetId) return true;
@@ -249,7 +247,6 @@ const Reports = () => {
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
-        // Bloque Partida Doble Manual
         if (t.debitAccount && t.creditAccount) {
             if (String(t.id).endsWith('-inc')) return;
             const drCode = String(t.debitAccount.code || '');
@@ -346,7 +343,6 @@ const Reports = () => {
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
 
-            // Bloque Partida Doble Manual
             if (t.debitAccount && t.creditAccount) {
                 if (String(t.id).endsWith('-inc')) return;
                 const drCode = String(t.debitAccount.code || '');
@@ -373,7 +369,6 @@ const Reports = () => {
                 return;
             }
 
-            // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
             const acc = allAccounts.find(a => a.name === t.category);
             if (!acc) return;
             const num = String(acc.number);
@@ -402,7 +397,6 @@ const Reports = () => {
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
-    // 1. ACTIVOS FIJOS (Lee tu tabla clonada intacta, trae los $8.862.130 sin borrarlos)
     const totalDepreciacionInventario = fFixedAssets.filter(asset => {
         if (asset.status === 'Dado de Baja') return false; 
         if (asset.year) return asset.year.toString() === currentYear.toString();
@@ -410,25 +404,19 @@ const Reports = () => {
         return false;
     }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    // 2. PROPIEDADES (Lógica de viaje en el tiempo)
-    // Toma el acumulado global actual de la propiedad
     const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
         if (estate.status === 'Dado de Baja') return false;
         return getSafeYear(estate.date) <= parseInt(currentYear);
     }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
 
-    // Identifica las transacciones de depreciación que ocurrieron DESPUÉS del año consultado
     const depreciacionesFuturasPropiedades = validTransactions.filter(t => {
         return t.category === 'Depreciación Acumulada Activos Fijos' && 
                String(t.description).includes('Edificaciones') && 
                getSafeYear(t.date) > parseInt(currentYear);
     }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
 
-    // Al valor global le restamos el futuro para obtener el valor exacto en el año seleccionado
     const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
 
-    // 3. SUMA PERFECTA
-    // Suma los Activos Fijos ($8.8M) + Propiedades ($1M) sin que ninguno sobreescriba al otro
     depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
@@ -443,10 +431,20 @@ const Reports = () => {
         return p.status === 'Pendiente' && pYear <= parseInt(currentYear);
     }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
 
+    // 🚀 APLICACIÓN NIIF: Cálculo de Totales Corrientes y No Corrientes
+    const totalActivoCorriente = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue;
+    const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;
+    
+    const totalAssets = totalActivoCorriente + totalActivoNoCorriente; 
+    const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
+    const totalEquity = totalAssets - totalLiabilities; 
+    const retainedEquity = totalEquity - netProfit;
+
+    // 🚀 APLICACIÓN NIIF: Arreglo de Activos Estructurado y Jerárquico
     const assets = [
-            { item: 'Activo Corriente', isBold: true },
-            { item: '  Efectivo y Equivalentes', isSubtotal: true },
-            { item: '    Caja General', amount: cajaGeneralValue, isBold: true },
+            { item: 'ACTIVO CORRIENTE', isBold: true },
+            { item: '  Efectivo y Equivalentes', isBold: true },
+            { item: '    Caja General', amount: cajaGeneralValue, isSubtotal: true },
             { item: '      Caja Principal', amount: cajaPrincipalBalance },
             ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
             { item: '      Cuentas Bancarias', amount: totalBankBalances },
@@ -454,23 +452,20 @@ const Reports = () => {
             { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
             { item: '  Anticipos a Proveedores', amount: anticiposValue }, 
             { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
-            { item: 'Activo No Corriente', isBold: true },
+            { item: 'TOTAL ACTIVO CORRIENTE', amount: totalActivoCorriente, isSubtotal: true, isTopBorder: true },
+            
+            { item: 'ACTIVO NO CORRIENTE', isBold: true },
             { item: '  Activos Intangibles (Licencias)', amount: intangiblesValue },
             { item: '  Construcciones en Curso', amount: construccionesValue }, 
             { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
             { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
             { item: '  Inventario', amount: inventoryValue },
             { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
+            { item: 'TOTAL ACTIVO NO CORRIENTE', amount: totalActivoNoCorriente, isSubtotal: true, isTopBorder: true },
         ];
         
-        const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
+    const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
         
-        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
-    const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
-    const totalEquity = totalAssets - totalLiabilities; 
-    
-    const retainedEquity = totalEquity - netProfit;
-
     const equity = [ 
       { item: 'Patrimonio', isBold: true }, 
       { item: '  Capital Social (Inc. Utilidades Acum.)', amount: retainedEquity }, 
@@ -479,7 +474,6 @@ const Reports = () => {
 
     const balanceSheet = { assets: assets.filter(a => a.amount != null || a.isBold || a.isSubtotal), liabilities: liabilities.filter(l => l.amount != null || l.isBold), equity: equity.filter(e => e.amount != null || e.isBold), totals: { assets: totalAssets, liabilities: totalLiabilities, equity: totalEquity, liabilitiesAndEquity: totalLiabilities + totalEquity } };
 
-    // --- CÁLCULO DEL FLUJO DE EFECTIVO ---
     const initialBank = fBankAccounts.reduce((sum, acc) => {
         const creationYear = getAccountCreationYear(acc.id, acc.date);
         if (creationYear <= parseInt(currentYear)) return sum + safeParseFloat(acc.initialBalance);
@@ -527,7 +521,6 @@ const Reports = () => {
               });
           });
 
-          // Se agrega el parámetro {} faltante para que no colapse
           exportToExcel(dataToExport, `${name}_${selectedYear}`, {}); 
           toast({ title: 'Exportado a Excel', description: 'El reporte se ha exportado exitosamente.' }); 
       } catch (error) {
@@ -570,8 +563,6 @@ const Reports = () => {
                   .border-bottom { border-bottom: 1px solid black; }
                   .border-bottom-double { border-bottom: 3px double black; }
                   .bold { font-weight: bold; }
-                  .indent-1 { padding-left: 20px; }
-                  .indent-2 { padding-left: 50px; }
                   .signatures { display: flex; justify-content: space-between; margin-top: 80px; page-break-inside: avoid; }
                   .sig-box { text-align: center; width: 40%; font-size: 12px; }
                   .sig-line { border-top: 1px solid black; margin-bottom: 5px; }
@@ -579,15 +570,25 @@ const Reports = () => {
           `;
 
           let content = '';
+          
+          // 🚀 Formateador universal estricto a 2 decimales
+          const formatNum = (val) => parseFloat(val || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
           if (printType === 'balance') {
               const { assets, liabilities, equity, totals } = reportData.balanceSheet;
               
               const renderItems = (items) => (items || []).map(item => {
-                  if (item.isBold && !item.amount) return `<tr><td class="td bold" colspan="2"><br/>${item.item ? String(item.item).trim().toUpperCase() : ''}</td></tr>`;
-                  let amountStr = item.amount != null ? `$ ${item.amount.toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
+                  const rawName = String(item.item || '');
+                  // Calculamos la indentación en píxeles basados en los espacios
+                  const leadingSpaces = Math.max(rawName.search(/\\S/), 0);
+                  const paddingLeft = leadingSpaces > 0 ? (leadingSpaces * 6) + 'px' : '0px';
+                  const cleanName = rawName.trim().toUpperCase();
+
+                  if (item.isBold && item.amount == null) return `<tr><td class="td bold" colspan="2" style="padding-left: ${paddingLeft};"><br/>${cleanName}</td></tr>`;
+                  
+                  let amountStr = item.amount != null ? `$ ${formatNum(item.amount)}` : '';
                   let rowClass = item.isTotal ? 'bold border-bottom-double' : (item.isSubtotal ? 'bold border-bottom' : '');
-                  return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item ? String(item.item).trim().toUpperCase() : ''}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
+                  return `<tr><td class="td ${item.isBold || item.isSubtotal ? 'bold' : ''}" style="padding-left: ${paddingLeft};">${cleanName}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
               }).join('');
 
               content = `
@@ -600,17 +601,17 @@ const Reports = () => {
                   <table class="table">
                       <tr><td class="td bold" colspan="2">ACTIVO</td></tr>
                       ${renderItems(assets)}
-                      <tr><td class="td bold"><br/>TOTAL ACTIVO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.assets?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                      <tr><td class="td bold"><br/>TOTAL ACTIVO</td><td class="td td-right bold border-bottom-double"><br/>$ ${formatNum(totals?.assets)}</td></tr>
                       
                       <tr><td class="td bold" colspan="2"><br/>PASIVO</td></tr>
                       ${renderItems(liabilities)}
-                      <tr><td class="td bold"><br/>TOTAL PASIVOS</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.liabilities?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                      <tr><td class="td bold"><br/>TOTAL PASIVOS</td><td class="td td-right bold border-bottom-double"><br/>$ ${formatNum(totals?.liabilities)}</td></tr>
                       
                       <tr><td class="td bold" colspan="2"><br/>PATRIMONIO</td></tr>
                       ${renderItems(equity)}
-                      <tr><td class="td bold"><br/>TOTAL PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.equity?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                      <tr><td class="td bold"><br/>TOTAL PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${formatNum(totals?.equity)}</td></tr>
                       
-                      <tr><td class="td bold"><br/>TOTAL PASIVO + PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${totals?.liabilitiesAndEquity?.toLocaleString('es-CO', {minimumFractionDigits:2}) || 0}</td></tr>
+                      <tr><td class="td bold"><br/>TOTAL PASIVO + PATRIMONIO</td><td class="td td-right bold border-bottom-double"><br/>$ ${formatNum(totals?.liabilitiesAndEquity)}</td></tr>
                   </table>
               `;
           } else if (printType === 'pnl') {
@@ -623,10 +624,15 @@ const Reports = () => {
                   </div>
                   <table class="table">
                       ${(reportData.incomeStatement || []).map(item => {
-                          if (item.isBold && !item.amount && !item.isTotal) return `<tr><td class="td bold" colspan="2"><br/>${item.item ? String(item.item).trim().toUpperCase() : ''}</td></tr>`;
-                          let amountStr = item.amount != null ? `$ ${Math.abs(item.amount).toLocaleString('es-CO', {minimumFractionDigits: 2})}` : '';
+                          const rawName = String(item.item || '');
+                          const leadingSpaces = Math.max(rawName.search(/\\S/), 0);
+                          const paddingLeft = leadingSpaces > 0 ? (leadingSpaces * 6) + 'px' : '0px';
+                          const cleanName = rawName.trim().toUpperCase();
+
+                          if (item.isBold && !item.amount && !item.isTotal) return `<tr><td class="td bold" colspan="2" style="padding-left: ${paddingLeft};"><br/>${cleanName}</td></tr>`;
+                          let amountStr = item.amount != null ? `$ ${formatNum(Math.abs(item.amount))}` : '';
                           let rowClass = item.isTotal || item.isSubtotal ? 'bold border-bottom-double' : '';
-                          return `<tr><td class="td ${item.isBold ? 'bold' : ''} ${item.amount != null ? 'indent-1' : ''}">${item.item ? String(item.item).trim().toUpperCase() : ''}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
+                          return `<tr><td class="td ${item.isBold ? 'bold' : ''}" style="padding-left: ${paddingLeft};">${cleanName}</td><td class="td td-right ${rowClass}">${amountStr}</td></tr>`;
                       }).join('')}
                   </table>
               `;
@@ -641,17 +647,17 @@ const Reports = () => {
                   </div>
                   <table class="table">
                       <tr><td class="td bold" colspan="2">Fuentes:</td></tr>
-                      <tr><td class="td indent-1">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${(initial || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                      <tr><td class="td bold indent-1">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${(totalSources || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                      ${(sources || []).map(s => `<tr><td class="td indent-2">${s.item}</td><td class="td td-right border-bottom">${(s.amount || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
-                      <tr><td class="td bold indent-1"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${((initial || 0) + (totalSources || 0)).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      <tr><td class="td" style="padding-left:12px;">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${formatNum(initial)}</td></tr>
+                      <tr><td class="td bold" style="padding-left:12px;">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${formatNum(totalSources)}</td></tr>
+                      ${(sources || []).map(s => `<tr><td class="td" style="padding-left:36px;">${s.item}</td><td class="td td-right border-bottom">${formatNum(s.amount)}</td></tr>`).join('')}
+                      <tr><td class="td bold" style="padding-left:12px;"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${formatNum((initial || 0) + (totalSources || 0))}</td></tr>
                       
                       <tr><td class="td bold" colspan="2"><br/>Usos de Fondo:</td></tr>
-                      <tr><td class="td bold indent-1">Menos: Gastos Realizados</td><td class="td td-right bold border-bottom">${(totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
-                      ${(uses || []).map(u => `<tr><td class="td indent-2">${u.item}</td><td class="td td-right border-bottom">${(u.amount || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>`).join('')}
-                      <tr><td class="td bold indent-1"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${(totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      <tr><td class="td bold" style="padding-left:12px;">Menos: Gastos Realizados</td><td class="td td-right bold border-bottom">${formatNum(totalUses)}</td></tr>
+                      ${(uses || []).map(u => `<tr><td class="td" style="padding-left:36px;">${u.item}</td><td class="td td-right border-bottom">${formatNum(u.amount)}</td></tr>`).join('')}
+                      <tr><td class="td bold" style="padding-left:12px;"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${formatNum(totalUses)}</td></tr>
                       
-                      <tr><td class="td bold indent-1"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${(final || 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td></tr>
+                      <tr><td class="td bold" style="padding-left:12px;"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${formatNum(final)}</td></tr>
                   </table>
               `;
           }
@@ -731,7 +737,6 @@ const Reports = () => {
           dataToExport.push({ 'Concepto': '', 'Monto': '' });
           dataToExport.push({ 'Concepto': 'TOTAL PASIVO + PATRIMONIO', 'Monto': totals?.liabilitiesAndEquity || 0 });
 
-          // Se agrega el parámetro {} faltante para que no colapse
           exportToExcel(dataToExport, `Balance_General_${selectedYear}`, {}); 
           toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
       } catch (error) {
@@ -739,15 +744,29 @@ const Reports = () => {
       }
   };
 
-  
-  const renderSheetTable = (items) => (items.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''}`}><td className={`py-2 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${item.isSubtotal ? 'font-semibold' : ''}`} style={{ paddingLeft: item.item.search(/\S/) * 4 }}>{item.item.trim()}</td><td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold' : ''}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>)));
+  // 🚀 Modificación Visual de la Tabla para aplicar indentación a sub-cuentas
+  const renderSheetTable = (items) => (items.map((item, index) => {
+      const leadingSpaces = Math.max(String(item.item || '').search(/\\S/), 0);
+      const dynamicPadding = leadingSpaces > 0 ? (leadingSpaces * 8) + 'px' : '0px';
+
+      return (
+          <tr key={index} className={`border-b last:border-none ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''}`}>
+              <td className={`py-2 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${item.isSubtotal ? 'font-semibold text-slate-800' : ''}`} style={{ paddingLeft: dynamicPadding }}>
+                  {item.item.trim()}
+              </td>
+              <td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold text-slate-800' : ''}`}>
+                  {item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
+              </td>
+          </tr>
+      );
+  }));
 
   return (
     <>
       <Helmet><title>Reportes - JaiderHerTur26</title></Helmet>
       <div className="space-y-8">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between md:items-center gap-4"><h1 className="text-4xl font-bold text-slate-900 mb-2">Reportes Financieros</h1><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select" className="font-medium">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px] bg-white"><SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-green-100 p-6 rounded-lg border border-green-200"><p className="text-sm text-green-800">Ingresos Operacionales (P&L)</p><p className="text-2xl font-bold text-green-900">${reportData.summary.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-red-100 p-6 rounded-lg border border-red-200"><p className="text-sm text-red-800">Costos y Gastos (P&L)</p><p className="text-2xl font-bold text-red-900">${reportData.summary.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-blue-100 p-6 rounded-lg border border-blue-200"><p className="text-sm text-blue-800">Utilidad Neta</p><p className="text-2xl font-bold text-blue-900">${reportData.summary.netProfit.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p></div><div className="bg-purple-100 p-6 rounded-lg border border-purple-200"><p className="text-sm text-purple-800">Margen de Ganancia</p><p className="text-2xl font-bold text-purple-900">{reportData.summary.profitMargin}%</p></div></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-green-100 p-6 rounded-lg border border-green-200"><p className="text-sm text-green-800">Ingresos Operacionales (P&L)</p><p className="text-2xl font-bold text-green-900">${reportData.summary.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-red-100 p-6 rounded-lg border border-red-200"><p className="text-sm text-red-800">Costos y Gastos (P&L)</p><p className="text-2xl font-bold text-red-900">${reportData.summary.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-blue-100 p-6 rounded-lg border border-blue-200"><p className="text-sm text-blue-800">Utilidad Neta</p><p className="text-2xl font-bold text-blue-900">${reportData.summary.netProfit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-purple-100 p-6 rounded-lg border border-purple-200"><p className="text-sm text-purple-800">Margen de Ganancia</p><p className="text-2xl font-bold text-purple-900">{reportData.summary.profitMargin}%</p></div></div>
         
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="bg-white rounded-xl shadow-lg border">
@@ -758,7 +777,7 @@ const Reports = () => {
                         <Button onClick={handleExportBalanceSheet} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
                     </div>
                 </div>
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8"><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Activos</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.assets)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Activos</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.assets?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Pasivos y Patrimonio</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.liabilities)}</tbody></table><table className="w-full mt-2"><tbody>{renderSheetTable(reportData.balanceSheet.equity)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Pasivo + Patrimonio</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.liabilitiesAndEquity?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr></tbody></table></div></div><div className={`p-4 text-center border-t text-sm font-semibold ${Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? '¡El balance está cuadrado!' : 'El balance no está cuadrado'}</div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8"><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Activos</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.assets)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Activos</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.assets?.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tbody></table></div><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Pasivos y Patrimonio</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.liabilities)}</tbody></table><table className="w-full mt-2"><tbody>{renderSheetTable(reportData.balanceSheet.equity)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Pasivo + Patrimonio</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.liabilitiesAndEquity?.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tbody></table></div></div><div className={`p-4 text-center border-t text-sm font-semibold ${Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? '¡El balance está cuadrado!' : 'El balance no está cuadrado'}</div>
             </div>
         </motion.div>
         
@@ -771,7 +790,7 @@ const Reports = () => {
                         <Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
                     </div>
                 </div>
-                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${item.item.search(/\S/) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
+                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${Math.max(String(item.item).search(/\\S/), 0) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
             </div>
         </motion.div>
 
@@ -787,15 +806,15 @@ const Reports = () => {
                     <table className="w-full text-sm">
                         <tbody>
                             <tr className="border-b"><td className="py-2 font-bold text-slate-800" colSpan="2">Fuentes:</td></tr>
-                            <tr className="border-b"><td className="py-2 pl-4 text-slate-600">Disponible Inicial (Caja-Bancos)</td><td className="py-2 text-right font-mono">${reportData.cashFlow?.initial.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
-                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Más: Ingresos Ordinarios / del Mes</td><td className="py-2 text-right font-mono font-bold text-green-700">${reportData.cashFlow?.totalSources.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
-                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Disponible</td><td className="py-2 text-right font-mono font-bold text-slate-900">${((reportData.cashFlow?.initial || 0) + (reportData.cashFlow?.totalSources || 0)).toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b"><td className="py-2 pl-4 text-slate-600">Disponible Inicial (Caja-Bancos)</td><td className="py-2 text-right font-mono">${(reportData.cashFlow?.initial || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Más: Ingresos Ordinarios / del Mes</td><td className="py-2 text-right font-mono font-bold text-green-700">${(reportData.cashFlow?.totalSources || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Disponible</td><td className="py-2 text-right font-mono font-bold text-slate-900">${((reportData.cashFlow?.initial || 0) + (reportData.cashFlow?.totalSources || 0)).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                             
                             <tr className="border-b mt-4"><td className="py-2 font-bold text-slate-800" colSpan="2"><br/>Usos de Fondo:</td></tr>
-                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Menos: Gastos Realizados</td><td className="py-2 text-right font-mono font-bold text-red-700">${reportData.cashFlow?.totalUses.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
-                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Usos de Fondo</td><td className="py-2 text-right font-mono font-bold text-slate-900">${reportData.cashFlow?.totalUses.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Menos: Gastos Realizados</td><td className="py-2 text-right font-mono font-bold text-red-700">${(reportData.cashFlow?.totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
+                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Usos de Fondo</td><td className="py-2 text-right font-mono font-bold text-slate-900">${(reportData.cashFlow?.totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                             
-                            <tr className="bg-blue-100/50"><td className="py-3 pl-4 font-bold text-blue-900 text-lg">Saldo Disponible Final</td><td className="py-3 text-right font-mono font-bold text-blue-900 text-lg">${reportData.cashFlow?.final.toLocaleString('es-CO', {minimumFractionDigits: 2})}</td></tr>
+                            <tr className="bg-blue-100/50"><td className="py-3 pl-4 font-bold text-blue-900 text-lg">Saldo Disponible Final</td><td className="py-3 text-right font-mono font-bold text-blue-900 text-lg">${(reportData.cashFlow?.final || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                         </tbody>
                     </table>
                 </div>
