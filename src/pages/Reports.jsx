@@ -359,12 +359,21 @@ const Reports = () => {
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
             if (t.debitAccount && t.creditAccount) {
-                 const drName = t.debitAccount.name || '';
-                 const crName = t.creditAccount.name || '';
+                 const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
+                 const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
                  const drCode = t.debitAccount.code || '';
                  const crCode = t.creditAccount.code || '';
-                 if (drName === acc.bankName || (acc.accountingCode && drCode === acc.accountingCode)) currentBankBalance += amount;
-                 if (crName === acc.bankName || (acc.accountingCode && crCode === acc.accountingCode)) currentBankBalance -= amount;
+                 
+                 // Saldos de Cuentas Bancarias Regulares
+                 if (drName === acc.bankName?.toUpperCase() || (acc.accountingCode && drCode === acc.accountingCode)) currentBankBalance += amount;
+                 if (crName === acc.bankName?.toUpperCase() || (acc.accountingCode && crCode === acc.accountingCode)) currentBankBalance -= amount;
+                 
+                 // Saldos de Aportes a la Cooperativa / Inversiones (NUEVO BLINDAJE)
+                 if (t.destination && t.destination.startsWith(acc.id)) {
+                     if (drCode.startsWith('1295') || drName.includes('APORTE')) currentInvestmentBalance += amount;
+                     if (crCode.startsWith('1295') || crName.includes('APORTE')) currentInvestmentBalance -= amount;
+                 }
+                 
                  return;
             }
 
