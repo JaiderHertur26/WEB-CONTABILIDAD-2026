@@ -186,10 +186,31 @@ const Reports = () => {
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
-    // 🚀 NUEVA LÓGICA DE P&L DINÁMICO EXTREMADAMENTE SEGURA
-    const incomeItems = {};
-    const costItems = {};
-    const expenseItems = {};
+    const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
+        if (t.debitAccount && t.creditAccount) {
+            const amount = safeParseFloat(t.amount);
+            if (classPrefix === '4' && t.creditAccount.name?.trim().toUpperCase() === categoryName.trim().toUpperCase()) return sum + amount;
+            if (['5', '6', '7'].includes(classPrefix) && t.debitAccount.name?.trim().toUpperCase() === categoryName.trim().toUpperCase()) return sum + amount;
+            return sum;
+        }
+
+        if (t.category !== categoryName || t.isFixedAsset || t.isInternalTransfer || t.isPurchase) return sum;
+        const amount = safeParseFloat(t.amount);
+        if (classPrefix === '4') return sum + (t.type === 'income' ? amount : -amount);
+        if (['5', '6', '7'].includes(classPrefix)) return sum + (t.type === 'expense' ? amount : -amount);
+        return sum;
+    }, 0);
+
+    const incomeAccounts = allAccounts.filter(a => String(a.number).startsWith('4'));
+    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5'));
+    const costAccounts = allAccounts.filter(a => String(a.number).startsWith('6') || String(a.number).startsWith('7'));
+
+    const grossProfit = totalIncome - totalCosts;
+
+    // 🚀 LÓGICA DE EXTRACCIÓN DINÁMICA DE CUENTAS (Para evitar ocultar gastos/ingresos que no estén en el catálogo base)
+    const dynamicIncomes = {};
+    const dynamicCosts = {};
+    const dynamicExpenses = {};
 
     pnlTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
@@ -198,37 +219,27 @@ const Reports = () => {
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
-            
             if (crCode.startsWith('4')) {
                 const name = t.creditAccount.name || t.category || 'INGRESOS VARIOS';
-                incomeItems[name] = (incomeItems[name] || 0) + amount;
+                dynamicIncomes[name] = (dynamicIncomes[name] || 0) + amount;
             }
             if (['6', '7'].includes(drCode.charAt(0))) {
                 const name = t.debitAccount.name || t.category || 'COSTOS VARIOS';
-                costItems[name] = (costItems[name] || 0) + amount;
+                dynamicCosts[name] = (dynamicCosts[name] || 0) + amount;
             }
             if (drCode.startsWith('5')) {
                 const name = t.debitAccount.name || t.category || 'GASTOS VARIOS';
-                expenseItems[name] = (expenseItems[name] || 0) + amount;
+                dynamicExpenses[name] = (dynamicExpenses[name] || 0) + amount;
             }
         } else {
             if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return;
-            
             let prefix = getAccountPrefix(t.category);
             if (!prefix) prefix = t.type === 'income' ? '4' : (t.type === 'expense' ? '5' : null);
-            
             const name = t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS');
-
-            if (prefix === '4') {
-                const impact = t.type === 'income' ? amount : -amount;
-                incomeItems[name] = (incomeItems[name] || 0) + impact;
-            } else if (['6', '7'].includes(prefix)) {
-                const impact = t.type === 'expense' ? amount : -amount;
-                costItems[name] = (costItems[name] || 0) + impact;
-            } else if (prefix === '5') {
-                const impact = t.type === 'expense' ? amount : -amount;
-                expenseItems[name] = (expenseItems[name] || 0) + impact;
-            }
+            
+            if (prefix === '4') dynamicIncomes[name] = (dynamicIncomes[name] || 0) + (t.type === 'income' ? amount : -amount);
+            else if (['6', '7'].includes(prefix)) dynamicCosts[name] = (dynamicCosts[name] || 0) + (t.type === 'expense' ? amount : -amount);
+            else if (prefix === '5') dynamicExpenses[name] = (dynamicExpenses[name] || 0) + (t.type === 'expense' ? amount : -amount);
         }
     });
 
@@ -236,7 +247,6 @@ const Reports = () => {
         const rows = [];
         for (const [key, value] of Object.entries(itemsObj)) {
             if (Math.abs(value) > 0.01) {
-                // Blindaje contra variables nulas
                 const cleanKey = String(key || 'SIN CATEGORÍA').toUpperCase();
                 rows.push({
                     item: `  ${cleanKey}`, 
@@ -247,21 +257,19 @@ const Reports = () => {
         return rows.sort((a, b) => a.item.localeCompare(b.item));
     };
 
-    const grossProfit = totalIncome - totalCosts;
-
     const incomeStatement = [
         { item: 'INGRESOS OPERACIONALES', isBold: true },
-        ...formatPnlSection(incomeItems, false),
+        ...formatPnlSection(dynamicIncomes, false),
         { item: 'Total Ingresos', amount: totalIncome, isSubtotal: true, isTopBorder: true },
         
         { item: 'COSTOS DE VENTA', isBold: true },
-        ...formatPnlSection(costItems, true),
+        ...formatPnlSection(dynamicCosts, true),
         { item: 'Total Costos', amount: -totalCosts, isSubtotal: true, isTopBorder: true },
         
         { item: 'UTILIDAD BRUTA', amount: grossProfit, isBold: true, isTopBorder: true },
         
         { item: 'GASTOS OPERACIONALES', isBold: true },
-        ...formatPnlSection(expenseItems, true),
+        ...formatPnlSection(dynamicExpenses, true),
         { item: 'Total Gastos', amount: -totalExpenses, isSubtotal: true, isTopBorder: true },
         
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
