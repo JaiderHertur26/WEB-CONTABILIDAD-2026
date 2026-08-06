@@ -376,11 +376,13 @@ const Dashboard = () => {
         }
     });
 
+    const cajaGeneralExacta = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
+
     setStats({
       generalBalance: totalAssets,
       totalIncome: totalIncomes,
       totalExpenses: totalExpenses,
-      cashBalance: cajaGeneralTotal, 
+      cashBalance: cajaGeneralExacta, 
     });
 
     const monthlyData = generateMonthlyData(transactionsInPeriod, dateRange.from, dateRange.to, allAccounts);
