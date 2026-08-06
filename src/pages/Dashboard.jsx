@@ -162,99 +162,111 @@ const Dashboard = () => {
         return false;
     };
 
-    // 1. Caja Principal
-    const initialCash = fInitialBalance.filter(item => !item.date || getSafeYear(item.date) <= parseInt(selectedYear)).reduce((sum, item) => sum + safeParseFloat(item.balance), 0);
-    let cashIncomes = 0, cashExpenses = 0;
-    
-    bsTransactions.forEach(t => {
+    // 🚀 MOTOR PUC UNIFICADO PARA EFECTIVO (Idéntico al Balance General)
+    const getAssetDetails = (destinationStr, categoryName = '') => {
+        if (!destinationStr) return { code: '238095', name: 'PARTIDAS POR CLASIFICAR' };
+        const [id, name] = destinationStr.split('|');
+        if (id === 'pending_payable') return { code: '23050101', name: 'CUENTAS POR PAGAR' };
+        if (id === 'pending_receivable') return { code: '13050505', name: 'CUENTAS POR COBRAR' };
+        if (id === 'caja_principal' || (name && name.toUpperCase().includes('CAJA PRINCIPAL'))) return { code: '11050501', name: 'CAJA PRINCIPAL' };
+        const cashAcc = (cashAccountsData || []).find(c => c.id === id);
+        if (cashAcc) return { code: cashAcc.accounting_account || '1105', name: cashAcc.name };
+        if (id === '12950501' || (name && name.toUpperCase().includes('APORTES COOPERATIVA'))) return { code: '12950501', name: 'APORTES COOPERATIVA FRATERNIDAD' };
+        const bank = (bankAccountsData || []).find(b => b.id === id);
+        if (bank) return { code: bank.accountingCode || '1110', name: bank.accountingConcept || bank.bankName };
+        if (/^\d+$/.test(id) && id.length >= 4) return { code: id, name: name || 'CUENTA DESTINO' };
+        return { code: '1120', name: name || 'BANCO DESCONOCIDO' };
+    };
+
+    const resolveAccountingRow = (t) => {
         const amount = safeParseFloat(t.amount);
-        
         if (t.debitAccount && t.creditAccount) {
-            const drCode = t.debitAccount.code;
-            const crCode = t.creditAccount.code;
-            const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
-            const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
-
-            if (drCode === '11050501' || drName.includes('CAJA PRINCIPAL')) cashIncomes += amount;
-            if (crCode === '11050501' || crName.includes('CAJA PRINCIPAL')) cashExpenses += amount;
-            return;
+            return { debit: { ...t.debitAccount, value: amount }, credit: { ...t.creditAccount, value: amount } };
         }
-
-        if (t.type === 'income' || t.type === 'expense') {
-            if (t.destination && (cashAccountIds.has(t.destination) || t.destination.startsWith('caja_principal'))) {
-                if (t.type === 'income') cashIncomes += amount; else cashExpenses += amount;
-            }
+        if (t.category === 'INGRESOS POR DONACIONES' || t.voucherPrefix === 'A') {
+            const assetAcc = getAssetDetails(t.destination, t.category);
+            const catObj = (accountsData || []).find(a => a.name === t.category) || { number: '421004', name: t.category };
+            return { debit: { code: assetAcc.code, name: assetAcc.name, value: amount }, credit: { code: catObj.number || '421004', name: catObj.name || t.category, value: amount } };
         }
-        if (t.type === 'transfer') {
-             if (t.fromAccount && (cashAccountIds.has(t.fromAccount) || t.fromAccount.startsWith('caja_principal'))) cashExpenses += amount;
-             if (t.toAccount && (cashAccountIds.has(t.toAccount) || t.toAccount.startsWith('caja_principal'))) cashIncomes += amount;
+        if (t.type === 'transfer' && t.fromAccount && t.toAccount) {
+            const debit = getAssetDetails(t.toAccount, t.category);
+            const credit = getAssetDetails(t.fromAccount, t.category);
+            return { debit: { ...debit, value: amount }, credit: { ...credit, value: amount } };
+        }
+        const assetAcc = getAssetDetails(t.destination, t.category);
+        const catObj = (accountsData || []).find(a => a.name === t.category);
+        const catAcc = { code: t._accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')), name: t.category };
+        if (t.type === 'income') {
+            return { debit: { ...assetAcc, value: amount }, credit: { ...catAcc, value: amount } };
+        } else {
+            return { debit: { ...catAcc, value: amount }, credit: { ...assetAcc, value: amount } };
+        }
+    };
+
+    const mayorBalances = {};
+    fInitialBalance.forEach(ib => {
+        const code = String(ib.accountingCode || '11050501');
+        mayorBalances[code] = (mayorBalances[code] || 0) + safeParseFloat(ib.balance);
+    });
+
+    fBankAccounts.forEach(ba => {
+        const code = String(ba.accountingCode || '111005');
+        mayorBalances[code] = (mayorBalances[code] || 0) + safeParseFloat(ba.initialBalance);
+        if (ba.initialInvestmentBalance) {
+            const invCode = '12950501';
+            mayorBalances[invCode] = (mayorBalances[invCode] || 0) + safeParseFloat(ba.initialInvestmentBalance);
         }
     });
-    const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
 
-    // 2. Custom Cash Accounts
+    const processedIdsForDash = new Set();
+    bsTransactions.forEach(t => {
+        if (processedIdsForDash.has(t.id)) return;
+        if (t.isInternalTransfer && !t.debitAccount) {
+            const baseId = t.id.replace(/-exp$|-inc$/, '');
+            const isExp = t.id.endsWith('-exp');
+            const siblingId = baseId + (isExp ? '-inc' : '-exp');
+            const sibling = bsTransactions.find(x => x.id === siblingId);
+
+            if (sibling) {
+                processedIdsForDash.add(t.id);
+                processedIdsForDash.add(sibling.id);
+                const expensePart = isExp ? t : sibling;
+                const incomePart = isExp ? sibling : t;
+                const sourceAsset = getAssetDetails(expensePart.destination, expensePart.category);
+                const destAsset = getAssetDetails(incomePart.destination, incomePart.category);
+                const amount = safeParseFloat(expensePart.amount);
+
+                const debNat = ['1', '5', '6', '8'].includes(destAsset.code.charAt(0));
+                const credNat = ['1', '5', '6', '8'].includes(sourceAsset.code.charAt(0));
+
+                mayorBalances[destAsset.code] = (mayorBalances[destAsset.code] || 0) + (debNat ? amount : -amount);
+                mayorBalances[sourceAsset.code] = (mayorBalances[sourceAsset.code] || 0) + (credNat ? -amount : amount);
+                return;
+            }
+        }
+
+        const { debit, credit } = resolveAccountingRow(t);
+        if (debit?.code) {
+            const isDebitNature = ['1', '5', '6', '8'].includes(debit.code.charAt(0));
+            mayorBalances[debit.code] = (mayorBalances[debit.code] || 0) + (isDebitNature ? safeParseFloat(debit.value) : -safeParseFloat(debit.value));
+        }
+        if (credit?.code) {
+            const isDebitNature = ['1', '5', '6', '8'].includes(credit.code.charAt(0));
+            mayorBalances[credit.code] = (mayorBalances[credit.code] || 0) + (isDebitNature ? -safeParseFloat(credit.value) : safeParseFloat(credit.value));
+        }
+    });
+
+    let cajaPrincipalBalance = mayorBalances['11050501'] || 0;
+    let totalBankBalances = Object.keys(mayorBalances).filter(k => k.startsWith('1110') || k.startsWith('1120')).reduce((sum, k) => sum + mayorBalances[k], 0);
+    let totalInvestmentBalances = mayorBalances['12950501'] || 0;
+
     let customCashBalance = 0;
     if (fCashAccounts.length > 0) {
-        customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
-            let currentBal = 0;
-            if (!cashAcc.date || getSafeYear(cashAcc.date) <= parseInt(selectedYear)) {
-                currentBal = safeParseFloat(cashAcc.initial_balance);
-            }
-            bsTransactions.forEach(t => {
-                const amount = safeParseFloat(t.amount);
-                if (t.type !== 'transfer' && t.destination && t.destination.startsWith(cashAcc.id)) {
-                    if (t.type === 'income') currentBal += amount; else if (t.type === 'expense') currentBal -= amount;
-                }
-                if (t.type === 'transfer') {
-                    if (isAccountMatch(cashAcc.id, t.fromAccount)) currentBal -= amount;
-                    if (isAccountMatch(cashAcc.id, t.toAccount)) currentBal += amount;
-                }
-            });
-            return acc + currentBal;
-        }, 0);
+        customCashBalance = fCashAccounts.reduce((acc, cashAcc) => acc + safeParseFloat(cashAcc.initial_balance), 0);
     }
 
-    // 3. Bank Accounts
-    let totalBankBalances = 0, totalInvestmentBalances = 0;
-    fBankAccounts.forEach(acc => {
-        let currentBankBalance = 0;
-        let currentInvestmentBalance = 0;
-        if (!acc.date || getSafeYear(acc.date) <= parseInt(selectedYear)) {
-            currentBankBalance = safeParseFloat(acc.initialBalance);
-            currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
-        }
-        
-        bsTransactions.forEach(t => {
-            const amount = safeParseFloat(t.amount);
-            
-            if (t.debitAccount && t.creditAccount) {
-                 const drName = t.debitAccount.name || '';
-                 const crName = t.creditAccount.name || '';
-                 const drCode = t.debitAccount.code || '';
-                 const crCode = t.creditAccount.code || '';
-                 
-                 const isDrBank = drName === acc.bankName || (acc.accountingCode && drCode === acc.accountingCode);
-                 const isCrBank = crName === acc.bankName || (acc.accountingCode && crCode === acc.accountingCode);
-                 
-                 if (isDrBank) currentBankBalance += amount;
-                 if (isCrBank) currentBankBalance -= amount;
-                 return;
-            }
-
-            if (t.type !== 'transfer' && t.destination && t.destination.startsWith(acc.id)) {
-                 if (t.type === 'income') { if (t.description?.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
-                 else currentBankBalance -= amount;
-            }
-            if (t.type === 'transfer') {
-                if (isAccountMatch(acc.id, t.fromAccount)) currentBankBalance -= amount;
-                if (isAccountMatch(acc.id, t.toAccount)) currentBankBalance += amount;
-            }
-        });
-        totalBankBalances += currentBankBalance;
-        totalInvestmentBalances += currentInvestmentBalance;
-    });
-
-    const cajaGeneralTotal = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
+    const totalCashBalance = cajaPrincipalBalance + customCashBalance;
+    const cajaGeneralTotal = totalCashBalance + totalBankBalances + totalInvestmentBalances;
     
     // --- ASSETS (ACTIVOS UNIFICADOS) ---
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
