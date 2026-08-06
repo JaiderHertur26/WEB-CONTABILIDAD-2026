@@ -408,6 +408,17 @@ const Transactions = () => {
 
     useEffect(() => {
         let result = [...processedTransactions];
+
+        // 🚀 LIMPIEZA DEL BUG ESPEJO: Extirpar de la memoria visual los asientos inversos ya guardados
+        result = result.filter(t => {
+            if (t.debitAccount && t.creditAccount) {
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                // Si el asiento debita un ingreso (4) y acredita un Activo (15), es un fantasma inverso y se elimina
+                if (drCode.startsWith('4') && crCode.startsWith('15')) return false;
+            }
+            return true;
+        });
         
         // 🚀 Filtro Estricto por Rango de Fechas
         result = result.filter(t => {
@@ -781,6 +792,12 @@ const Transactions = () => {
         if (transferData.isAccounting) {
             const debitAccObj = (accounts || []).find(a => a.name === transferData.debitAccount) || { number: '150805', name: transferData.debitAccount };
             const creditAccObj = (accounts || []).find(a => a.name === transferData.creditAccount) || { number: '133005', name: transferData.creditAccount };
+
+            // 🚀 PREVENCIÓN DE BUG ESPEJO: Bloquear el guardado si se intenta debitar un ingreso (4) y acreditar un activo (15)
+            if (String(debitAccObj.number).startsWith('4') && String(creditAccObj.number).startsWith('15')) {
+                toast({ variant: 'destructive', title: "Operación Bloqueada", description: "El sistema ha evitado un asiento espejo inverso. Esta transacción anularía el efecto de la donación en especie." });
+                return;
+            }
 
             const voucherNumber = getNextVoucherNumber('adjustment', transferData.date);
             const transactionId = `${Date.now()}`;
