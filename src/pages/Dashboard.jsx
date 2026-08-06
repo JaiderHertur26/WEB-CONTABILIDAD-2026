@@ -324,9 +324,16 @@ const Dashboard = () => {
         return assetYear === parseInt(selectedYear);
     }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
 
-    depreciacionAcumuladaValue = depreciacionAcumuladaValue - Math.abs(totalDepreciacionInventario);
+    const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
+        if (estate.status === 'Dado de Baja') return false;
+        return getSafeYear(estate.date) <= parseInt(selectedYear);
+    }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
 
-    const totalAssets = cajaGeneralTotal + accountsReceivableValue + manualFixedAssetsValue + realEstatesValue + inventoryValue + construccionesValue + anticiposValue + otherAssetsValue + intangiblesValue + depreciacionAcumuladaValue;
+    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + depreciacionPropiedadesGlobal);
+
+    const totalActivoCorriente = cajaGeneralTotal + accountsReceivableValue + anticiposValue + otherAssetsValue;
+    const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;
+    const totalAssets = totalActivoCorriente + totalActivoNoCorriente;
 
    
     // --- P&L CALCULATIONS (MOTOR UNIFICADO) ---
@@ -545,10 +552,10 @@ const Dashboard = () => {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard title="Total Activos (Patrimonio)" value={`$${stats.generalBalance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`} icon={DollarSign} trend={stats.generalBalance >= 0 ? 'up' : 'down'} color="blue" tooltip="Caja + Cuentas Cobrar + Activos Fijos + Inventario + Construcciones" />
-          <StatCard title="Ingresos (P&L)" value={`$${stats.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`} icon={TrendingUp} trend="up" color="green" tooltip="Cuentas Clase 4" />
-          <StatCard title="Costos y Gastos (P&L)" value={`$${stats.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`} icon={TrendingDown} trend="down" color="red" tooltip="Cuentas Clases 5, 6 y 7" />
-          <StatCard title="Caja Total (Disponible)" value={`$${stats.cashBalance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`} icon={PiggyBank} trend="static" color="purple" tooltip={`Saldo real acumulado al ${selectedYear}`} />
+          <StatCard title="Total Activos (Patrimonio)" value={`$${stats.generalBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={DollarSign} trend={stats.generalBalance >= 0 ? 'up' : 'down'} color="blue" tooltip="Caja + Cuentas Cobrar + Activos Fijos + Inventario + Construcciones" />
+          <StatCard title="Ingresos (P&L)" value={`$${stats.totalIncome.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingUp} trend="up" color="green" tooltip="Cuentas Clase 4" />
+          <StatCard title="Costos y Gastos (P&L)" value={`$${stats.totalExpenses.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingDown} trend="down" color="red" tooltip="Cuentas Clases 5, 6 y 7" />
+          <StatCard title="Caja Total (Disponible)" value={`$${stats.cashBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={PiggyBank} trend="static" color="purple" tooltip={`Saldo real acumulado al ${selectedYear}`} />
         </div>
 
         <div className="grid grid-cols-1 gap-6 items-start">
