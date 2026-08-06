@@ -64,10 +64,10 @@ const BookClosings = () => {
     const [closeConfirmationText, setCloseConfirmationText] = useState('');
     const [auditReport, setAuditReport] = useState(null);
 
-    // 🚀 INDICADOR DE ESTADO VISUAL
+    // 🚀 INDICADOR DE ESTADO VISUAL (Blindado)
     const currentYearStatus = React.useMemo(() => {
-        if (!fiscalYears) return 'ABIERTO';
-        const yearData = fiscalYears.find(y => String(y.year) === selectedYear && (y.companyId === activeCompany?.id || y.company_id === activeCompany?.id));
+        const safeFiscalYears = Array.isArray(fiscalYears) ? fiscalYears : [];
+        const yearData = safeFiscalYears.find(y => String(y.year) === selectedYear && (y.companyId === activeCompany?.id || y.company_id === activeCompany?.id));
         return yearData?.status === 'CERRADO' ? 'CERRADO' : 'ABIERTO';
     }, [fiscalYears, selectedYear, activeCompany]);
 
@@ -260,7 +260,8 @@ const BookClosings = () => {
         saveTransactions([...(transactions || []), closingTransaction]);
         saveInitialBalance([...(initialBalance || []), ...newInitialBalances]);
         
-        const existingFYs = (fiscalYears || []).filter(fy => !(String(fy.year) === selectedYear && fy.companyId === activeCompany?.id));
+        const safeFiscalYears = Array.isArray(fiscalYears) ? fiscalYears : [];
+        const existingFYs = safeFiscalYears.filter(fy => !(String(fy.year) === selectedYear && fy.companyId === activeCompany?.id));
         saveFiscalYears([...existingFYs, newFiscalYearStatus]);
 
         setIsClosingModalOpen(false);
