@@ -291,7 +291,22 @@ const Transactions = () => {
         (initialBalances || []).forEach(ib => { if (isRelevant(ib)) startCash += (parseFloat(ib.balance) || 0); });
         (bankAccounts || []).forEach(ba => { if (isRelevant(ba)) { startBanks += (parseFloat(ba.initialBalance) || 0); startAportes += (parseFloat(ba.initialInvestmentBalance) || 0); } });
 
-        const sorted = [...transactions].filter(isRelevant).sort((a, b) => new Date(a.date) - new Date(b.date));
+        // 🚀 REGLA LÓGICA 1: Ordenamiento cronológico con desempate dinámico
+        const sorted = [...transactions].filter(isRelevant).sort((a, b) => {
+            const dateA = new Date(a.date).getTime();
+            const dateB = new Date(b.date).getTime();
+            
+            if (dateA !== dateB) return dateA - dateB;
+
+            // Desempate de mismo día: Los ingresos se suman a caja ANTES de procesar los egresos
+            const weightA = a.type === 'income' ? 1 : (a.type === 'transfer' ? 2 : 3);
+            const weightB = b.type === 'income' ? 1 : (b.type === 'transfer' ? 2 : 3);
+            
+            if (weightA !== weightB) return weightA - weightB;
+
+            // Último desempate utilizando el ID (que funciona como timestamp)
+            return String(a.id).localeCompare(String(b.id));
+        });
 
         let runningCash = startCash;
         let runningBanks = startBanks;
@@ -634,6 +649,60 @@ const Transactions = () => {
     const handleSaveTransaction = (transactionData) => {
         if (!canAdd && !editingTransaction) return;
         if (!canEdit && editingTransaction) return;
+
+        // 🚀 REGLA LÓGICA 2: Middleware de restricción para evitar saldo negativo en Caja Principal
+        const isExpense = transactionData.type === 'expense' && !transactionData.isInternalTransfer;
+        
+        let isCashDisbursement = false;
+        if (transactionData.creditAccount) {
+            isCashDisbursement = String(transactionData.creditAccount.code || '').startsWith('1105');
+        } else {
+            const destParts = (transactionData.destination || '').split('|');
+            isCashDisbursement = destParts[0] === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
+        }
+
+        if (isExpense && isCashDisbursement) {
+            let currentCashBalance = 0;
+            
+            // 1. Sumar los saldos iniciales
+            (initialBalances || []).filter(isRelevant).forEach(ib => currentCashBalance += parseFloat(ib.balance) || 0);
+            
+            // 2. Reconstruir el saldo actual en caliente
+            transactions.filter(isRelevant).forEach(t => {
+                if (editingTransaction && t.id === editingTransaction.id) return; // Excluir la tx actual en caso de edición
+                
+                const amount = parseFloat(t.amount) || 0;
+                if (t.debitAccount && t.creditAccount) {
+                    if (String(t.debitAccount.code || '').startsWith('1105')) currentCashBalance += amount;
+                    if (String(t.creditAccount.code || '').startsWith('1105')) currentCashBalance -= amount;
+                } else if (t.type === 'transfer') {
+                    const fromParts = (t.fromAccount || '').split('|');
+                    const toParts = (t.toAccount || '').split('|');
+                    if (fromParts[0] === 'caja_principal' || fromParts[1]?.toUpperCase().includes('CAJA PRINCIPAL')) currentCashBalance -= amount;
+                    if (toParts[0] === 'caja_principal' || toParts[1]?.toUpperCase().includes('CAJA PRINCIPAL')) currentCashBalance += amount;
+                } else {
+                    const tDestParts = (t.destination || '').split('|');
+                    const tDestId = tDestParts[0];
+                    const tIsCash = tDestId === 'caja_principal' || (tDestParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
+                    
+                    if (tIsCash) {
+                        const isAportes = (t.category || '').toUpperCase().includes('APORTES') || tDestId === '12950501';
+                        if (t.type === 'expense') currentCashBalance -= amount;
+                        else if (t.type === 'income' && !isAportes) currentCashBalance += amount;
+                    }
+                }
+            });
+
+            // 3. Ejecutar el corte (Trigger 400)
+            if (parseFloat(transactionData.amount) > currentCashBalance) {
+                toast({ 
+                    variant: 'destructive', 
+                    title: "Fondos insuficientes", 
+                    description: `Saldo actual en Caja Principal: $${currentCashBalance.toLocaleString('es-CO')}. No puedes sacar $${parseFloat(transactionData.amount).toLocaleString('es-CO')}.`
+                });
+                return; // ⛔ Aborta el guardado
+            }
+        }
 
         let updatedTransactions;
         let updatedAssets = [...(fixedAssets || [])];
