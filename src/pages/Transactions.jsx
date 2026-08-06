@@ -1461,8 +1461,16 @@ const Transactions = () => {
 
         let totalAnt = 0, totalDeb = 0, totalCred = 0, totalNuev = 0;
 
-        // 🚀 FORMATO OFICIAL COLOMBIA: Estricto a 2 decimales y valores absolutos (sin signos menos visuales)
-        const formatNum = (val) => Math.abs(val || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // 🚀 FORMATO NIIF: Paréntesis para naturalezas contrarias (Depreciación) o saldos negativos
+        const formatearSaldoContable = (valor, codigoCuenta = '') => {
+            const num = parseFloat(valor) || 0;
+            if (codigoCuenta.startsWith('1592') || num < 0) {
+                const valorAbsoluto = Math.abs(num);
+                const numeroFormateado = valorAbsoluto.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                return `(${numeroFormateado})`;
+            }
+            return num.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
         
         const rowsHtml = libroMayorData.map(acc => {
             totalAnt += acc.saldoAnterior;
@@ -1474,10 +1482,10 @@ const Transactions = () => {
                 <tr>
                     <td class="td-code">${acc.code}</td>
                     <td class="td-name">${acc.name}</td>
-                    <td class="td-num">${formatNum(acc.saldoAnterior)}</td>
-                    <td class="td-num">${formatNum(acc.debito)}</td>
-                    <td class="td-num">${formatNum(acc.credito)}</td>
-                    <td class="td-num">${formatNum(acc.nuevoSaldo)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.saldoAnterior, acc.code)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.debito, acc.code)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.credito, acc.code)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.nuevoSaldo, acc.code)}</td>
                 </tr>
             `;
         }).join('');
@@ -1540,10 +1548,10 @@ const Transactions = () => {
                           ${rowsHtml}
                           <tr class="totals-row">
                               <td colspan="2" style="text-align:right;">SUMAS DEL PERIODO:</td>
-                              <td class="td-num">${formatNum(totalAnt)}</td>
-                              <td class="td-num">${formatNum(totalDeb)}</td>
-                              <td class="td-num">${formatNum(totalCred)}</td>
-                              <td class="td-num">${formatNum(totalNuev)}</td>
+                              <td class="td-num">${formatearSaldoContable(totalAnt)}</td>
+                              <td class="td-num">${formatearSaldoContable(totalDeb)}</td>
+                              <td class="td-num">${formatearSaldoContable(totalCred)}</td>
+                              <td class="td-num">${formatearSaldoContable(totalNuev)}</td>
                           </tr>
                       </tbody>
                   </table>
