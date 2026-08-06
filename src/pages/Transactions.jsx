@@ -768,61 +768,38 @@ const Transactions = () => {
             const debitAccObj = (accounts || []).find(a => a.name === transferData.debitAccount) || { number: '150805', name: transferData.debitAccount };
             const creditAccObj = (accounts || []).find(a => a.name === transferData.creditAccount) || { number: '133005', name: transferData.creditAccount };
 
-            const checkCashOrBank = (codeStr, nameStr) => {
-                const c = String(codeStr || '').trim();
-                const n = String(nameStr || '').toUpperCase().trim();
-                if (c.startsWith('11') || c.startsWith('1295') || c === 'caja_principal') return true;
-                if (n.includes('CAJA') || n.includes('COOPERATIVA') || n.includes('BANCO')) return true;
-                return false;
-            };
-            const hasCash = checkCashOrBank(debitAccObj.number, debitAccObj.name) || checkCashOrBank(creditAccObj.number, creditAccObj.name);
-            const lookupType = hasCash ? 'transfer' : 'adjustment';
-            voucherNumber = getNextVoucherNumber(lookupType, transferData.date);
+            const voucherNumber = getNextVoucherNumber('adjustment', transferData.date);
+            const transactionId = `${Date.now()}`;
 
-            const expenseTransaction = {
-                id: `${now}-exp`,
-                type: 'expense',
-                description: `Cruce: ${transferData.description}`,
-                amount: parseFloat(transferData.amount),
-                category: transferData.debitAccount, 
-                date: transferData.date,
-                destination: `${creditAccObj.number}|${creditAccObj.name.toUpperCase()}`, 
-                isInternalTransfer: true,
+            const accountingTransaction = {
+                id: transactionId,
+                type: 'adjustment',
+                voucherPrefix: 'A',
                 voucherNumber,
-                company_id: activeCompany?.id,
-                companyId: activeCompany?.id,
+                date: transferData.date,
+                description: transferData.description,
+                amount: parseFloat(transferData.amount),
+                category: debitAccObj.name,
+                isInternalTransfer: true,
                 debitAccount: { code: debitAccObj.number, name: debitAccObj.name },
-                creditAccount: { code: creditAccObj.number, name: creditAccObj.name }
-            };
-
-            const incomeTransaction = {
-                id: `${now}-inc`,
-                type: 'income',
-                description: `Cruce: ${transferData.description}`,
-                amount: parseFloat(transferData.amount),
-                category: transferData.creditAccount, 
-                date: transferData.date,
-                destination: `${debitAccObj.number}|${debitAccObj.name.toUpperCase()}`, 
-                isInternalTransfer: true,
-                voucherNumber,
+                creditAccount: { code: creditAccObj.number, name: creditAccObj.name },
                 company_id: activeCompany?.id,
-                companyId: activeCompany?.id,
-                debitAccount: { code: creditAccObj.number, name: creditAccObj.name }, // Contrapartida
-                creditAccount: { code: debitAccObj.number, name: debitAccObj.name }
+                companyId: activeCompany?.id
             };
 
+            // Registro automático en Activos Fijos si la cuenta débito pertenece a la clase 15 (excepto construcciones/depreciación)
             if (debitAccObj.number.startsWith('15') && !debitAccObj.number.startsWith('1508') && !debitAccObj.number.startsWith('1592')) {
                 const assetPayload = {
                     date: transferData.date,
                     name: transferData.description, 
                     value: parseFloat(transferData.amount),
                     year: new Date(transferData.date).getFullYear().toString(),
-                    transactionId: expenseTransaction.id
+                    transactionId: transactionId
                 };
 
                 const newAsset = {
                     ...assetPayload,
-                    id: `asset-${expenseTransaction.id}`,
+                    id: `asset-${transactionId}`,
                     status: 'Bueno',
                     quantity: 1,
                     category: debitAccObj.name,
@@ -833,7 +810,7 @@ const Transactions = () => {
                 saveFixedAssets([...(fixedAssets || []), newAsset]);
             }
 
-            saveTransactions([...transactions, expenseTransaction, incomeTransaction]);
+            saveTransactions([...transactions, accountingTransaction]);
             toast({ title: "Cruce contable aplicado", description: "Los saldos en el Balance General han sido ajustados." });
             setTransferDialogOpen(false);
             return;
