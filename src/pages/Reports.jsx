@@ -186,81 +186,40 @@ const Reports = () => {
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
     const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
-    // 🚀 NUEVA LÓGICA DE P&L DINÁMICO EXTREMADAMENTE SEGURA
-    const incomeItems = {};
-    const costItems = {};
-    const expenseItems = {};
-
-    pnlTransactions.forEach(t => {
-        const amount = safeParseFloat(t.amount);
-        if (amount === 0) return;
-
+    const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
         if (t.debitAccount && t.creditAccount) {
-            const drCode = String(t.debitAccount.code || '');
-            const crCode = String(t.creditAccount.code || '');
-            
-            if (crCode.startsWith('4')) {
-                const name = t.creditAccount.name || t.category || 'INGRESOS VARIOS';
-                incomeItems[name] = (incomeItems[name] || 0) + amount;
-            }
-            if (['6', '7'].includes(drCode.charAt(0))) {
-                const name = t.debitAccount.name || t.category || 'COSTOS VARIOS';
-                costItems[name] = (costItems[name] || 0) + amount;
-            }
-            if (drCode.startsWith('5')) {
-                const name = t.debitAccount.name || t.category || 'GASTOS VARIOS';
-                expenseItems[name] = (expenseItems[name] || 0) + amount;
-            }
-        } else {
-            if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return;
-            
-            let prefix = getAccountPrefix(t.category);
-            if (!prefix) prefix = t.type === 'income' ? '4' : (t.type === 'expense' ? '5' : null);
-            
-            const name = t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS');
-
-            if (prefix === '4') {
-                const impact = t.type === 'income' ? amount : -amount;
-                incomeItems[name] = (incomeItems[name] || 0) + impact;
-            } else if (['6', '7'].includes(prefix)) {
-                const impact = t.type === 'expense' ? amount : -amount;
-                costItems[name] = (costItems[name] || 0) + impact;
-            } else if (prefix === '5') {
-                const impact = t.type === 'expense' ? amount : -amount;
-                expenseItems[name] = (expenseItems[name] || 0) + impact;
-            }
+            const amount = safeParseFloat(t.amount);
+            if (classPrefix === '4' && t.creditAccount.name?.trim().toUpperCase() === categoryName.trim().toUpperCase()) return sum + amount;
+            if (['5', '6', '7'].includes(classPrefix) && t.debitAccount.name?.trim().toUpperCase() === categoryName.trim().toUpperCase()) return sum + amount;
+            return sum;
         }
-    });
 
-    const formatPnlSection = (itemsObj, isNegative = false) => {
-        const rows = [];
-        for (const [key, value] of Object.entries(itemsObj)) {
-            if (Math.abs(value) > 0.01) {
-                const cleanKey = String(key || 'SIN CATEGORÍA').toUpperCase();
-                rows.push({
-                    item: `  ${cleanKey}`, 
-                    amount: isNegative ? -Math.abs(value) : value
-                });
-            }
-        }
-        return rows.sort((a, b) => a.item.localeCompare(b.item));
-    };
+        if (t.category !== categoryName || t.isFixedAsset || t.isInternalTransfer || t.isPurchase) return sum;
+        const amount = safeParseFloat(t.amount);
+        if (classPrefix === '4') return sum + (t.type === 'income' ? amount : -amount);
+        if (['5', '6', '7'].includes(classPrefix)) return sum + (t.type === 'expense' ? amount : -amount);
+        return sum;
+    }, 0);
+
+    const incomeAccounts = allAccounts.filter(a => String(a.number).startsWith('4'));
+    const expenseAccounts = allAccounts.filter(a => String(a.number).startsWith('5'));
+    const costAccounts = allAccounts.filter(a => String(a.number).startsWith('6') || String(a.number).startsWith('7'));
 
     const grossProfit = totalIncome - totalCosts;
 
     const incomeStatement = [
         { item: 'INGRESOS OPERACIONALES', isBold: true },
-        ...formatPnlSection(incomeItems, false),
+        ...incomeAccounts.map(acc => ({ item: `  ${acc.name}`, amount: calculateTotalForCategory(acc.name, '4') })).filter(i => i.amount !== 0),
         { item: 'Total Ingresos', amount: totalIncome, isSubtotal: true, isTopBorder: true },
         
         { item: 'COSTOS DE VENTA', isBold: true },
-        ...formatPnlSection(costItems, true),
+        ...costAccounts.map(acc => ({ item: `  ${acc.name}`, amount: -Math.abs(calculateTotalForCategory(acc.name, '6')) })).filter(i => i.amount !== 0),
         { item: 'Total Costos', amount: -totalCosts, isSubtotal: true, isTopBorder: true },
         
         { item: 'UTILIDAD BRUTA', amount: grossProfit, isBold: true, isTopBorder: true },
         
         { item: 'GASTOS OPERACIONALES', isBold: true },
-        ...formatPnlSection(expenseItems, true),
+        ...expenseAccounts.map(acc => ({ item: `  ${acc.name}`, amount: -Math.abs(calculateTotalForCategory(acc.name, '5')) })).filter(i => i.amount !== 0),
         { item: 'Total Gastos', amount: -totalExpenses, isSubtotal: true, isTopBorder: true },
         
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
@@ -472,6 +431,7 @@ const Reports = () => {
         return p.status === 'Pendiente' && pYear <= parseInt(currentYear);
     }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
 
+    // 🚀 APLICACIÓN NIIF: Cálculo de Totales Corrientes y No Corrientes
     const totalActivoCorriente = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue;
     const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;
     
@@ -480,6 +440,7 @@ const Reports = () => {
     const totalEquity = totalAssets - totalLiabilities; 
     const retainedEquity = totalEquity - netProfit;
 
+    // 🚀 APLICACIÓN NIIF: Arreglo de Activos Estructurado y Jerárquico
     const assets = [
             { item: 'ACTIVO CORRIENTE', isBold: true },
             { item: '  Efectivo y Equivalentes', isBold: true },
@@ -610,6 +571,7 @@ const Reports = () => {
 
           let content = '';
           
+          // 🚀 Formateador universal estricto a 2 decimales
           const formatNum = (val) => parseFloat(val || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
           if (printType === 'balance') {
@@ -617,7 +579,8 @@ const Reports = () => {
               
               const renderItems = (items) => (items || []).map(item => {
                   const rawName = String(item.item || '');
-                  const leadingSpaces = Math.max(rawName.search(/\S/), 0);
+                  // Calculamos la indentación en píxeles basados en los espacios
+                  const leadingSpaces = Math.max(rawName.search(/\\S/), 0);
                   const paddingLeft = leadingSpaces > 0 ? (leadingSpaces * 6) + 'px' : '0px';
                   const cleanName = rawName.trim().toUpperCase();
 
@@ -662,7 +625,7 @@ const Reports = () => {
                   <table class="table">
                       ${(reportData.incomeStatement || []).map(item => {
                           const rawName = String(item.item || '');
-                          const leadingSpaces = Math.max(rawName.search(/\S/), 0);
+                          const leadingSpaces = Math.max(rawName.search(/\\S/), 0);
                           const paddingLeft = leadingSpaces > 0 ? (leadingSpaces * 6) + 'px' : '0px';
                           const cleanName = rawName.trim().toUpperCase();
 
@@ -781,8 +744,9 @@ const Reports = () => {
       }
   };
 
+  // 🚀 Modificación Visual de la Tabla para aplicar indentación a sub-cuentas
   const renderSheetTable = (items) => (items.map((item, index) => {
-      const leadingSpaces = Math.max(String(item.item || '').search(/\S/), 0);
+      const leadingSpaces = Math.max(String(item.item || '').search(/\\S/), 0);
       const dynamicPadding = leadingSpaces > 0 ? (leadingSpaces * 8) + 'px' : '0px';
 
       return (
@@ -826,7 +790,7 @@ const Reports = () => {
                         <Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
                     </div>
                 </div>
-                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${Math.max(String(item.item).search(/\S/), 0) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
+                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${Math.max(String(item.item).search(/\\S/), 0) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
             </div>
         </motion.div>
 
