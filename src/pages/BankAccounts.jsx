@@ -134,23 +134,15 @@ const BankAccounts = () => {
         let crCode = '11050501';
         let crName = 'CAJA PRINCIPAL';
         
-        if (sourceId === 'caja_principal') {
-            const defaultCash = (initialBalances || []).find(ib => (!ib.company_id && !ib.companyId) || ib.company_id === activeCompany?.id || ib.companyId === activeCompany?.id);
-            if (defaultCash) {
-                crCode = defaultCash.accountingCode || '11050501';
-                crName = defaultCash.accountingName || 'CAJA PRINCIPAL';
-            }
-        } else {
-            const bank = (bankAccounts || []).find(b => b.id === sourceId);
+        if (sourceId !== 'caja_principal') {
+            // En BankAccounts.js los bancos se llaman 'accounts'
+            const bank = (accounts || []).find(b => b.id === sourceId);
             if (bank) {
                 crCode = bank.accountingCode || '111005';
                 crName = bank.accountingConcept || bank.bankName;
-            } else {
-                const cash = (cashAccounts || []).find(c => c.id === sourceId);
-                if (cash) {
-                    crCode = cash.accounting_account || '1105';
-                    crName = cash.name;
-                }
+            } else if (sourceName) {
+                // Por si viene de alguna caja menor que solo pasa el nombre
+                crName = sourceName;
             }
         }
 
@@ -171,8 +163,8 @@ const BankAccounts = () => {
             isInternalTransfer: true,
             company_id: activeCompany?.id,
             companyId: activeCompany?.id,
-            destination: `${selectedAccount.id}|${selectedAccount.bankName}`, // Ayuda al frontend a ubicar dónde entró
-            fromAccount: sourceAccount, // Ayuda al frontend a ubicar de dónde salió
+            destination: `${selectedAccount.id}|${selectedAccount.bankName}`,
+            fromAccount: sourceAccount,
             debitAccount: { code: drCode, name: drName },
             creditAccount: { code: crCode, name: crName }
         };
