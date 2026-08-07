@@ -341,7 +341,15 @@ const Dashboard = () => {
         return getSafeYear(estate.date) <= parseInt(selectedYear);
     }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
 
-    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + depreciacionPropiedadesGlobal);
+    const depreciacionesFuturasPropiedades = bsTransactions.filter(t => {
+        return t.category === 'Depreciación Acumulada Activos Fijos' && 
+               String(t.description).includes('Edificaciones') && 
+               getSafeYear(t.date) > parseInt(selectedYear);
+    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+    const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
+
+    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
 
     const totalActivoCorriente = cajaGeneralTotal + accountsReceivableValue + anticiposValue + otherAssetsValue;
     const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;
