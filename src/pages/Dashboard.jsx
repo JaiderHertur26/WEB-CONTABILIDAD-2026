@@ -341,7 +341,7 @@ const Dashboard = () => {
         return getSafeYear(estate.date) <= parseInt(selectedYear);
     }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
 
-    const depreciacionesFuturasPropiedades = bsTransactions.filter(t => {
+    const depreciacionesFuturasPropiedades = validTransactions.filter(t => {
         return t.category === 'Depreciación Acumulada Activos Fijos' && 
                String(t.description).includes('Edificaciones') && 
                getSafeYear(t.date) > parseInt(selectedYear);
