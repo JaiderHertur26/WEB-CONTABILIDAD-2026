@@ -264,7 +264,7 @@ const TaxReports = () => {
             }
         });
 
-        // 🚀 3. EXTRACCIÓN DE SALDOS FINALES PUC
+        // 🚀 3. EXTRACCIÓN DE SALDOS FINALES PUC PARA LA DECLARACIÓN DE RENTA
         let cajaPrincipalBalance = mayorBalances['11050501'] || 0;
         let totalBankBalances = Object.keys(mayorBalances).filter(k => k.startsWith('1110') || k.startsWith('1120')).reduce((sum, k) => sum + mayorBalances[k], 0);
         let totalInvestmentBalances = mayorBalances['12950501'] || 0;
@@ -440,4 +440,4 @@ const TaxReports = () => {
     );
 };
 
-export default TaxReports;"
+export default TaxReports;
