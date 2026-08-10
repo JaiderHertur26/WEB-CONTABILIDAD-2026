@@ -559,10 +559,7 @@ const Transactions = () => {
     }, [billingDocuments, selectedYear, isRelevant]);
 
     const getNextVoucherNumber = (desiredType, dateStr) => {
-        // Extraemos la base configurada por el usuario (por defecto 0)
-        const baseNumber = voucherConfig?.[desiredType] ? parseInt(voucherConfig[desiredType], 10) : 0;
-
-        if (!transactions || transactions.length === 0) return baseNumber + 1;
+        if (!transactions || transactions.length === 0) return 1;
         
         const year = (typeof dateStr === 'string' && dateStr.includes('-')) 
             ? dateStr.split('-')[0] 
@@ -583,8 +580,7 @@ const Transactions = () => {
             return currentVnum > max ? currentVnum : max;
         }, 0);
 
-        // Retorna el máximo entre el número mayor actual y la base configurada + 1
-        return Math.max(maxNum, baseNumber) + 1;
+        return maxNum + 1;
     };
 
     const handleGenerateBillingDoc = (transaction) => {
@@ -2164,10 +2160,10 @@ const Transactions = () => {
                                 <p className="font-mono font-bold text-black text-sm mt-0.5">
                                     N° RC-
                                     {String(
-                                        receiptToPrint?.voucherNumber
+                                        (parseInt(receiptToPrint?.voucherNumber, 10) || 0) + (parseInt(voucherConfig?.income, 10) || 0)
                                     ).padStart(4, "0")}
                                 </p>
-                                <p className="font-mono font-bold text-slate-600 text-xs mt-0.5">
+                                <p className="font-mono font-bold text-slate-500 text-[10px] mt-0.5">
                                     Ref. Comp. {receiptToPrint?.voucherPrefix || 'I'}-{String(receiptToPrint?.voucherNumber).padStart(4, "0")}
                                 </p>
                             </div>
@@ -2343,7 +2339,13 @@ const Transactions = () => {
                                 </h2>
 
                                 <p className="font-mono font-bold text-black text-sm mt-0.5">
-                                    Ref. Egreso N° E-{String(billingDocToPrint?.voucherNumber).padStart(4, "0")}
+                                    N° CC-
+                                    {String(
+                                        (parseInt(billingDocToPrint?.voucherNumber, 10) || 0) + (parseInt(voucherConfig?.expense, 10) || 0)
+                                    ).padStart(4, "0")}
+                                </p>
+                                <p className="font-mono font-bold text-slate-500 text-[10px] mt-0.5">
+                                    Ref. Comp. E-{String(billingDocToPrint?.voucherNumber).padStart(4, "0")}
                                 </p>
                             </div>
 
