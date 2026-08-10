@@ -119,6 +119,8 @@ const Transactions = () => {
 
     const [billingDocuments, saveBillingDocuments] = useCompanyData('billing_documents');
     const [autoBillingCategories, setAutoBillingCategories] = useCompanyData('auto_billing_categories');
+    const [voucherConfig, setVoucherConfig] = useCompanyData('voucher_config');
+    const [configVoucherOpen, setConfigVoucherOpen] = useState(false);
 
     // 🚀 HOOKS Y ESTADOS PARA EL CIERRE ANUAL AUTOMATIZADO
     const [fiscalYears, saveFiscalYears] = useCompanyData('fiscal_years');
@@ -557,7 +559,10 @@ const Transactions = () => {
     }, [billingDocuments, selectedYear, isRelevant]);
 
     const getNextVoucherNumber = (desiredType, dateStr) => {
-        if (!transactions || transactions.length === 0) return 1;
+        // Extraemos la base configurada por el usuario (por defecto 0)
+        const baseNumber = voucherConfig?.[desiredType] ? parseInt(voucherConfig[desiredType], 10) : 0;
+
+        if (!transactions || transactions.length === 0) return baseNumber + 1;
         
         const year = (typeof dateStr === 'string' && dateStr.includes('-')) 
             ? dateStr.split('-')[0] 
@@ -578,7 +583,8 @@ const Transactions = () => {
             return currentVnum > max ? currentVnum : max;
         }, 0);
 
-        return maxNum + 1;
+        // Retorna el máximo entre el número mayor actual y la base configurada + 1
+        return Math.max(maxNum, baseNumber) + 1;
     };
 
     const handleGenerateBillingDoc = (transaction) => {
@@ -1783,7 +1789,12 @@ const Transactions = () => {
                                 <button onClick={() => setViewMode('mayor')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'mayor' ? 'bg-white shadow-sm text-purple-700' : 'text-slate-500 hover:text-purple-600'}`}><Filter className="w-3 h-3 inline mr-1" /> Mayor y Balances</button>
                                 <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`}><FileText className="w-3 h-3 inline mr-1" /> CxC</button>
                             </div>
-                            {canEdit && <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>}
+                            {canEdit && (
+    <>
+        <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>
+        <Button variant="outline" size="icon" onClick={() => setConfigVoucherOpen(true)} className="ml-1 text-slate-500 hover:text-purple-600 bg-white" title="Configurar Numeración Inicial"><Edit2 className="w-4 h-4"/></Button>
+    </>
+)}
                         </div>
                     </div>
                     
@@ -2070,6 +2081,13 @@ const Transactions = () => {
                 onSave={setAutoBillingCategories}
             />
 
+            <VoucherConfigDialog
+                open={configVoucherOpen}
+                onOpenChange={setConfigVoucherOpen}
+                config={voucherConfig || {}}
+                onSave={setVoucherConfig}
+            />
+
 {/* RECIBO DE CAJA / DONACIÓN EN MEDIA CARTA Y DISEÑO ELEGANTE */}
 <Dialog open={printReceiptOpen} onOpenChange={setPrintReceiptOpen}>
     <DialogContent className="max-w-4xl p-0 border-none bg-transparent shadow-none">
@@ -2148,6 +2166,9 @@ const Transactions = () => {
                                     {String(
                                         receiptToPrint?.voucherNumber
                                     ).padStart(4, "0")}
+                                </p>
+                                <p className="font-mono font-bold text-slate-600 text-xs mt-0.5">
+                                    Ref. Comp. {receiptToPrint?.voucherPrefix || 'I'}-{String(receiptToPrint?.voucherNumber).padStart(4, "0")}
                                 </p>
                             </div>
 
@@ -2697,7 +2718,7 @@ const AutoBillingConfigDialog = ({ open, onOpenChange, accounts, autoBillingCate
 // =========================================================================
 // NUEVO COMPONENTE: Conciliación Bancaria Semi-Automática (Excel/CSV)
 // =========================================================================
-const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransactions, accounts, bankAccounts, cashAccounts, activeCompany }) => {
+const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransactions, accounts, bankAccounts, cashAccounts, activeCompany, voucherConfig }) => {
     const [step, setStep] = useState(1); 
     const [parsedRows, setParsedRows] = useState([]);
     const [selectedBank, setSelectedBank] = useState('');
@@ -2869,7 +2890,8 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                     const currentVnum = parseInt(t.voucherNumber, 10) || 0;
                     return currentVnum > max ? currentVnum : max;
                 }, 0);
-                nextVouchers[typeKey] = maxNum + 1;
+                const baseNumber = voucherConfig?.[row.type] ? parseInt(voucherConfig[row.type], 10) : 0;
+                nextVouchers[typeKey] = Math.max(maxNum, baseNumber) + 1;
             }
 
             const voucherNumber = nextVouchers[typeKey];
@@ -3021,4 +3043,70 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
         </Dialog>
     );
 };
+// =========================================================================
+// CONFIGURACIÓN DE NUMERACIÓN DE COMPROBANTES
+// =========================================================================
+const VoucherConfigDialog = ({ open, onOpenChange, config, onSave }) => {
+    const [incomeBase, setIncomeBase] = useState('');
+    const [expenseBase, setExpenseBase] = useState('');
+
+    useEffect(() => {
+        if (open) {
+            setIncomeBase(config?.income || '');
+            setExpenseBase(config?.expense || '');
+        }
+    }, [open, config]);
+
+    const handleSave = () => {
+        onSave({
+            ...config,
+            income: parseInt(incomeBase, 10) || 0,
+            expense: parseInt(expenseBase, 10) || 0
+        });
+        onOpenChange(false);
+    };
+
+    return (
+        <Dialog onOpenChange={onOpenChange} open={open}>
+            <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-purple-700">
+                        <Edit2 className="w-5 h-5"/> Numeración Inicial
+                    </DialogTitle>
+                    <DialogDescription>
+                        Define la base desde la que iniciará el contador automático. 
+                        (Ej: Si pones 450, el siguiente comprobante será el 451).
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                    <div className="space-y-2">
+                        <Label className="text-slate-700 font-bold">Base para Recibos de Caja (Ingresos)</Label>
+                        <input 
+                            type="number" 
+                            value={incomeBase} 
+                            onChange={(e) => setIncomeBase(e.target.value)} 
+                            placeholder="Ej: 450" 
+                            className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label className="text-slate-700 font-bold">Base para Cuentas de Cobro (Egresos)</Label>
+                        <input 
+                            type="number" 
+                            value={expenseBase} 
+                            onChange={(e) => setExpenseBase(e.target.value)} 
+                            placeholder="Ej: 100" 
+                            className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500"
+                        />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button onClick={() => onOpenChange(false)} variant="outline">Cancelar</Button>
+                    <Button className="bg-purple-600 hover:bg-purple-700 text-white" onClick={handleSave}>Guardar</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 export default Transactions;
