@@ -440,19 +440,32 @@ const BookClosings = () => {
         const hasConciliacion = report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0 || report.conciliacion.capitalizacion > 0;
         const saldoNetoTerceros = report.conciliacion.tercerosIn - report.conciliacion.tercerosOut;
 
-        // Mantén todo tu código de estilos y tablas igual hasta la parte final de "signatures"
-        // Asegúrate de reemplazar SOLO la parte del <div class="signatures"> con esto:
-
         const htmlContent = `
             <!DOCTYPE html>
             <html>
             <head>
                 <title>Acta_de_Cierre_${format(start, "yyyyMMdd")}</title>
-                <!-- Mantén todos tus estilos CSS exactos aquí -->
                 <style>
                     @page { size: letter; margin: 15mm; }
                     body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #0f172a; line-height: 1.4; }
-                    /* ... (resto de tu css original) ... */
+                    .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 10px; }
+                    .header h1 { margin: 0; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+                    .header p { margin: 2px 0; font-size: 11px; color: #475569; }
+                    .title { text-align: center; font-size: 15px; font-weight: bold; margin-top: 0; margin-bottom: 5px; text-decoration: underline; }
+                    .period { text-align: center; font-size: 12px; margin-top: 0; margin-bottom: 15px; color: #475569; }
+                    .summary-box { display: flex; justify-content: space-between; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; margin-bottom: 15px; background-color: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    .summary-item { text-align: center; width: 33%; }
+                    .summary-item:not(:last-child) { border-right: 1px solid #cbd5e1; }
+                    .summary-label { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; margin-bottom: 3px; }
+                    .summary-value { font-size: 16px; font-weight: bold; }
+                    .section-title { font-size: 11px; font-weight: bold; background-color: #e2e8f0; padding: 5px 10px; margin-top: 15px; margin-bottom: 8px; border: 1px solid #cbd5e1; text-transform: uppercase; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    .grid-2 { display: flex; gap: 15px; page-break-inside: avoid; }
+                    .col { width: 50%; }
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+                    th { background-color: #f1f5f9; text-align: left; padding: 5px 6px; border: 1px solid #cbd5e1; font-size: 10px; color: #334155; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    td { padding: 5px 6px !important; border: 1px solid #e2e8f0; font-size: 10px !important; text-transform: uppercase; }
+                    
+                    /* Estilos para las firmas dinámicas */
                     .signatures { margin-top: 35px; display: flex; justify-content: space-between; padding: 0 40px; page-break-inside: avoid; }
                     .sig-block { width: 40%; text-align: center; }
                     .sig-name { font-size: 12px; font-weight: bold; margin-bottom: 2px; min-height: 16px; text-transform: uppercase; }
@@ -460,8 +473,109 @@ const BookClosings = () => {
                 </style>
             </head>
             <body>
-                <!-- Mantén todo tu HTML (header, tablas, etc) exacto aquí -->
+                <div class="header">
+                    <h1>${activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO'}</h1>
+                    <p>NIT: ${activeCompany?.doc || '802012765'}</p>
+                    <p>${activeCompany?.address || 'CRA 9G # 77 - 42'} - Tel: ${activeCompany?.phone || '3167630763'}</p>
+                </div>
                 
+                <div class="title">ACTA DE CIERRE CONTABLE</div>
+                <p class="period">Periodo: ${formattedStart} al ${formattedEnd}</p>
+
+                <div class="summary-box">
+                    <div class="summary-item">
+                        <div class="summary-label">Total Ingresos Operativos</div>
+                        <div class="summary-value" style="color: #16a34a;">$${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Total Gastos Operativos</div>
+                        <div class="summary-value" style="color: #dc2626;">$${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Utilidad / Pérdida</div>
+                        <div class="summary-value" style="color: #2563eb;">$${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                </div>
+        
+                <div class="section-title">Resumen Mensual</div>
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                    <thead>
+                        <tr>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">MES</th>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">INGRESOS</th>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">GASTOS</th>
+                            <th style="border: 1px solid #000; padding: 6px; text-align: left; background-color: #f1f5f9; color: #000; font-weight: bold;">UTILIDAD DEL MES</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${report.monthlySummary.map(m => `
+                            <tr>
+                                <td style="border: 1px solid #000; padding: 6px; font-weight: normal; font-size: 11px;">${m.mes}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.ingresos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.gastos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.utilidad.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                            </tr>
+                        `).join('')}
+                        <tr style="background-color: #f8fafc;">
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">TOTAL</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="section-title">1. Estado de Resultados (Por Concepto Operativo)</div>
+                <div class="grid-2">
+                    <div class="col">
+                        <table>
+                            <thead><tr><th>Ingresos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
+                            <tbody>${generateTableRows(report.incomeByCategory)}</tbody>
+                        </table>
+                    </div>
+                    <div class="col">
+                        <table>
+                            <thead><tr><th>Gastos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
+                            <tbody>${generateTableRows(report.expenseByCategory)}</tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="section-title">2. Flujo de Efectivo Real (Entradas y Salidas)</div>
+                <div class="grid-2">
+                    <div class="col">
+                        <table>
+                            <thead><tr><th>Dinero Recibido En</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
+                            <tbody>${generateTableRows(report.incomeByDestination)}</tbody>
+                        </table>
+                    </div>
+                    <div class="col">
+                        <table>
+                            <thead><tr><th>Dinero Pagado Desde</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
+                            <tbody>${generateTableRows(report.expenseByDestination)}</tbody>
+                        </table>
+                    </div>
+                </div>
+
+                ${hasConciliacion ? `
+                <div class="section-title">3. Conciliación (Capitalizaciones y Terceros)</div>
+                <div style="font-size: 10px; color: #475569; margin-bottom: 5px;">Estos valores representan inversiones en el patrimonio o administración de pasivos. No afectan la utilidad de la parroquia.</div>
+                <table style="width: 100%; margin-bottom: 15px;">
+                    <tbody>
+                        ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                        
+                        ${report.conciliacion.tercerosList.map(item => `
+                            <tr>
+                                <td style="font-weight: bold; background-color: #fffbeb;">${item.name}:</td>
+                                <td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                        `).join('')}
+
+                        ${(report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0) ? `<tr><td style="font-weight: bold; background-color: #fef3c7; color: #92400e;">Saldo Pendiente (Deuda Viva del Periodo):</td><td style="text-align: right; font-weight: bold; background-color: #fef3c7; color: #92400e; width: 35%;">$${saldoNetoTerceros.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                    </tbody>
+                </table>
+                ` : ''}
+
                 <div class="signatures">
                     <div class="sig-block">
                         <div class="sig-name">${signatures.elaborado}</div>
