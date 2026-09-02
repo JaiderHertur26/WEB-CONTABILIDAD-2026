@@ -8,7 +8,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { exportToExcel } from '@/lib/excel';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext'; 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { isValid, parseISO } from 'date-fns';
@@ -27,7 +26,9 @@ const Reports = () => {
   const [accountsPayable] = useCompanyData('accountsPayable');
   const [inventory] = useCompanyData('inventory');
   
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  // Rango de fechas
+  const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [reportData, setReportData] = useState({ 
       incomeStatement: [], 
@@ -64,17 +65,7 @@ const Reports = () => {
       });
   }, [isConsolidated, activeCompany, companies]);
 
-  const availableYears = useMemo(() => {
-      const validTransactions = filterByCompany(transactions || []).filter(t => 
-        !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
-      );
-      const years = new Set(validTransactions.map(t => getSafeYear(t.date)));
-      const current = new Date().getFullYear();
-      years.add(current);
-      return Array.from(years).sort((a, b) => b - a).map(String);
-  }, [transactions, filterByCompany]);
-
-  useEffect(() => { generateReportData(); }, [transactions, accounts, bankAccounts, initialBalance, cashAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, inventory, selectedYear, isConsolidated, filterByCompany]);
+  useEffect(() => { generateReportData(); }, [transactions, accounts, bankAccounts, initialBalance, cashAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, inventory, startDate, endDate, isConsolidated, filterByCompany]);
 
   const generateReportData = () => {
     const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
@@ -98,7 +89,9 @@ const Reports = () => {
         }
     });
     const allAccounts = Array.from(uniqueAccountsMap.values());
-    const currentYear = selectedYear;
+    
+    // Mantenemos currentYear derivado dinámicamente para que la lógica de depreciación siga funcionando intacta
+    const currentYear = getSafeYear(endDate).toString();
 
     const validTransactions = allTransactions.filter(t => 
         !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
@@ -114,8 +107,16 @@ const Reports = () => {
         }); 
     }
 
-    const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
-    const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));
+    // Filtrado exacto por fechas
+    const pnlTransactions = validTransactions.filter(t => {
+        const tDate = t.date?.substring(0, 10) || '';
+        return tDate >= startDate && tDate <= endDate;
+    });
+    
+    const bsTransactions = validTransactions.filter(t => {
+        const tDate = t.date?.substring(0, 10) || '';
+        return tDate <= endDate;
+    });
 
     const getAccountCreationYear = (accountId, defaultDate) => {
         if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
@@ -207,7 +208,6 @@ const Reports = () => {
 
     const grossProfit = totalIncome - totalCosts;
 
-    // 🚀 LÓGICA DE EXTRACCIÓN DINÁMICA DE CUENTAS (Para evitar ocultar gastos/ingresos que no estén en el catálogo base)
     const dynamicIncomes = {};
     const dynamicCosts = {};
     const dynamicExpenses = {};
@@ -291,8 +291,6 @@ const Reports = () => {
         return sum;
     }, 0);
 
-
-    // 🚀 CORRECCIÓN 1: Cálculos consolidados jalando estrictamente el mapeo PUC
     let cajaPrincipalBalance = initialCash;
     let totalBankBalances = 0;
     let totalInvestmentBalances = 0;
@@ -329,17 +327,14 @@ const Reports = () => {
     
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0, intangiblesValue = 0;
 
-    // 🚀 BUCLE UNIFICADO MAESTRO
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
 
-        // 1. EVALUACIÓN ESTRICTA POR PARTIDA DOBLE (Como en el Libro Mayor)
         if (t.debitAccount && t.creditAccount) {
             if (String(t.id).endsWith('-inc')) return;
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
 
-            // Débitos (Ingresan activos / cancelan pasivos)
             if (drCode === '11050501') cajaPrincipalBalance += amount;
             else if (drCode.startsWith('1110') || drCode.startsWith('1120')) totalBankBalances += amount;
             else if (drCode.startsWith('1295')) totalInvestmentBalances += amount;
@@ -352,7 +347,6 @@ const Reports = () => {
             }
             else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-            // Créditos (Salen activos / asumen pasivos)
             if (crCode === '11050501') cajaPrincipalBalance -= amount;
             else if (crCode.startsWith('1110') || crCode.startsWith('1120')) totalBankBalances -= amount;
             else if (crCode.startsWith('1295')) totalInvestmentBalances -= amount;
@@ -368,7 +362,6 @@ const Reports = () => {
             return;
         }
 
-        // 2. EVALUACIÓN FALLBACK (Asientos Simples)
         const destParts = (t.destination || '').split('|');
         const destId = destParts[0];
         const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
@@ -463,7 +456,6 @@ const Reports = () => {
         return p.status === 'Pendiente' && pYear <= parseInt(currentYear);
     }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
 
-    // 🚀 APLICACIÓN NIIF: Cálculo de Totales Corrientes y No Corrientes
     const totalActivoCorriente = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue;
     const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;
     
@@ -472,7 +464,6 @@ const Reports = () => {
     const totalEquity = totalAssets - totalLiabilities; 
     const retainedEquity = totalEquity - netProfit;
 
-    // 🚀 APLICACIÓN NIIF: Arreglo de Activos Estructurado y Jerárquico    
     const assets = [
         { item: 'ACTIVO CORRIENTE', isBold: true },
         { item: '  Efectivo y Equivalentes', isBold: true },
@@ -513,7 +504,6 @@ const Reports = () => {
     }, 0);
     const initialCashTotal = initialCash + initialBank;
 
-    // 🚀 1. NIIF: Depuración de partidas no monetarias (excluir depreciación de gastos)
     const nonCashKeywords = ['depreciaci', 'amortizaci', 'agotamiento'];
     const cashExpenseAccounts = expenseAccounts.filter(acc => {
         const num = String(acc.number);
@@ -526,18 +516,15 @@ const Reports = () => {
     const cashExpensesTotal = cashExpenseAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '5')), 0);
     const cashCostsTotal = costAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '6')), 0);
 
-    // 🚀 2. NIIF: Cálculo real de salidas de efectivo por inversiones (excluyendo ajustes y notas contables)
     let cashInvestments = 0;
     pnlTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
         
-        // Descartamos Notas de Ajuste (Prefijo A) y cruces que no movieron efectivo real
         const isAdjustment = t.voucherPrefix === 'A' || t.type === 'adjustment' || (t.isInternalTransfer && t.debitAccount && t.creditAccount);
         if (isAdjustment) return;
 
         if (t.debitAccount && t.creditAccount) {
             const drCode = String(t.debitAccount.code || '');
-            // Si el débito real fue a un Activo (Clase 15) pagado en efectivo
             if (drCode.startsWith('15') && !drCode.startsWith('1592')) {
                 cashInvestments += amount;
             }
@@ -550,7 +537,6 @@ const Reports = () => {
         }
     });
 
-    // 🚀 3. MATEMÁTICA ORGÁNICA: Liberamos el Total para que la ecuación no sea forzada
     const totalCalculatedUses = cashExpensesTotal + cashCostsTotal + cashInvestments;
     const finalCalculatedCash = (initialCashTotal + totalIncome) - totalCalculatedUses;
 
@@ -580,7 +566,7 @@ const Reports = () => {
           const dataToExport = [
               { 'Concepto': companyName, 'Monto': '' },
               { 'Concepto': companyNit, 'Monto': '' },
-              { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
+              { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - DEL ${startDate} AL ${endDate}`, 'Monto': '' },
               { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
               { 'Concepto': '', 'Monto': '' }, 
               { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
@@ -594,7 +580,7 @@ const Reports = () => {
               });
           });
 
-          exportToExcel(dataToExport, `${name}_${selectedYear}`, {}); 
+          exportToExcel(dataToExport, `${name}_${startDate}_al_${endDate}`, {}); 
           toast({ title: 'Exportado a Excel', description: 'El reporte se ha exportado exitosamente.' }); 
       } catch (error) {
           toast({ variant: 'destructive', title: 'Error de Exportación', description: error.message });
@@ -619,7 +605,7 @@ const Reports = () => {
           const companyName = activeCompany?.name || ' ';
           const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
           const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
-          const fechaCorte = `A 31 DE DICIEMBRE DE ${selectedYear}`;
+          const fechaCorte = printType === 'balance' ? `AL ${endDate}` : `DEL ${startDate} AL ${endDate}`;
 
           const styles = `
               <style>
@@ -642,10 +628,8 @@ const Reports = () => {
               </style>
           `;
 
-          let content = '';      
+          let content = '';     
           
-          
-          // 🚀 FORMATO NIIF OFICIAL: Paréntesis para saldos contrarios (ej: Depreciación), Ceros sin paréntesis
           const formatNum = (val) => {
               const num = parseFloat(val) || 0;
               const absVal = Math.abs(num);
@@ -659,7 +643,6 @@ const Reports = () => {
               
               const renderItems = (items) => (items || []).map(item => {
                   const rawName = String(item.item || '');
-                  // Calculamos la indentación en píxeles basados en los espacios
                   const leadingSpaces = Math.max(rawName.search(/\\S/), 0);
                   const paddingLeft = leadingSpaces > 0 ? (leadingSpaces * 6) + 'px' : '0px';
                   const cleanName = rawName.toUpperCase();
@@ -782,7 +765,7 @@ const Reports = () => {
           const dataToExport = [
               { 'Concepto': companyName, 'Monto': '' },
               { 'Concepto': companyNit, 'Monto': '' },
-              { 'Concepto': `BALANCE GENERAL - AÑO FISCAL ${selectedYear}`, 'Monto': '' },
+              { 'Concepto': `BALANCE GENERAL - AL ${endDate}`, 'Monto': '' },
               { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
               { 'Concepto': '', 'Monto': '' }, 
               { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
@@ -817,14 +800,13 @@ const Reports = () => {
           dataToExport.push({ 'Concepto': '', 'Monto': '' });
           dataToExport.push({ 'Concepto': 'TOTAL PASIVO + PATRIMONIO', 'Monto': totals?.liabilitiesAndEquity || 0 });
 
-          exportToExcel(dataToExport, `Balance_General_${selectedYear}`, {}); 
+          exportToExcel(dataToExport, `Balance_General_al_${endDate}`, {}); 
           toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
       } catch (error) {
           toast({ variant: 'destructive', title: 'Error de Exportación', description: error.message });
       }
   };
 
-  // 🚀 Modificación Visual de la Tabla para aplicar indentación a sub-cuentas
   const renderSheetTable = (items) => (items.map((item, index) => {
       const leadingSpaces = Math.max(String(item.item || '').search(/\S/), 0);
       const dynamicPadding = leadingSpaces > 0 ? (leadingSpaces * 8) + 'px' : '0px';
@@ -852,7 +834,34 @@ const Reports = () => {
     <>
       <Helmet><title>Reportes - JaiderHerTur26</title></Helmet>
       <div className="space-y-8">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between md:items-center gap-4"><h1 className="text-4xl font-bold text-slate-900 mb-2">Reportes Financieros</h1><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select" className="font-medium">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px] bg-white"><SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+            <h1 className="text-4xl font-bold text-slate-900 mb-2">Reportes Financieros</h1>
+            
+            {/* 🚀 Nuevo bloque de Rango de Fechas */}
+            <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center space-x-2">
+                    <Calendar className="w-5 h-5 text-slate-500" />
+                    <Label className="font-medium text-slate-700">Desde:</Label>
+                    <input 
+                        type="date" 
+                        value={startDate} 
+                        onChange={e => setStartDate(e.target.value)} 
+                        className="border border-slate-300 rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                </div>
+                <div className="flex items-center space-x-2">
+                    <Label className="font-medium text-slate-700">Hasta:</Label>
+                    <input 
+                        type="date" 
+                        value={endDate} 
+                        onChange={e => setEndDate(e.target.value)} 
+                        className="border border-slate-300 rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                </div>
+            </div>
+            
+        </motion.div>
+        
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-green-100 p-6 rounded-lg border border-green-200"><p className="text-sm text-green-800">Ingresos Operacionales (P&L)</p><p className="text-2xl font-bold text-green-900">${reportData.summary.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-red-100 p-6 rounded-lg border border-red-200"><p className="text-sm text-red-800">Costos y Gastos (P&L)</p><p className="text-2xl font-bold text-red-900">${reportData.summary.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-blue-100 p-6 rounded-lg border border-blue-200"><p className="text-sm text-blue-800">Utilidad Neta</p><p className="text-2xl font-bold text-blue-900">${reportData.summary.netProfit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-purple-100 p-6 rounded-lg border border-purple-200"><p className="text-sm text-purple-800">Margen de Ganancia</p><p className="text-2xl font-bold text-purple-900">{reportData.summary.profitMargin}%</p></div></div>
         
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
