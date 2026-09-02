@@ -132,7 +132,7 @@ const BookClosings = () => {
         const incomeMap = {};
         const expenseMap = {};
         
-        // Mapas para rastrear los terceros
+        // Mapas para calcular el saldo de cada tercero individual
         const tercerosInMap = {};
         const tercerosOutMap = {};
 
@@ -182,13 +182,13 @@ const BookClosings = () => {
                 // Fondos de Terceros (Pasivos - Ej: 2365 Retención)
                 if (crPrefix === '2') {
                     tercerosIn += amount;
-                    const name = t.creditAccount?.name || 'Fondo de Terceros';
-                    tercerosInMap[name] = (tercerosInMap[name] || 0) + amount;
+                    const accName = t.creditAccount?.name || 'FONDO DE TERCEROS';
+                    tercerosInMap[accName] = (tercerosInMap[accName] || 0) + amount;
                 }
                 if (drPrefix === '2') {
                     tercerosOut += amount;
-                    const name = t.debitAccount?.name || 'Fondo de Terceros';
-                    tercerosOutMap[name] = (tercerosOutMap[name] || 0) + amount;
+                    const accName = t.debitAccount?.name || 'FONDO DE TERCEROS';
+                    tercerosOutMap[accName] = (tercerosOutMap[accName] || 0) + amount;
                 }
 
                 // Capitalizaciones e Inversiones (Activos)
@@ -235,7 +235,7 @@ const BookClosings = () => {
 
             // Conciliación Automática
             if (prefix === '2') {
-                const accName = accountObj ? accountObj.name : (t.category || 'Fondo de Terceros');
+                const accName = accountObj ? accountObj.name : (t.category || 'FONDO DE TERCEROS');
                 if (t.type === 'income') {
                     tercerosIn += amount;
                     tercerosInMap[accName] = (tercerosInMap[accName] || 0) + amount;
@@ -258,20 +258,18 @@ const BookClosings = () => {
 
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
-        // Agrupación de la lista de Terceros para mostrar una sola línea por nombre
-        const tercerosList = [];
+        // NUEVO: Calcular el SALDO NETO de cada tercero individual
+        const tercerosNetList = [];
         const allTercerosNames = new Set([...Object.keys(tercerosInMap), ...Object.keys(tercerosOutMap)]);
         
         allTercerosNames.forEach(name => {
             const inAmt = tercerosInMap[name] || 0;
             const outAmt = tercerosOutMap[name] || 0;
-            // Mostramos el monto total transado (lo que se pagó o ingresó)
-            const displayAmt = Math.max(inAmt, outAmt); 
-            if (displayAmt > 0) {
-                tercerosList.push({ name: name.toUpperCase(), total: displayAmt });
-            }
+            const netBalance = inAmt - outAmt;
+            
+            tercerosNetList.push({ name: name.toUpperCase(), total: netBalance });
         });
-        tercerosList.sort((a, b) => b.total - a.total);
+        tercerosNetList.sort((a, b) => b.total - a.total);
 
         // 3. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
         const flowIn = {};
@@ -335,14 +333,14 @@ const BookClosings = () => {
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
-            monthlySummary, // Agregado para el PDF
+            monthlySummary, 
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
             expenseByDestination: sortMap(flowOut),
             transactions: exportTransactions,
-            // Guardamos la lista consolidada
-            conciliacion: { tercerosIn, tercerosOut, capitalizacion, tercerosList }
+            // Pasamos la lista de Terceros con sus saldos unificados
+            conciliacion: { tercerosIn, tercerosOut, capitalizacion, tercerosNetList }
         });
 
         toast({ title: "Cierre Generado", description: "Movimientos detallados y procesados correctamente." });
@@ -528,7 +526,7 @@ const BookClosings = () => {
                     <tbody>
                         ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                         
-                        ${report.conciliacion.tercerosList && report.conciliacion.tercerosList.map(item => `
+                        ${report.conciliacion.tercerosNetList && report.conciliacion.tercerosNetList.map(item => `
                             <tr>
                                 <td style="font-weight: bold; background-color: #fffbeb;">${item.name}:</td>
                                 <td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
@@ -761,7 +759,7 @@ const BookClosings = () => {
                                                 Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
                                             </p>
                                             <div className="space-y-2">
-                                                {report.conciliacion.tercerosList && report.conciliacion.tercerosList.map((item, i) => (
+                                                {report.conciliacion.tercerosNetList && report.conciliacion.tercerosNetList.map((item, i) => (
                                                     <div key={`tercero-${i}`} className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
                                                         <span className="text-xs font-bold text-slate-600">{item.name}:</span>
                                                         <span className="font-mono font-bold text-amber-700">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
