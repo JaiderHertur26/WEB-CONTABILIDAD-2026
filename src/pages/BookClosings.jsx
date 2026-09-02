@@ -715,16 +715,17 @@ const BookClosings = () => {
                 
                 <p style="margin-bottom: 50px;">Fraternalmente en Cristo,</p>
 
-                                <div class="signatures">
-                    <div class="sig-block">
-                        <div class="sig-name">${signatures.elaborado}</div>
-                        <div class="sig-line">Elaborado por (Contador):</div>
+                                                <div class="signatures" style="margin-top: 60px; display: flex; justify-content: space-between; padding: 0 40px; page-break-inside: avoid;">
+                    <div class="sig-block" style="width: 40%; text-align: center;">
+                        <div class="sig-name" style="font-size: 12px; font-weight: bold; margin-bottom: 2px; min-height: 16px; text-transform: uppercase;">${signatures.elaborado}</div>
+                        <div class="sig-line" style="border-top: 1px solid #000; padding-top: 5px; font-size: 11px; font-weight: bold;">Elaborado por:</div>
                     </div>
-                    <div class="sig-block">
-                        <div class="sig-name">${signatures.revisado}</div>
-                        <div class="sig-line">Revisado / Aprobado por (Párroco):</div>
+                    <div class="sig-block" style="width: 40%; text-align: center;">
+                        <div class="sig-name" style="font-size: 12px; font-weight: bold; margin-bottom: 2px; min-height: 16px; text-transform: uppercase;">${signatures.revisado}</div>
+                        <div class="sig-line" style="border-top: 1px solid #000; padding-top: 5px; font-size: 11px; font-weight: bold;">Revisado / Aprobado por:</div>
                     </div>
                 </div>
+
 
             </body>
             </html>
