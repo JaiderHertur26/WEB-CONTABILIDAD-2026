@@ -715,16 +715,17 @@ const BookClosings = () => {
                 
                 <p style="margin-bottom: 50px;">Fraternalmente en Cristo,</p>
 
-                <div class="signatures">
+                                <div class="signatures">
                     <div class="sig-block">
-                        <div class="sig-name">${signatures.elaborado || 'CONTADOR PÚBLICO'}</div>
-                        <div class="sig-line">Responsable de Contabilidad</div>
+                        <div class="sig-name">${signatures.elaborado}</div>
+                        <div class="sig-line">Elaborado por (Contador):</div>
                     </div>
                     <div class="sig-block">
-                        <div class="sig-name">${signatures.revisado || 'PÁRROCO'}</div>
-                        <div class="sig-line">${activeCompany?.name || 'PARROQUIA SANTA CRUZ'}</div>
+                        <div class="sig-name">${signatures.revisado}</div>
+                        <div class="sig-line">Revisado / Aprobado por (Párroco):</div>
                     </div>
                 </div>
+
             </body>
             </html>
         `;
