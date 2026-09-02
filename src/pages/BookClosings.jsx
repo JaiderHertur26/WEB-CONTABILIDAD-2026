@@ -868,13 +868,12 @@ const months = [
                                 </h2>
                                 <p className="text-slate-500 text-sm mt-1">Transacciones procesadas: {report.transactions.length}</p>
                             </div>
-                                <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
-
+                                                            <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
                                 <Button variant="outline" onClick={handlePrint} className="text-slate-700 border-slate-300 hover:bg-slate-100">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Acta
                                 </Button>
-                                <Button variant="outline" onClick={handleExport} className="text-green-700 border-green-200 bg-green-50 hover:bg-green-100">
-                                                                <Button 
+                                
+                                <Button 
                                     variant="outline" 
                                     onClick={() => setIsExecutiveReportModalOpen(true)} 
                                     className="text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
@@ -882,9 +881,11 @@ const months = [
                                     <BookOpen className="w-4 h-4 mr-2" /> Informe a la Curia
                                 </Button>
 
+                                <Button variant="outline" onClick={handleExport} className="text-green-700 border-green-200 bg-green-50 hover:bg-green-100">
                                     <FileSpreadsheet className="w-4 h-4 mr-2" /> Exportar Anexo
                                 </Button>
                             </div>
+
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
