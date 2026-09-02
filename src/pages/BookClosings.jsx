@@ -153,6 +153,12 @@ const BookClosings = () => {
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const mIndex = adjustedDate.getMonth();
 
+            // FILTRO ESTRICTO: Identificar si la transacción es un Puente, Cruce o Transferencia
+            const isPuenteOCruce = 
+                t.isInternalTransfer || 
+                String(t.category || '').toUpperCase().includes('PUENTE') || 
+                String(t.category || '').toUpperCase().includes('CRUCE');
+
             // A. Asiento manual de Partida Doble
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
@@ -160,17 +166,20 @@ const BookClosings = () => {
                 const drPrefix = drCode.charAt(0);
                 const crPrefix = crCode.charAt(0);
 
-                if (crPrefix === '4') { 
-                    totalIncome += amount; 
-                    incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount;
-                    monthlySummary[mIndex].ingresos += amount;
-                }
-                
-                if (['5', '6', '7', '4'].includes(drPrefix)) { 
-                    totalExpense += amount; 
-                    const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Salida/Débito)` : t.debitAccount.name;
-                    expenseMap[expenseName] = (expenseMap[expenseName] || 0) + amount; 
-                    monthlySummary[mIndex].gastos += amount;
+                // Solo sumar a ingresos/gastos operativos si NO es un puente/cruce
+                if (!isPuenteOCruce) {
+                    if (crPrefix === '4') { 
+                        totalIncome += amount; 
+                        incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount;
+                        monthlySummary[mIndex].ingresos += amount;
+                    }
+                    
+                    if (['5', '6', '7', '4'].includes(drPrefix)) { 
+                        totalExpense += amount; 
+                        const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Salida/Débito)` : t.debitAccount.name;
+                        expenseMap[expenseName] = (expenseMap[expenseName] || 0) + amount; 
+                        monthlySummary[mIndex].gastos += amount;
+                    }
                 }
 
                 if (crPrefix === '2') {
@@ -199,13 +208,14 @@ const BookClosings = () => {
             
             if (accountObj) {
                 prefix = String(accountObj.number).charAt(0);
-            } else if (t.category === 'Transferencia Interna') {
-                prefix = '0'; 
+            } else if (t.category === 'Transferencia Interna' || isPuenteOCruce) {
+                prefix = '0'; // Forzamos a '0' para que no lo cuente como ingreso/gasto
             } else {
                 prefix = t.type === 'income' ? '4' : '5';
             }
             
-            if (!t.isInternalTransfer) {
+            // Solo sumar a ingresos/gastos operativos si NO es un puente/cruce
+            if (!isPuenteOCruce) {
                 if (prefix === '4') {
                     if (t.type === 'income') {
                         totalIncome += amount;
@@ -236,8 +246,8 @@ const BookClosings = () => {
             } else if (prefix === '1' || prefix === '3') {
                 const accNum = accountObj ? String(accountObj.number) : '';
                 if (!accNum.startsWith('11') && !accNum.startsWith('1295')) {
-                    if (t.type === 'expense' && !t.isInternalTransfer) capitalizacion += amount;
-                    if (t.type === 'income' && !t.isInternalTransfer) capitalizacion -= amount;
+                    if (t.type === 'expense' && !isPuenteOCruce) capitalizacion += amount;
+                    if (t.type === 'income' && !isPuenteOCruce) capitalizacion -= amount;
                 }
             }
         });
