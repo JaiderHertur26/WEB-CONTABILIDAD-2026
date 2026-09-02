@@ -637,12 +637,52 @@ const BookClosings = () => {
         // Filtrar flujos para no duplicar los puentes que ya van en conciliación
         const filteredIncomeFlow = (report.incomeByDestination || []).filter(item => !item.name.includes('PUENTE'));
         const filteredExpenseFlow = (report.expenseByDestination || []).filter(item => !item.name.includes('PUENTE'));
+        
+        // MOTOR DE RECONSTRUCCIÓN CRONOLÓGICA ACUMULADA DESDE LAS HOOKS DISPONIBLES
+        let dynamicPrincipalCash = 622799.00; // Saldo de apertura inicial histórico en libros
+        let dynamicBankBalance = 0;
+        let dynamicFraternidadBalance = 0;
 
-        // EXTRACTORES DE BALANCES TOTALMENTE DINÁMICOS BASADOS EN EL REPORTE GENERADO EN MEMORIA
-        // Jala las cuentas del flujo para evitar datos quemados
-        const dynamicPrincipalCash = report.incomeByDestination?.find(i => i.name === 'CAJA PRINCIPAL')?.total || 4282799.00;
-        const dynamicBankBalance = report.incomeByDestination?.find(i => i.name.includes('BANCOLOMBIA'))?.total || 2925294.00;
-        const dynamicFraternidadBalance = report.incomeByDestination?.find(i => i.name.includes('COOPERATIVA'))?.total || 2200000.00;
+        if (bankAccounts) {
+            bankAccounts.forEach(acc => {
+                dynamicBankBalance += parseFloat(acc.initialBalance || 0);
+                dynamicFraternidadBalance += parseFloat(acc.initialInvestmentBalance || 0);
+            });
+        }
+
+        if (transactions) {
+            const endStr = format(end, 'yyyy-MM-dd');
+            const bsTransactions = transactions.filter(t => {
+                const tDate = t.date?.substring(0, 10) || '';
+                const isValidStatus = !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase());
+                return tDate <= endStr && isValidStatus;
+            });
+
+            bsTransactions.forEach(t => {
+                const amount = parseFloat(t.amount || 0);
+                if (t.debitAccount && t.creditAccount) {
+                    if (String(t.id).endsWith('-inc')) return;
+                    const drCode = String(t.debitAccount.code || '');
+                    const crCode = String(t.creditAccount.code || '');
+                    if (drCode === '11050501') dynamicPrincipalCash += amount;
+                    else if (drCode.startsWith('1110') || drCode.startsWith('1120')) dynamicBankBalance += amount;
+                    else if (drCode.startsWith('1295')) dynamicFraternidadBalance += amount;
+                    if (crCode === '11050501') dynamicPrincipalCash -= amount;
+                    else if (crCode.startsWith('1110') || crCode.startsWith('1120')) dynamicBankBalance -= amount;
+                    else if (crCode.startsWith('1295')) dynamicFraternidadBalance -= amount;
+                    return;
+                }
+                const destParts = (t.destination || '').split('|');
+                const destId = destParts[0];
+                const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
+                const isBankDest = bankAccounts && bankAccounts.some(b => b.id === destId);
+                if (t.type === 'income') {
+                    if (isCashDest) dynamicPrincipalCash += amount; else if (isBankDest) dynamicBankBalance += amount;
+                } else if (t.type === 'expense') {
+                    if (isCashDest) dynamicPrincipalCash -= amount; else if (isBankDest) dynamicBankBalance -= amount;
+                }
+            });
+        }
         const dynamicTotalAssets = dynamicPrincipalCash + dynamicBankBalance + dynamicFraternidadBalance;
 
         const htmlContent = `
@@ -746,7 +786,7 @@ const BookClosings = () => {
                 <table style="width: 100%; margin-bottom: 15px;">
                     <thead>
                         <tr>
-                                                        <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
+                                                                                    <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
                             <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt; text-align: right; width: 35%;">SALDO DISPONIBLE</th>
                         </tr>
                     </thead>
@@ -853,6 +893,7 @@ const BookClosings = () => {
             printWindow.close();
         }, 300);
     };
+
     
 
 const months = [
