@@ -638,53 +638,81 @@ const BookClosings = () => {
         const filteredIncomeFlow = (report.incomeByDestination || []).filter(item => !item.name.includes('PUENTE'));
         const filteredExpenseFlow = (report.expenseByDestination || []).filter(item => !item.name.includes('PUENTE'));
         
-        // MOTOR DE RECONSTRUCCIÓN CRONOLÓGICA ACUMULADA DESDE LAS HOOKS DISPONIBLES
-        let dynamicPrincipalCash = 622799.00; // Saldo de apertura inicial histórico en libros
+                // REPLICACIÓN DE CONSOLIDACIÓN DE ACTIVOS CORRIENTES EXACTA DE REPORTS.JSX
+        const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
+        const endStr = format(end, 'yyyy-MM-dd');
+        
+        // Filtro exacto acumulativo hasta la fecha de corte eclesiástica (Reports.jsx L.93)
+        const bsTransactions = (transactions || []).filter(t => {
+            const tDate = t.date?.substring(0, 10) || '';
+            return tDate <= endStr && !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase());
+        });
+
+        // Base de saldos iniciales (Reports.jsx L.186 y L.194)
+        let dynamicPrincipalCash = 0;
         let dynamicBankBalance = 0;
         let dynamicFraternidadBalance = 0;
 
         if (bankAccounts) {
             bankAccounts.forEach(acc => {
-                dynamicBankBalance += parseFloat(acc.initialBalance || 0);
-                dynamicFraternidadBalance += parseFloat(acc.initialInvestmentBalance || 0);
+                dynamicBankBalance += safeParseFloat(acc.initialBalance);
+                dynamicFraternidadBalance += safeParseFloat(acc.initialInvestmentBalance);
             });
         }
 
-        if (transactions) {
-            const endStr = format(end, 'yyyy-MM-dd');
-            const bsTransactions = transactions.filter(t => {
-                const tDate = t.date?.substring(0, 10) || '';
-                const isValidStatus = !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase());
-                return tDate <= endStr && isValidStatus;
-            });
+        // Acumulación y cruce del Libro Diario general (Reports.jsx L.204 a L.234)
+        bsTransactions.forEach(t => {
+            const amount = safeParseFloat(t.amount);
+            if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return;
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
 
-            bsTransactions.forEach(t => {
-                const amount = parseFloat(t.amount || 0);
-                if (t.debitAccount && t.creditAccount) {
-                    if (String(t.id).endsWith('-inc')) return;
-                    const drCode = String(t.debitAccount.code || '');
-                    const crCode = String(t.creditAccount.code || '');
-                    if (drCode === '11050501') dynamicPrincipalCash += amount;
-                    else if (drCode.startsWith('1110') || drCode.startsWith('1120')) dynamicBankBalance += amount;
-                    else if (drCode.startsWith('1295')) dynamicFraternidadBalance += amount;
-                    if (crCode === '11050501') dynamicPrincipalCash -= amount;
-                    else if (crCode.startsWith('1110') || crCode.startsWith('1120')) dynamicBankBalance -= amount;
-                    else if (crCode.startsWith('1295')) dynamicFraternidadBalance -= amount;
-                    return;
-                }
-                const destParts = (t.destination || '').split('|');
-                const destId = destParts[0];
-                const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
-                const isBankDest = bankAccounts && bankAccounts.some(b => b.id === destId);
-                if (t.type === 'income') {
-                    if (isCashDest) dynamicPrincipalCash += amount; else if (isBankDest) dynamicBankBalance += amount;
-                } else if (t.type === 'expense') {
-                    if (isCashDest) dynamicPrincipalCash -= amount; else if (isBankDest) dynamicBankBalance -= amount;
-                }
-            });
-        }
+                if (drCode === '11050501') dynamicPrincipalCash += amount;
+                else if (drCode.startsWith('1110') || drCode.startsWith('1120')) dynamicBankBalance += amount;
+                else if (drCode.startsWith('1295')) dynamicFraternidadBalance += amount;
+
+                if (crCode === '11050501') dynamicPrincipalCash -= amount;
+                else if (crCode.startsWith('1110') || crCode.startsWith('1120')) dynamicBankBalance -= amount;
+                else if (crCode.startsWith('1295')) dynamicFraternidadBalance -= amount;
+                return;
+            }
+
+            const destParts = (t.destination || '').split('|');
+            const destId = destParts[0];
+            const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
+            const isBankDest = bankAccounts && bankAccounts.some(b => b.id === destId);
+
+            if (t.type === 'income') {
+                if (isCashDest) dynamicPrincipalCash += amount;
+                else if (isBankDest) dynamicBankBalance += amount;
+            } else if (t.type === 'expense') {
+                if (isCashDest) dynamicPrincipalCash -= amount;
+                else if (isBankDest) dynamicBankBalance -= amount;
+            } else if (t.type === 'transfer') {
+                const fromParts = (t.fromAccount || '').split('|');
+                const toParts = (t.toAccount || '').split('|');
+                const fromId = fromParts[0];
+                const toId = toParts[0];
+                
+                if (fromId === 'caja_principal' || (fromParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) dynamicPrincipalCash -= amount;
+                else if (bankAccounts && bankAccounts.some(b => b.id === fromId)) dynamicBankBalance -= amount;
+                
+                if (toId === 'caja_principal' || (toParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) dynamicPrincipalCash += amount;
+                else if (bankAccounts && bankAccounts.some(b => b.id === toId)) dynamicBankBalance += amount;
+            }
+        });
+
+        // Ajuste fino por cuentas PUC de aportes
+        bsTransactions.forEach(t => {
+            if (t.debitAccount && t.creditAccount) return;
+            const accountObj = (accounts || []).find(a => a.name === t.category);
+            if (accountObj && String(accountObj.number).startsWith('1295')) {
+                dynamicFraternidadBalance += (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
+            }
+        });
+
         const dynamicTotalAssets = dynamicPrincipalCash + dynamicBankBalance + dynamicFraternidadBalance;
-
         const htmlContent = `
             <!DOCTYPE html>
             <html>
@@ -786,7 +814,7 @@ const BookClosings = () => {
                 <table style="width: 100%; margin-bottom: 15px;">
                     <thead>
                         <tr>
-                                                                                    <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
+		                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
                             <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt; text-align: right; width: 35%;">SALDO DISPONIBLE</th>
                         </tr>
                     </thead>
@@ -893,6 +921,7 @@ const BookClosings = () => {
             printWindow.close();
         }, 300);
     };
+                                                                                   
 
     
 
