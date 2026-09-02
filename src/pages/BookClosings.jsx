@@ -131,6 +131,8 @@ const BookClosings = () => {
 
         const incomeMap = {};
         const expenseMap = {};
+        
+        // Mapas para rastrear los terceros
         const tercerosInMap = {};
         const tercerosOutMap = {};
 
@@ -144,10 +146,12 @@ const BookClosings = () => {
 
         // 2. CLASIFICACIÓN DEL ESTADO DE RESULTADOS (P&L) Y CONCILIACIONES
         allRelevant.forEach(t => {
+            // EVITAR DOBLE CONTABILIZACIÓN DE CRUCES MANUALES: Ignorar el gemelo inverso (-inc)
             if (t.debitAccount && t.creditAccount && String(t.id).endsWith('-inc')) return;
 
             const amount = parseFloat(t.amount || 0);
             
+            // Determinar el mes exacto de la transacción
             const dateObj = new Date(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
@@ -160,12 +164,14 @@ const BookClosings = () => {
                 const drPrefix = drCode.charAt(0);
                 const crPrefix = crCode.charAt(0);
 
+                // INGRESOS
                 if (crPrefix === '4') { 
                     totalIncome += amount; 
                     incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount;
                     monthlySummary[mIndex].ingresos += amount;
                 }
                 
+                // GASTOS (La magia: Sumamos los gastos regulares 5,6,7 Y la salida de Catedratón 4)
                 if (['5', '6', '7', '4'].includes(drPrefix)) { 
                     totalExpense += amount; 
                     const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Salida/Débito)` : t.debitAccount.name;
@@ -173,6 +179,7 @@ const BookClosings = () => {
                     monthlySummary[mIndex].gastos += amount;
                 }
 
+                // Fondos de Terceros (Pasivos - Ej: 2365 Retención)
                 if (crPrefix === '2') {
                     tercerosIn += amount;
                     const name = t.creditAccount?.name || 'Fondo de Terceros';
@@ -184,6 +191,7 @@ const BookClosings = () => {
                     tercerosOutMap[name] = (tercerosOutMap[name] || 0) + amount;
                 }
 
+                // Capitalizaciones e Inversiones (Activos)
                 if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
                     capitalizacion += amount;
                 }
@@ -205,6 +213,7 @@ const BookClosings = () => {
                 prefix = t.type === 'income' ? '4' : '5';
             }
             
+            // P&L (Estado de Resultados)
             if (!t.isInternalTransfer) {
                 if (prefix === '4') {
                     if (t.type === 'income') {
@@ -212,6 +221,7 @@ const BookClosings = () => {
                         incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
                         monthlySummary[mIndex].ingresos += amount;
                     } else {
+                        // Si es un "Gasto" hacia una cuenta 4
                         totalExpense += amount;
                         expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
                         monthlySummary[mIndex].gastos += amount;
@@ -223,6 +233,7 @@ const BookClosings = () => {
                 }
             }
 
+            // Conciliación Automática
             if (prefix === '2') {
                 const accName = accountObj ? accountObj.name : (t.category || 'Fondo de Terceros');
                 if (t.type === 'income') {
@@ -242,23 +253,27 @@ const BookClosings = () => {
             }
         });
 
+        // Calcular utilidad mensual
         monthlySummary.forEach(m => m.utilidad = m.ingresos - m.gastos);
 
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
-        // Agrupar Terceros Neta
+        // Agrupación de la lista de Terceros para mostrar una sola línea por nombre
         const tercerosList = [];
         const allTercerosNames = new Set([...Object.keys(tercerosInMap), ...Object.keys(tercerosOutMap)]);
         
         allTercerosNames.forEach(name => {
             const inAmt = tercerosInMap[name] || 0;
             const outAmt = tercerosOutMap[name] || 0;
+            // Mostramos el monto total transado (lo que se pagó o ingresó)
             const displayAmt = Math.max(inAmt, outAmt); 
-            tercerosList.push({ name: name.toUpperCase(), total: displayAmt });
+            if (displayAmt > 0) {
+                tercerosList.push({ name: name.toUpperCase(), total: displayAmt });
+            }
         });
         tercerosList.sort((a, b) => b.total - a.total);
 
-        // 3. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO
+        // 3. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
         const flowIn = {};
         const flowOut = {};
 
@@ -276,62 +291,32 @@ const BookClosings = () => {
         allRelevant.forEach(t => {
             const amount = parseFloat(t.amount || 0);
 
-            // A. Asientos Manuales
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
                 const drName = (t.debitAccount.name || '').toUpperCase();
                 const crName = (t.creditAccount.name || '').toUpperCase();
 
-                // Entrada a Banco/Caja
                 if (drCode.startsWith('11') || drCode.startsWith('1295') || drName.includes('CAJA') || drName.includes('COOPERATIVA')) {
-                    // Si el crédito (de donde viene la plata) es un Pasivo (Terceros), mostramos puente
-                    let nameKey = drName;
-                    if (crCode.startsWith('2')) {
-                        nameKey = `${drName} (PUENTE: ${crName})`;
-                    }
-                    flowIn[nameKey] = (flowIn[nameKey] || 0) + amount;
+                    flowIn[drName] = (flowIn[drName] || 0) + amount;
                 }
-                
-                // Salida de Banco/Caja
                 if (crCode.startsWith('11') || crCode.startsWith('1295') || crName.includes('CAJA') || crName.includes('COOPERATIVA')) {
-                    // Si el débito (hacia donde va la plata) es un Pasivo (Terceros), mostramos puente
-                    let nameKey = crName;
-                    if (drCode.startsWith('2')) {
-                        nameKey = `${crName} (PUENTE: ${drName})`;
-                    }
-                    flowOut[nameKey] = (flowOut[nameKey] || 0) + amount;
+                    flowOut[crName] = (flowOut[crName] || 0) + amount;
                 }
                 return;
             }
 
-            // B. Transacciones Automáticas 
-            const extractTargetNameWithPuente = (tObj) => {
-                let baseDestName = 'CAJA PRINCIPAL';
-                
-                // Identificamos la caja/banco real
-                const str = tObj.destination;
-                if (str) {
-                    const parts = str.split('|');
-                    const namePart = (parts[1] || parts[0]).toUpperCase();
-                    if (namePart === 'CAJA_PRINCIPAL' || parts[0] === 'caja_principal') baseDestName = 'CAJA PRINCIPAL';
-                    else if (namePart === '11201501' || parts[0] === '11201501') baseDestName = 'COOPERATIVA FRATERNIDAD SACERDOTAL';
-                    else baseDestName = namePart;
-                }
-
-                // Identificamos si es un movimiento de terceros
-                const accObj = (accounts || []).find(a => a.name === tObj.category);
-                if (accObj && String(accObj.number).startsWith('2')) {
-                    const terceroName = (tObj.category).toUpperCase();
-                    // Retornamos la caja con el apellido del puente
-                    return `${baseDestName} (PUENTE: ${terceroName})`;
-                }
-
-                return baseDestName;
+            const extractTargetName = (str) => {
+                if (!str) return 'CAJA PRINCIPAL';
+                const parts = str.split('|');
+                let name = (parts[1] || parts[0]).toUpperCase();
+                if (name === 'CAJA_PRINCIPAL' || parts[0] === 'caja_principal') return 'CAJA PRINCIPAL';
+                if (name === '11201501' || parts[0] === '11201501') return 'COOPERATIVA FRATERNIDAD SACERDOTAL';
+                return name;
             };
 
-            if (isCashOrBank(t.destination) || ((accounts || []).find(a => a.name === t.category) && String((accounts || []).find(a => a.name === t.category).number).startsWith('2'))) {
-                const destName = extractTargetNameWithPuente(t);
+            if (isCashOrBank(t.destination)) {
+                const destName = extractTargetName(t.destination);
                 
                 if (t.isInternalTransfer) {
                     if (t.type === 'expense') flowOut[`${destName} (Transferencia)`] = (flowOut[`${destName} (Transferencia)`] || 0) + amount;
@@ -350,12 +335,13 @@ const BookClosings = () => {
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
-            monthlySummary, 
+            monthlySummary, // Agregado para el PDF
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
             expenseByDestination: sortMap(flowOut),
             transactions: exportTransactions,
+            // Guardamos la lista consolidada
             conciliacion: { tercerosIn, tercerosOut, capitalizacion, tercerosList }
         });
 
@@ -542,7 +528,7 @@ const BookClosings = () => {
                     <tbody>
                         ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                         
-                        ${report.conciliacion.tercerosList.map(item => `
+                        ${report.conciliacion.tercerosList && report.conciliacion.tercerosList.map(item => `
                             <tr>
                                 <td style="font-weight: bold; background-color: #fffbeb;">${item.name}:</td>
                                 <td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
@@ -775,8 +761,7 @@ const BookClosings = () => {
                                                 Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
                                             </p>
                                             <div className="space-y-2">
-                                                {/* Mostrar lista consolidada de Terceros con nombre directo y su movimiento neto */}
-                                                {report.conciliacion.tercerosList.map((item, i) => (
+                                                {report.conciliacion.tercerosList && report.conciliacion.tercerosList.map((item, i) => (
                                                     <div key={`tercero-${i}`} className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
                                                         <span className="text-xs font-bold text-slate-600">{item.name}:</span>
                                                         <span className="font-mono font-bold text-amber-700">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
