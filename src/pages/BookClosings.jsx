@@ -1157,7 +1157,9 @@ const months = [
                                     />
                                 </div>
 
-                                                                    <textarea 
+                                <div>
+                                    <Label className="text-slate-700 text-xs">3. Notas aclaratorias o comentarios contables</Label>
+                                                                        <textarea 
                                         rows={2}
                                         value={executiveData.notasAclaratorias}
                                         onChange={e => setExecutiveData({...executiveData, notasAclaratorias: e.target.value})}
