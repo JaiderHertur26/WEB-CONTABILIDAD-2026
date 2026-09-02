@@ -254,6 +254,15 @@ const BookClosings = () => {
 
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
+        // CONSOLIDAR TERCEROS (Recibido - Pagado por cada cuenta)
+        const tercerosNetMap = {};
+        Object.keys(tercerosInMap).forEach(key => {
+            tercerosNetMap[key] = (tercerosNetMap[key] || 0) + tercerosInMap[key];
+        });
+        Object.keys(tercerosOutMap).forEach(key => {
+            tercerosNetMap[key] = (tercerosNetMap[key] || 0) - tercerosOutMap[key];
+        });
+
         // 3. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
         const flowIn = {};
         const flowOut = {};
@@ -287,17 +296,26 @@ const BookClosings = () => {
                 return;
             }
 
-            const extractTargetName = (str) => {
+            const extractTargetName = (tObj) => {
+                const str = tObj.destination;
+                
+                // Si la categoría de la transacción empieza por 2 (Terceros), usamos la categoría
+                const accObj = (accounts || []).find(a => a.name === tObj.category);
+                if (accObj && String(accObj.number).startsWith('2')) {
+                    return (tObj.category).toUpperCase();
+                }
+
                 if (!str) return 'CAJA PRINCIPAL';
                 const parts = str.split('|');
                 let name = (parts[1] || parts[0]).toUpperCase();
+                
                 if (name === 'CAJA_PRINCIPAL' || parts[0] === 'caja_principal') return 'CAJA PRINCIPAL';
                 if (name === '11201501' || parts[0] === '11201501') return 'COOPERATIVA FRATERNIDAD SACERDOTAL';
                 return name;
             };
 
-            if (isCashOrBank(t.destination)) {
-                const destName = extractTargetName(t.destination);
+            if (isCashOrBank(t.destination) || ((accounts || []).find(a => a.name === t.category) && String((accounts || []).find(a => a.name === t.category).number).startsWith('2'))) {
+                const destName = extractTargetName(t);
                 
                 if (t.isInternalTransfer) {
                     if (t.type === 'expense') flowOut[`${destName} (Transferencia)`] = (flowOut[`${destName} (Transferencia)`] || 0) + amount;
@@ -326,8 +344,7 @@ const BookClosings = () => {
                 tercerosIn, 
                 tercerosOut, 
                 capitalizacion,
-                tercerosInList: sortMap(tercerosInMap),
-                tercerosOutList: sortMap(tercerosOutMap)
+                tercerosNetList: sortMap(tercerosNetMap) // Enviamos la lista consolidada
             }
         });
 
@@ -514,16 +531,9 @@ const BookClosings = () => {
                     <tbody>
                         ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                         
-                        ${report.conciliacion.tercerosInList.map(item => `
+                        ${report.conciliacion.tercerosNetList.map(item => `
                             <tr>
-                                <td style="font-weight: bold; background-color: #fffbeb;">Recibido (${item.name}):</td>
-                                <td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                            </tr>
-                        `).join('')}
-
-                        ${report.conciliacion.tercerosOutList.map(item => `
-                            <tr>
-                                <td style="font-weight: bold; background-color: #fffbeb;">Pagado (${item.name}):</td>
+                                <td style="font-weight: bold; background-color: #fffbeb;">${item.name}:</td>
                                 <td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
                             </tr>
                         `).join('')}
@@ -754,15 +764,10 @@ const BookClosings = () => {
                                                 Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
                                             </p>
                                             <div className="space-y-2">
-                                                {report.conciliacion.tercerosInList.map((item, i) => (
-                                                    <div key={`in-${i}`} className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
-                                                        <span className="text-xs font-bold text-slate-600">Recibido ({item.name}):</span>
-                                                        <span className="font-mono font-bold text-amber-700">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
-                                                    </div>
-                                                ))}
-                                                {report.conciliacion.tercerosOutList.map((item, i) => (
-                                                    <div key={`out-${i}`} className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
-                                                        <span className="text-xs font-bold text-slate-600">Pagado ({item.name}):</span>
+                                                {/* Iteramos sobre la lista combinada (Neta) de Terceros */}
+                                                {report.conciliacion.tercerosNetList.map((item, i) => (
+                                                    <div key={`net-${i}`} className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
+                                                        <span className="text-xs font-bold text-slate-600">{item.name}:</span>
                                                         <span className="font-mono font-bold text-amber-700">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                                                     </div>
                                                 ))}
