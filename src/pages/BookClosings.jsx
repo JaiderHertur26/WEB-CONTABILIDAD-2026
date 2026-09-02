@@ -1157,15 +1157,40 @@ const months = [
                                     />
                                 </div>
 
-                                <div>
-                                    <Label className="text-slate-700 text-xs">3. Notas aclaratorias o comentarios contables</Label>
-                                    <textarea 
+                                                                    <textarea 
                                         rows={2}
                                         value={executiveData.notasAclaratorias}
                                         onChange={e => setExecutiveData({...executiveData, notasAclaratorias: e.target.value})}
                                         className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                                         placeholder="Ej. Los fondos de Dona Nobis e Infancia Misionera fueron cruzados y enviados exitosamente en su totalidad."
                                     />
+                                </div>
+
+                                {/* SECCIÓN DE FIRMAS INTEGRADA */}
+                                <div className="bg-slate-50 p-4 rounded-xl border space-y-3 mt-2">
+                                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Responsables de las Firmas</h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <Label className="text-slate-600 text-xs">Elaborado por (Contador):</Label>
+                                            <input 
+                                                type="text" 
+                                                value={signatures.elaborado}
+                                                onChange={e => setSignatures({...signatures, elaborado: e.target.value})}
+                                                className="w-full px-3 py-1.5 border rounded-lg mt-1 text-xs uppercase bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                placeholder="Nombre del contador"
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label className="text-slate-600 text-xs">Revisado por (Párroco):</Label>
+                                            <input 
+                                                type="text" 
+                                                value={signatures.revisado}
+                                                onChange={e => setSignatures({...signatures, revisado: e.target.value})}
+                                                className="w-full px-3 py-1.5 border rounded-lg mt-1 text-xs uppercase bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                placeholder="Nombre del párroco"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1181,6 +1206,7 @@ const months = [
                         </div>
                     </div>
                 )}
+
 
               
             </div>
