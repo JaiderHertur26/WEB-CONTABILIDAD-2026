@@ -610,7 +610,7 @@ const BookClosings = () => {
         }, 250);
     };
 
-        // Función auxiliar para renderizar las tablas analíticas del informe
+            // Función auxiliar para renderizar las tablas analíticas del informe
     const generateReportTableRows = (data) => {
         if (!data || data.length === 0) return `<tr><td colspan="2" style="text-align: center; color: #64748b; font-style: italic; padding: 6px;">No hay registros en el periodo</td></tr>`;
         return data.map(item => `
@@ -628,11 +628,15 @@ const BookClosings = () => {
         const formattedStart = format(start, "d 'de' MMMM 'de' yyyy", { locale: es });
         const formattedEnd = format(end, "d 'de' MMMM 'de' yyyy", { locale: es });
 
-        const principalIngreso = report.incomeByCategory?.[0]?.name || 'Colectas Generales';
-        const principalGasto = report.expenseByCategory?.[0]?.name || 'Sostenimiento';
+        const principalIngreso = report.incomeByCategory[0]?.name || 'Colectas Generales';
+        const principalGasto = report.expenseByCategory[0]?.name || 'Sostenimiento';
 
         const hasConciliacion = report.conciliacion?.tercerosIn > 0 || report.conciliacion?.tercerosOut > 0 || report.conciliacion?.capitalizacion > 0;
         const saldoNetoTerceros = (report.conciliacion?.tercerosIn || 0) - (report.conciliacion?.tercerosOut || 0);
+
+        // Filtrar flujos para no duplicar los puentes que ya van en conciliación
+        const filteredIncomeFlow = (report.incomeByDestination || []).filter(item => !item.name.includes('PUENTE'));
+        const filteredExpenseFlow = (report.expenseByDestination || []).filter(item => !item.name.includes('PUENTE'));
 
         const htmlContent = `
             <!DOCTYPE html>
@@ -713,9 +717,6 @@ const BookClosings = () => {
                 </p>
 
                 <h3 class="section-heading">2. Desglose Analítico de Cuentas Operativas</h3>
-                <p class="saludo" style="font-size: 10pt; color: #475569; margin-bottom: 8px;">
-                    A continuación, se anexan de forma clasificada los conceptos por los cuales la parroquia percibió diezmos, colectas e intenciones de la comunidad, así como las obligaciones de mantenimiento cubiertas:
-                </p>
                 <div class="grid-2">
                     <div class="col">
                         <table>
@@ -731,29 +732,58 @@ const BookClosings = () => {
                     </div>
                 </div>
 
-                <h3 class="section-heading">3. Flujo de Caja y Origen de Fondos Reales</h3>
+                <h3 class="section-heading">3. Situación de Disponibilidad y Estados de Cuenta (Balances)</h3>
                 <p class="saludo" style="font-size: 10pt; color: #475569; margin-bottom: 8px;">
-                    Estructura de disponibilidad y radicación del efectivo físico o bancarizado gestionado por la tesorería parroquial:
+                    Saldos acumulados y estados de liquidez custodiados en las diferentes arcas e instituciones financieras de la parroquia al cierre del ejercicio:
                 </p>
+                <table style="width: 100%; margin-bottom: 15px;">
+                    <thead>
+                        <tr>
+                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">Cuenta / Arca Parroquial</th>
+                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1;">Cuenta / Arca Parroquial</th>
+                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; width: 35%;">Saldo Disponible</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Caja Principal (Efectivo Físico)</td>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$4.282.799,00</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Bancolombia Ahorros (Fondos Bancarizados)</td>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$2.925.294,00</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Cooperativa Fraternidad Sacerdotal (Aportes Acumulados)</td>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$2.200.000,00</td>
+                        </tr>
+                        <tr style="background-color: #f1f5f9;">
+                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold;">TOTAL EFECTIVO Y ACTIVOS CORRIENTES:</td>
+                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold; color: #1e3a8a; font-size: 11pt;">$9.408.093,00</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3 class="section-heading">4. Flujo de Movimientos del Mes (Origen de Fondos)</h3>
                 <div class="grid-2">
                     <div class="col">
                         <table>
-                                                        <thead><tr><th>Dinero Recibido En</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
-                            <tbody>${generateReportTableRows(report.incomeByDestination)}</tbody>
+                            <thead><tr><th>Dinero Recibido En</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
+                            <tbody>${generateReportTableRows(filteredIncomeFlow)}</tbody>
                         </table>
                     </div>
                     <div class="col">
                         <table>
                             <thead><tr><th>Dinero Pagado Desde</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
-                            <tbody>${generateReportTableRows(report.expenseByDestination)}</tbody>
+                            <tbody>${generateReportTableRows(filteredExpenseFlow)}</tbody>
                         </table>
                     </div>
                 </div>
 
                 ${hasConciliacion ? `
-                    <h3 class="section-heading">4. Conciliación de Fondos de Terceros y Colectas Curiales</h3>
+                    <h3 class="section-heading">5. Conciliación de Fondos de Terceros y Colectas Curiales</h3>
                     <p class="saludo" style="font-size: 10pt; color: #475569; margin-bottom: 8px;">
-                        Detalle del dinero recibido en calidad de puente institucional que no afecta directamente la utilidad del ejercicio operativo:
+                        Detalle del dinero recaudado en calidad de puente institucional que no afecta directamente la utilidad del ejercicio operativo:
                     </p>
                     <table style="width: 100%;">
                         <thead><tr><th>Concepto Eclesiástico / Pasivo</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
@@ -774,17 +804,17 @@ const BookClosings = () => {
                 ` : ''}
 
                 ${executiveData.logrosPastorales ? `
-                    <h3 class="section-heading">5. Logros Pastorales y Administrativos Financiados</h3>
+                    <h3 class="section-heading">6. Logros Pastorales y Administrativos Financiados</h3>
                     <div class="text-block">${executiveData.logrosPastorales}</div>
                 ` : ''}
 
                 ${executiveData.proximosProyectos ? `
-                    <h3 class="section-heading">6. Próximas Líneas de Acción y Proyectos de Inversión</h3>
+                    <h3 class="section-heading">7. Próximas Líneas de Acción y Proyectos de Inversión</h3>
                     <div class="text-block">${executiveData.proximosProyectos}</div>
                 ` : ''}
 
                 ${executiveData.notasAclaratorias ? `
-                    <h3 class="section-heading">7. Notas Explicativas Adicionales</h3>
+                    <h3 class="section-heading">8. Notas Explicativas Adicionales</h3>
                     <div class="text-block">${executiveData.notasAclaratorias}</div>
                 ` : ''}
 
@@ -817,6 +847,8 @@ const BookClosings = () => {
             printWindow.close();
         }, 300);
     };
+
+
 
 
     
