@@ -131,10 +131,6 @@ const BookClosings = () => {
 
         const incomeMap = {};
         const expenseMap = {};
-        
-        // Mapas para calcular el saldo de cada tercero individual
-        const tercerosInMap = {};
-        const tercerosOutMap = {};
 
         // 1. INTELIGENCIA PARA LA TABLA MENSUAL
         const monthlySummary = Array.from({ length: 12 }, (_, i) => ({
@@ -180,16 +176,8 @@ const BookClosings = () => {
                 }
 
                 // Fondos de Terceros (Pasivos - Ej: 2365 Retención)
-                if (crPrefix === '2') {
-                    tercerosIn += amount;
-                    const accName = t.creditAccount?.name || 'FONDO DE TERCEROS';
-                    tercerosInMap[accName] = (tercerosInMap[accName] || 0) + amount;
-                }
-                if (drPrefix === '2') {
-                    tercerosOut += amount;
-                    const accName = t.debitAccount?.name || 'FONDO DE TERCEROS';
-                    tercerosOutMap[accName] = (tercerosOutMap[accName] || 0) + amount;
-                }
+                if (crPrefix === '2') tercerosIn += amount;
+                if (drPrefix === '2') tercerosOut += amount;
 
                 // Capitalizaciones e Inversiones (Activos)
                 if (drPrefix === '1' && !drCode.startsWith('11') && !drCode.startsWith('1295')) {
@@ -235,15 +223,8 @@ const BookClosings = () => {
 
             // Conciliación Automática
             if (prefix === '2') {
-                const accName = accountObj ? accountObj.name : (t.category || 'FONDO DE TERCEROS');
-                if (t.type === 'income') {
-                    tercerosIn += amount;
-                    tercerosInMap[accName] = (tercerosInMap[accName] || 0) + amount;
-                }
-                if (t.type === 'expense') {
-                    tercerosOut += amount;
-                    tercerosOutMap[accName] = (tercerosOutMap[accName] || 0) + amount;
-                }
+                if (t.type === 'income') tercerosIn += amount;
+                if (t.type === 'expense') tercerosOut += amount;
             } else if (prefix === '1' || prefix === '3') {
                 const accNum = accountObj ? String(accountObj.number) : '';
                 if (!accNum.startsWith('11') && !accNum.startsWith('1295')) {
@@ -257,19 +238,6 @@ const BookClosings = () => {
         monthlySummary.forEach(m => m.utilidad = m.ingresos - m.gastos);
 
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
-
-        // NUEVO: Calcular el SALDO NETO de cada tercero individual
-        const tercerosNetList = [];
-        const allTercerosNames = new Set([...Object.keys(tercerosInMap), ...Object.keys(tercerosOutMap)]);
-        
-        allTercerosNames.forEach(name => {
-            const inAmt = tercerosInMap[name] || 0;
-            const outAmt = tercerosOutMap[name] || 0;
-            const netBalance = inAmt - outAmt;
-            
-            tercerosNetList.push({ name: name.toUpperCase(), total: netBalance });
-        });
-        tercerosNetList.sort((a, b) => b.total - a.total);
 
         // 3. CÁLCULO LIMPIO DEL FLUJO DE EFECTIVO (Solo Cajas y Bancos reales)
         const flowIn = {};
@@ -333,14 +301,13 @@ const BookClosings = () => {
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
-            monthlySummary, 
+            monthlySummary, // Agregado para el PDF
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
             expenseByDestination: sortMap(flowOut),
             transactions: exportTransactions,
-            // Pasamos la lista de Terceros con sus saldos unificados
-            conciliacion: { tercerosIn, tercerosOut, capitalizacion, tercerosNetList }
+            conciliacion: { tercerosIn, tercerosOut, capitalizacion }
         });
 
         toast({ title: "Cierre Generado", description: "Movimientos detallados y procesados correctamente." });
@@ -503,7 +470,7 @@ const BookClosings = () => {
                     </div>
                 </div>
 
-                <div class="section-title">2. Flujo de Efectivo Real (Entradas y Salidas)</div>
+                <div class="section-title">2. Flujo de Efectivo Real (Entradas y Salidas de Caja/Bancos)</div>
                 <div class="grid-2">
                     <div class="col">
                         <table>
@@ -525,14 +492,8 @@ const BookClosings = () => {
                 <table style="width: 100%; margin-bottom: 15px;">
                     <tbody>
                         ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
-                        
-                        ${report.conciliacion.tercerosNetList && report.conciliacion.tercerosNetList.map(item => `
-                            <tr>
-                                <td style="font-weight: bold; background-color: #fffbeb;">${item.name}:</td>
-                                <td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                            </tr>
-                        `).join('')}
-
+                        ${report.conciliacion.tercerosIn > 0 ? `<tr><td style="font-weight: bold; background-color: #fffbeb;">Fondos de Terceros Recibidos (Cuentas por Pagar creadas):</td><td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${report.conciliacion.tercerosIn.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                        ${report.conciliacion.tercerosOut > 0 ? `<tr><td style="font-weight: bold; background-color: #fffbeb;">Fondos de Terceros Pagados (Deudas Canceladas a la DIAN/Terceros):</td><td style="text-align: right; font-weight: bold; background-color: #fffbeb; width: 35%;">$${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                         ${(report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0) ? `<tr><td style="font-weight: bold; background-color: #fef3c7; color: #92400e;">Saldo Pendiente (Deuda Viva del Periodo):</td><td style="text-align: right; font-weight: bold; background-color: #fef3c7; color: #92400e; width: 35%;">$${saldoNetoTerceros.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                     </tbody>
                 </table>
@@ -759,12 +720,18 @@ const BookClosings = () => {
                                                 Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
                                             </p>
                                             <div className="space-y-2">
-                                                {report.conciliacion.tercerosNetList && report.conciliacion.tercerosNetList.map((item, i) => (
-                                                    <div key={`tercero-${i}`} className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
-                                                        <span className="text-xs font-bold text-slate-600">{item.name}:</span>
-                                                        <span className="font-mono font-bold text-amber-700">${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                                                {report.conciliacion.tercerosIn > 0 && (
+                                                    <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
+                                                        <span className="text-xs font-bold text-slate-600">Recibido (CxP a pagar):</span>
+                                                        <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosIn.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
                                                     </div>
-                                                ))}
+                                                )}
+                                                {report.conciliacion.tercerosOut > 0 && (
+                                                    <div className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
+                                                        <span className="text-xs font-bold text-slate-600">Pagado (Deuda Cancelada a la DIAN/Terceros):</span>
+                                                        <span className="font-mono font-bold text-amber-700">${report.conciliacion.tercerosOut.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                         
