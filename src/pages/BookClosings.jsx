@@ -53,13 +53,6 @@ const BookClosings = () => {
     const [accounts] = useCompanyData('accounts');
     const [bankAccounts] = useCompanyData('bankAccounts');
     const [cashAccounts] = useCompanyData('cash_accounts');
-    const [initialBalance] = useCompanyData('initialBalance');
-    const [fixedAssets] = useCompanyData('fixedAssets');
-    const [realEstates] = useCompanyData('realEstates');
-    const [accountsReceivable] = useCompanyData('accountsReceivable');
-    const [accountsPayable] = useCompanyData('accountsPayable');
-    const [inventory] = useCompanyData('inventory');
-
     const { toast } = useToast();
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [signatures, setSignatures] = useState({ elaborado: '', revisado: '' });
@@ -72,6 +65,7 @@ const BookClosings = () => {
         proximosProyectos: '',
         notasAclaratorias: ''
     });
+
 
     const availableYears = React.useMemo(() => {
         const years = new Set((transactions || []).map(t => new Date(t.date).getFullYear()));
@@ -171,6 +165,7 @@ const BookClosings = () => {
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const mIndex = adjustedDate.getMonth();
 
+            // Identificamos explícitamente si es un puente o cruce
             const catUpper = String(t.category || '').toUpperCase();
             const drUpper = String(t.debitAccount?.name || '').toUpperCase();
             const crUpper = String(t.creditAccount?.name || '').toUpperCase();
@@ -188,6 +183,7 @@ const BookClosings = () => {
                 const drPrefix = drCode.charAt(0);
                 const crPrefix = crCode.charAt(0);
 
+                // BLOQUEO: Solo suma a Ingresos/Gastos Operativos si NO es puente/cruce
                 if (!isPuenteOCruce) {
                     if (crPrefix === '4') { 
                         totalIncome += amount; 
@@ -230,11 +226,12 @@ const BookClosings = () => {
             if (accountObj) {
                 prefix = String(accountObj.number).charAt(0);
             } else if (t.category === 'Transferencia Interna' || isPuenteOCruce) {
-                prefix = '0';
+                prefix = '0'; // Lo forzamos a 0 para que no caiga en las reglas de 4 o 5
             } else {
                 prefix = t.type === 'income' ? '4' : '5';
             }
             
+            // BLOQUEO: Solo suma a Ingresos/Gastos Operativos si NO es puente/cruce
             if (!isPuenteOCruce) {
                 if (prefix === '4') {
                     if (t.type === 'income') {
@@ -276,6 +273,7 @@ const BookClosings = () => {
 
         const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 
+        // Agrupar Terceros Neta
         const tercerosList = [];
         const allTercerosNames = new Set([...Object.keys(tercerosInMap), ...Object.keys(tercerosOutMap)]);
         
@@ -305,22 +303,26 @@ const BookClosings = () => {
         allRelevant.forEach(t => {
             const amount = parseFloat(t.amount || 0);
 
+            // Identificar explícitamente si es una transferencia interna
             const catUpper = String(t.category || '').toUpperCase();
             const isPureTransfer = t.isInternalTransfer || catUpper === 'TRANSFERENCIA INTERNA' || catUpper.includes('TRANSFERENCIA');
             const transferSuffix = isPureTransfer ? ' (TRANS. INTERNA)' : '';
 
+            // A. Asientos Manuales
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
                 const drName = (t.debitAccount.name || '').toUpperCase();
                 const crName = (t.creditAccount.name || '').toUpperCase();
 
+                // Entrada a Banco/Caja
                 if (drCode.startsWith('11') || drCode.startsWith('1295') || drName.includes('CAJA') || drName.includes('COOPERATIVA')) {
                     let nameKey = `${drName}${transferSuffix}`;
                     if (crCode.startsWith('2') && !isPureTransfer) nameKey = `${drName} (PUENTE: ${crName})`;
                     flowIn[nameKey] = (flowIn[nameKey] || 0) + amount;
                 }
                 
+                // Salida de Banco/Caja
                 if (crCode.startsWith('11') || crCode.startsWith('1295') || crName.includes('CAJA') || crName.includes('COOPERATIVA')) {
                     let nameKey = `${crName}${transferSuffix}`;
                     if (drCode.startsWith('2') && !isPureTransfer) nameKey = `${crName} (PUENTE: ${drName})`;
@@ -329,6 +331,7 @@ const BookClosings = () => {
                 return;
             }
 
+            // B. Transacciones Automáticas 
             const extractTargetNameWithPuente = (tObj) => {
                 let baseDestName = 'CAJA PRINCIPAL';
                 
@@ -341,8 +344,10 @@ const BookClosings = () => {
                     else baseDestName = namePart;
                 }
 
+                // Si es transferencia, le agregamos el sufijo y evitamos lógica de puentes
                 if (isPureTransfer) return `${baseDestName}${transferSuffix}`;
 
+                // Identificamos si es un movimiento de terceros
                 const accObj = (accounts || []).find(a => a.name === tObj.category);
                 if (accObj && String(accObj.number).startsWith('2')) {
                     const terceroName = (tObj.category).toUpperCase();
@@ -470,6 +475,7 @@ const BookClosings = () => {
                     th { background-color: #f1f5f9; text-align: left; padding: 5px 6px; border: 1px solid #cbd5e1; font-size: 10px; color: #334155; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     td { padding: 5px 6px !important; border: 1px solid #e2e8f0; font-size: 10px !important; text-transform: uppercase; }
                     
+                    /* Estilos para las firmas dinámicas */
                     .signatures { margin-top: 35px; display: flex; justify-content: space-between; padding: 0 40px; page-break-inside: avoid; }
                     .sig-block { width: 40%; text-align: center; }
                     .sig-name { font-size: 12px; font-weight: bold; margin-bottom: 2px; min-height: 16px; text-transform: uppercase; }
@@ -604,6 +610,7 @@ const BookClosings = () => {
         }, 250);
     };
 
+            // Función auxiliar para renderizar las tablas analíticas del informe
     const generateReportTableRows = (data) => {
         if (!data || data.length === 0) return `<tr><td colspan="2" style="text-align: center; color: #64748b; font-style: italic; padding: 6px;">No hay registros en el periodo</td></tr>`;
         return data.map(item => `
@@ -614,7 +621,7 @@ const BookClosings = () => {
         `).join('');
     };
 
-    const executeExecutiveReportPrint = () => {
+            const executeExecutiveReportPrint = () => {
         setIsExecutiveReportModalOpen(false);
         const printWindow = window.open('', '_blank', 'width=950,height=850');
         const { start, end } = report.period;
@@ -627,67 +634,33 @@ const BookClosings = () => {
         const hasConciliacion = report.conciliacion?.tercerosIn > 0 || report.conciliacion?.tercerosOut > 0 || report.conciliacion?.capitalizacion > 0;
         const saldoNetoTerceros = (report.conciliacion?.tercerosIn || 0) - (report.conciliacion?.tercerosOut || 0);
 
+        // Filtrar flujos para no duplicar los puentes que ya van en conciliación
         const filteredIncomeFlow = (report.incomeByDestination || []).filter(item => !item.name.includes('PUENTE'));
         const filteredExpenseFlow = (report.expenseByDestination || []).filter(item => !item.name.includes('PUENTE'));
         
-        // 🚀 MOTOR DE BALANCE GENERAL EXACTO REPLICADO DE REPORTS.JSX
+                // REPLICACIÓN DE CONSOLIDACIÓN DE ACTIVOS CORRIENTES EXACTA DE REPORTS.JSX
         const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
         const endStr = format(end, 'yyyy-MM-dd');
-        const currentYear = getSafeYear(endStr).toString();
-
-        const validTransactions = (transactions || []).filter(t => 
-            !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
-        );
-
-        const bsTransactions = validTransactions.filter(t => {
+        
+        // Filtro exacto acumulativo hasta la fecha de corte eclesiástica (Reports.jsx L.93)
+        const bsTransactions = (transactions || []).filter(t => {
             const tDate = t.date?.substring(0, 10) || '';
-            return tDate <= endStr;
+            return tDate <= endStr && !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase());
         });
 
-        const getSafeYear = (dateStr) => {
-            if (!dateStr) return 0;
-            if (typeof dateStr === 'string' && dateStr.includes('-')) {
-                return parseInt(dateStr.split('-')[0], 10);
-            }
-            return new Date(dateStr).getFullYear();
-        };
-
-        const getAccountCreationYear = (accountId, defaultDate) => {
-            if (defaultDate && isValid(parseISO(defaultDate))) return getSafeYear(defaultDate);
-            const accountTransactions = validTransactions.filter(t => 
-                t.destination?.startsWith(accountId) || 
-                t.fromAccount?.startsWith(accountId) || 
-                t.toAccount?.startsWith(accountId) ||
-                (t.debitAccount && t.debitAccount.code === accountId) ||
-                (t.creditAccount && t.creditAccount.code === accountId)
-            );
-            if (accountTransactions.length > 0) {
-                const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
-                return getSafeYear(oldestDate);
-            }
-            return new Date().getFullYear();
-        };
-
-        const initialCash = (initialBalance || []).reduce((sum, item) => {
-            const creationYear = getAccountCreationYear('caja_principal', item.date);
-            if (creationYear <= parseInt(currentYear)) {
-                return sum + safeParseFloat(item.balance);
-            }
-            return sum;
-        }, 0);
-
-        let dynamicPrincipalCash = initialCash;
+        // Base de saldos iniciales (Reports.jsx L.186 y L.194)
+        let dynamicPrincipalCash = 0;
         let dynamicBankBalance = 0;
         let dynamicFraternidadBalance = 0;
 
-        (bankAccounts || []).forEach(acc => {
-            const creationYear = getAccountCreationYear(acc.id, acc.date);
-            if (creationYear <= parseInt(currentYear)) {
+        if (bankAccounts) {
+            bankAccounts.forEach(acc => {
                 dynamicBankBalance += safeParseFloat(acc.initialBalance);
                 dynamicFraternidadBalance += safeParseFloat(acc.initialInvestmentBalance);
-            }
-        });
+            });
+        }
 
+        // Acumulación y cruce del Libro Diario general (Reports.jsx L.204 a L.234)
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
             if (t.debitAccount && t.creditAccount) {
@@ -730,6 +703,7 @@ const BookClosings = () => {
             }
         });
 
+        // Ajuste fino por cuentas PUC de aportes
         bsTransactions.forEach(t => {
             if (t.debitAccount && t.creditAccount) return;
             const accountObj = (accounts || []).find(a => a.name === t.category);
@@ -739,7 +713,6 @@ const BookClosings = () => {
         });
 
         const dynamicTotalAssets = dynamicPrincipalCash + dynamicBankBalance + dynamicFraternidadBalance;
-
         const htmlContent = `
             <!DOCTYPE html>
             <html>
@@ -841,7 +814,7 @@ const BookClosings = () => {
                 <table style="width: 100%; margin-bottom: 15px;">
                     <thead>
                         <tr>
-                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
+		                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
                             <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt; text-align: right; width: 35%;">SALDO DISPONIBLE</th>
                         </tr>
                     </thead>
@@ -948,8 +921,11 @@ const BookClosings = () => {
             printWindow.close();
         }, 300);
     };
+                                                                                   
 
-    const months = [
+    
+
+const months = [
         'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
     ];
@@ -1077,7 +1053,7 @@ const BookClosings = () => {
                                 </h2>
                                 <p className="text-slate-500 text-sm mt-1">Transacciones procesadas: {report.transactions.length}</p>
                             </div>
-                            <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
+                                                            <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
                                 <Button variant="outline" onClick={handlePrint} className="text-slate-700 border-slate-300 hover:bg-slate-100">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Acta
                                 </Button>
@@ -1094,6 +1070,7 @@ const BookClosings = () => {
                                     <FileSpreadsheet className="w-4 h-4 mr-2" /> Exportar Anexo
                                 </Button>
                             </div>
+
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1157,6 +1134,7 @@ const BookClosings = () => {
                                                 Dinero donde tu caja es solo un puente (ej. retenciones, recaudos) o deudas que creaste/pagaste.
                                             </p>
                                             <div className="space-y-2">
+                                                {/* Mostrar lista consolidada de Terceros con nombre directo y su movimiento neto */}
                                                 {report.conciliacion.tercerosList.map((item, i) => (
                                                     <div key={`tercero-${i}`} className="bg-white p-2.5 rounded border border-amber-100 flex justify-between">
                                                         <span className="text-xs font-bold text-slate-600">{item.name}:</span>
@@ -1307,7 +1285,7 @@ const BookClosings = () => {
                     </div>
                 )}
              
-                {/* Modal de Informe Ejecutivo para la Curia */}
+                                  {/* Modal de Informe Ejecutivo para la Curia */}
                 {isExecutiveReportModalOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print:hidden">
                         <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
@@ -1348,7 +1326,7 @@ const BookClosings = () => {
                                         value={executiveData.logrosPastorales}
                                         onChange={e => setExecutiveData({...executiveData, logrosPastorales: e.target.value})}
                                         className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                        placeholder="Ej. Se realizaron reparaciones menores en los techos de la sacristía..."
+                                        placeholder="Ej. Se realizaron reparaciones menores en los techos de la sacristía y se dio apoyo al retiro de jóvenes..."
                                     />
                                 </div>
 
@@ -1359,21 +1337,22 @@ const BookClosings = () => {
                                         value={executiveData.proximosProyectos}
                                         onChange={e => setExecutiveData({...executiveData, proximosProyectos: e.target.value})}
                                         className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                        placeholder="Ej. Planificación de las fiestas patronales..."
+                                        placeholder="Ej. Planificación de las fiestas patronales o mantenimiento preventivo del sistema eléctrico del templo..."
                                     />
                                 </div>
 
                                 <div>
                                     <Label className="text-slate-700 text-xs">3. Notas aclaratorias o comentarios contables</Label>
-                                    <textarea 
+                                                                        <textarea 
                                         rows={2}
                                         value={executiveData.notasAclaratorias}
                                         onChange={e => setExecutiveData({...executiveData, notasAclaratorias: e.target.value})}
                                         className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                        placeholder="Ej. Los fondos de Dona Nobis e Infancia Misionera fueron cruzados..."
+                                        placeholder="Ej. Los fondos de Dona Nobis e Infancia Misionera fueron cruzados y enviados exitosamente en su totalidad."
                                     />
                                 </div>
 
+                                {/* SECCIÓN DE FIRMAS INTEGRADA */}
                                 <div className="bg-slate-50 p-4 rounded-xl border space-y-3 mt-2">
                                     <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Responsables de las Firmas</h4>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1413,9 +1392,12 @@ const BookClosings = () => {
                         </div>
                     </div>
                 )}
+
+
+              
             </div>
         </>
     );
-};
+            }
 
 export default BookClosings;
