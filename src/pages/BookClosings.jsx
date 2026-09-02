@@ -639,11 +639,45 @@ const BookClosings = () => {
         const filteredExpenseFlow = (report.expenseByDestination || []).filter(item => !item.name.includes('PUENTE'));
 
         // CÁLCULO DINÁMICO DE SALDOS DE CAJAS Y BANCOS DESDE LOS HOOKS DE TU PROPIO SISTEMA
-        // Extraemos los montos que fluyen en las cuentas de efectivo para pintar el balance real de agosto 2026
-        const dynamicPrincipalCash = report.incomeByDestination?.find(i => i.name === 'CAJA PRINCIPAL')?.total || 4282799.00;
-        const dynamicBankBalance = report.incomeByDestination?.find(i => i.name.includes('BANCOLOMBIA'))?.total || 2925294.00;
-        const dynamicFraternidadBalance = report.incomeByDestination?.find(i => i.name.includes('COOPERATIVA'))?.total || 2200000.00;
+                // EXTRACTORES CONTABLES DINÁMICOS BASADOS EN TU LOGÍA REAL DE REPORTES
+        let dynamicPrincipalCash = initialCash;
+        let dynamicBankBalance = 0;
+        let dynamicFraternidadBalance = 0;
+
+        fBankAccounts.forEach(acc => {
+            const creationYear = getAccountCreationYear(acc.id, acc.date);
+            if (creationYear <= parseInt(currentYear)) {
+                dynamicBankBalance += parseFloat(acc.initialBalance || 0);
+                dynamicFraternidadBalance += parseFloat(acc.initialInvestmentBalance || 0);
+            }
+        });
+
+        bsTransactions.forEach(t => {
+            const amount = parseFloat(t.amount || 0);
+            if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return;
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                if (drCode === '11050501') dynamicPrincipalCash += amount;
+                else if (drCode.startsWith('1110') || drCode.startsWith('1120')) dynamicBankBalance += amount;
+                else if (drCode.startsWith('1295')) dynamicFraternidadBalance += amount;
+                if (crCode === '11050501') dynamicPrincipalCash -= amount;
+                else if (crCode.startsWith('1110') || crCode.startsWith('1120')) dynamicBankBalance -= amount;
+                else if (crCode.startsWith('1295')) dynamicFraternidadBalance -= amount;
+                return;
+            }
+            const destParts = (t.destination || '').split('|');
+            const destId = destParts[0];
+            const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
+            const isBankDest = fBankAccounts.some(b => b.id === destId);
+            if (t.type === 'income') {
+                if (isCashDest) dynamicPrincipalCash += amount; else if (isBankDest) dynamicBankBalance += amount;
+            } else if (t.type === 'expense') {
+                if (isCashDest) dynamicPrincipalCash -= amount; else if (isBankDest) dynamicBankBalance -= amount;
+            }
+        });
         const dynamicTotalAssets = dynamicPrincipalCash + dynamicBankBalance + dynamicFraternidadBalance;
+
 
         const htmlContent = `
             <!DOCTYPE html>
@@ -746,26 +780,26 @@ const BookClosings = () => {
                 <table style="width: 100%; margin-bottom: 15px;">
                     <thead>
                         <tr>
-                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>     
-			<th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt; text-align: right; width: 35%;">SALDO DISPONIBLE</th>
+                                                        <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
+                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt; text-align: right; width: 35%;">SALDO DISPONIBLE</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Caja Principal (Efectivo Físico)</td>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicPrincipalCash.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicPrincipalCash.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                         <tr>
                             <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Bancolombia Ahorros (Fondos Bancarizados)</td>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicBankBalance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicBankBalance.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                         <tr>
                             <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Cooperativa Fraternidad Sacerdotal (Aportes Acumulados)</td>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicFraternidadBalance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicFraternidadBalance.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                         <tr style="background-color: #f1f5f9;">
                             <td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold; font-family: Arial, sans-serif; font-size: 10pt;">TOTAL EFECTIVO Y ACTIVOS CORRIENTES:</td>
-                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold; color: #1e3a8a; font-size: 11pt;">$${dynamicTotalAssets.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold; color: #1e3a8a; font-size: 11pt;">$${dynamicTotalAssets.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -853,6 +887,7 @@ const BookClosings = () => {
             printWindow.close();
         }, 300);
     };
+
     
 
 const months = [
