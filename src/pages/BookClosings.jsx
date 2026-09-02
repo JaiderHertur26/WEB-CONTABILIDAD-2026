@@ -56,6 +56,16 @@ const BookClosings = () => {
     const { toast } = useToast();
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [signatures, setSignatures] = useState({ elaborado: '', revisado: '' });
+    
+    const [isExecutiveReportModalOpen, setIsExecutiveReportModalOpen] = useState(false);
+    const [executiveData, setExecutiveData] = useState({
+        destinatarioCuria: 'Monseñor de la Arquidiócesis de Barranquilla',
+        cargoDestinatario: 'Vicario General y Moderador de la Curia',
+        logrosPastorales: '',
+        proximosProyectos: '',
+        notasAclaratorias: ''
+    });
+
 
     const availableYears = React.useMemo(() => {
         const years = new Set((transactions || []).map(t => new Date(t.date).getFullYear()));
@@ -600,7 +610,137 @@ const BookClosings = () => {
         }, 250);
     };
 
-    const months = [
+    const executeExecutiveReportPrint = () => {
+        setIsExecutiveReportModalOpen(false);
+        const printWindow = window.open('', '_blank', 'width=950,height=850');
+        const { start, end } = report.period;
+        const formattedStart = format(start, "d 'de' MMMM 'de' yyyy", { locale: es });
+        const formattedEnd = format(end, "d 'de' MMMM 'de' yyyy", { locale: es });
+
+        const principalIngreso = report.incomeByCategory[0]?.name || 'Colectas Generales';
+        const principalGasto = report.expenseByCategory[0]?.name || 'Sostenimiento';
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Informe_Ejecutivo_Curia_${format(start, "yyyyMM")}</title>
+                <style>
+                    @page { size: letter; margin: 25mm 20mm; }
+                    body { font-family: 'Times New Roman', Times, serif; color: #1e293b; line-height: 1.6; font-size: 12pt; }
+                    .header { text-align: center; margin-bottom: 35px; border-bottom: 1px solid #94a3b8; padding-bottom: 15px; }
+                    .header h1 { margin: 0; font-size: 16pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a; }
+                    .header p { margin: 3px 0; font-size: 10pt; color: #475569; font-family: Arial, sans-serif; }
+                    .meta-dates { margin-bottom: 30px; font-size: 11pt; color: #334155; }
+                    .destination-block { margin-bottom: 35px; line-height: 1.4; }
+                    .destination-block .title-dest { font-weight: bold; text-transform: uppercase; }
+                    .report-title { text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 25px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.5px; }
+                    p.saludo { margin-bottom: 20px; text-align: justify; }
+                    h3.section-heading { font-family: Arial, sans-serif; font-size: 11pt; font-weight: bold; text-transform: uppercase; color: #1e3a8a; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin-top: 30px; margin-bottom: 12px; page-break-after: avoid; }
+                    .financial-grid { display: table; width: 100%; margin: 20px 0; border-collapse: collapse; }
+                    .financial-row { display: table-row; }
+                    .financial-cell { display: table-cell; padding: 10px; border: 1px solid #cbd5e1; }
+                    .financial-cell.label { font-weight: bold; background-color: #f8fafc; width: 65%; }
+                    .financial-cell.value { text-align: right; font-family: 'Courier New', Courier, monospace; font-weight: bold; font-size: 13pt; }
+                    .text-block { text-align: justify; white-space: pre-line; margin-bottom: 15px; }
+                    .signatures { margin-top: 60px; display: flex; justify-content: space-between; padding: 0 20px; page-break-inside: avoid; }
+                    .sig-block { width: 42%; text-align: center; }
+                    .sig-name { font-size: 11pt; font-weight: bold; margin-bottom: 4px; min-height: 18px; text-transform: uppercase; }
+                    .sig-line { border-top: 1px solid #475569; padding-top: 6px; font-size: 10pt; font-weight: bold; color: #334155; font-family: Arial, sans-serif; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>${activeCompany?.name || 'PARROQUIA SANTA CRUZ'}</h1>
+                    <p>NIT: ${activeCompany?.doc || '900316227'}</p>
+                    <p>${activeCompany?.address || ''} - Tel: ${activeCompany?.phone || ''}</p>
+                </div>
+                
+                <div class="meta-dates">
+                    <strong>Fecha de Emisión:</strong> ${format(new Date(), "dd 'de' MMMM 'de' yyyy", { locale: es })}<br/>
+                    <strong>Ref:</strong> Informe Ejecutivo Financiero y Pastoral
+                </div>
+
+                <div class="destination-block">
+                    A la atención de:<br/>
+                    <span class="title-dest">${executiveData.destinatarioCuria}</span><br/>
+                    <span>${executiveData.cargoDestinatario}</span><br/>
+                    <strong>Arquidiócesis de Barranquilla</strong>
+                </div>
+                
+                <div class="report-title">Informe Ejecutivo de Cierre de Caja y Gestión</div>
+                
+                <p class="saludo">
+                    Respetable Monseñor, por medio del presente documento me dirijo a usted con el debido acatamiento ecónomo, presentando formalmente el balance financiero y el resumen operativo correspondiente al periodo comprendido entre el <strong>${formattedStart}</strong> y el <strong>${formattedEnd}</strong>, detallando de forma clara los movimientos de nuestra comunidad parroquial:
+                </p>
+
+                <h3 class="section-heading">1. Resumen Consolidado de Operaciones</h3>
+                <div class="financial-grid">
+                    <div class="financial-row">
+                        <div class="financial-cell label">Total Ingresos Operativos e Intenciones Obtenidas</div>
+                        <div class="financial-cell value" style="color: #16a34a;">$${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div class="financial-row">
+                        <div class="financial-cell label">Total Egresos, Gastos de Sostenimiento y Servicios</div>
+                        <div class="financial-cell value" style="color: #dc2626;">$${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div class="financial-row">
+                        <div class="financial-cell label">Superávit Eclesiástico Neto del Periodo (Utilidad)</div>
+                        <div class="financial-cell value" style="color: #1e3a8a;">$${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                </div>
+                
+                <p style="text-align: justify; font-size: 11pt; color: #475569; font-style: italic; margin-bottom: 25px;">
+                    Nota analítica: Durante este mes, la partida con mayor representatividad en las entradas financieras correspondió a un totalizado consolidado de "<strong>${principalIngreso}</strong>", mientras que el recurso más demandante en los egresos operativos se concentró bajo el rubro de "<strong>${principalGasto}</strong>".
+                </p>
+
+                ${executiveData.logrosPastorales ? `
+                    <h3 class="section-heading">2. Logros Pastorales y Administrativos Financiados</h3>
+                    <div class="text-block">${executiveData.logrosPastorales}</div>
+                ` : ''}
+
+                ${executiveData.proximosProyectos ? `
+                    <h3 class="section-heading">3. Próximas Líneas de Acción y Proyectos de Inversión</h3>
+                    <div class="text-block">${executiveData.proximosProyectos}</div>
+                ` : ''}
+
+                ${executiveData.notasAclaratorias ? `
+                    <h3 class="section-heading">4. Notas Explicativas a los Estados de Cuenta</h3>
+                    <div class="text-block">${executiveData.notasAclaratorias}</div>
+                ` : ''}
+
+                <p class="saludo" style="margin-top: 30px;">
+                    Confiando la transparencia de esta administración en las manos de Dios y esperando que este reporte sea de utilidad para la toma de decisiones arquidiocesanas, quedo a su entera disposición para cualquier aclaración requerida.
+                </p>
+                
+                <p style="margin-bottom: 50px;">Fraternalmente en Cristo,</p>
+
+                <div class="signatures">
+                    <div class="sig-block">
+                        <div class="sig-name">${signatures.elaborado || 'CONTADOR PÚBLICO'}</div>
+                        <div class="sig-line">Responsable de Contabilidad</div>
+                    </div>
+                    <div class="sig-block">
+                        <div class="sig-name">${signatures.revisado || 'PÁRROCO'}</div>
+                        <div class="sig-line">${activeCompany?.name || 'PARROQUIA SANTA CRUZ'}</div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        printWindow.focus();
+
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 300);
+    };
+    
+
+const months = [
         'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
     ];
@@ -733,6 +873,14 @@ const BookClosings = () => {
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Acta
                                 </Button>
                                 <Button variant="outline" onClick={handleExport} className="text-green-700 border-green-200 bg-green-50 hover:bg-green-100">
+                                                                <Button 
+                                    variant="outline" 
+                                    onClick={() => setIsExecutiveReportModalOpen(true)} 
+                                    className="text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
+                                >
+                                    <BookOpen className="w-4 h-4 mr-2" /> Informe a la Curia
+                                </Button>
+
                                     <FileSpreadsheet className="w-4 h-4 mr-2" /> Exportar Anexo
                                 </Button>
                             </div>
@@ -949,6 +1097,89 @@ const BookClosings = () => {
                         </div>
                     </div>
                 )}
+             
+                                  {/* Modal de Informe Ejecutivo para la Curia */}
+                {isExecutiveReportModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print:hidden">
+                        <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+                            <h3 className="text-xl font-bold text-slate-900 mb-2 flex items-center gap-2">
+                                <BookOpen className="w-5 h-5 text-blue-600" />
+                                Informe Ejecutivo Curia
+                            </h3>
+                            <p className="text-xs text-slate-500 mb-4">
+                                Completa los datos pastorales para enriquecer las métricas contables automáticas antes de generar el documento formal.
+                            </p>
+                            
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <Label className="text-slate-700 text-xs">Destinatario (Autoridad)</Label>
+                                        <input 
+                                            type="text" 
+                                            value={executiveData.destinatarioCuria}
+                                            onChange={e => setExecutiveData({...executiveData, destinatarioCuria: e.target.value})}
+                                            className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <Label className="text-slate-700 text-xs">Cargo Eclesiástico</Label>
+                                        <input 
+                                            type="text" 
+                                            value={executiveData.cargoDestinatario}
+                                            onChange={e => setExecutiveData({...executiveData, cargoDestinatario: e.target.value})}
+                                            className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <Label className="text-slate-700 text-xs">1. Logros Pastorales / Administrativos en este periodo</Label>
+                                    <textarea 
+                                        rows={3}
+                                        value={executiveData.logrosPastorales}
+                                        onChange={e => setExecutiveData({...executiveData, logrosPastorales: e.target.value})}
+                                        className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                        placeholder="Ej. Se realizaron reparaciones menores en los techos de la sacristía y se dio apoyo al retiro de jóvenes..."
+                                    />
+                                </div>
+
+                                <div>
+                                    <Label className="text-slate-700 text-xs">2. Próximos Proyectos / Necesidades de inversión</Label>
+                                    <textarea 
+                                        rows={3}
+                                        value={executiveData.proximosProyectos}
+                                        onChange={e => setExecutiveData({...executiveData, proximosProyectos: e.target.value})}
+                                        className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                        placeholder="Ej. Planificación de las fiestas patronales o mantenimiento preventivo del sistema eléctrico del templo..."
+                                    />
+                                </div>
+
+                                <div>
+                                    <Label className="text-slate-700 text-xs">3. Notas aclaratorias o comentarios contables</Label>
+                                    <textarea 
+                                        rows={2}
+                                        value={executiveData.notasAclaratorias}
+                                        onChange={e => setExecutiveData({...executiveData, notasAclaratorias: e.target.value})}
+                                        className="w-full px-3 py-1.5 border rounded-lg mt-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                        placeholder="Ej. Los fondos de Dona Nobis e Infancia Misionera fueron cruzados y enviados exitosamente en su totalidad."
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+                                <Button variant="outline" onClick={() => setIsExecutiveReportModalOpen(false)} className="text-slate-600 border-slate-300">
+                                    Cerrar
+                                </Button>
+                                <Button onClick={executeExecutiveReportPrint} className="bg-blue-600 hover:bg-blue-700 text-white">
+                                    <Printer className="w-4 h-4 mr-2" />
+                                    Imprimir Informe Curia
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+              
             </div>
         </>
     );
