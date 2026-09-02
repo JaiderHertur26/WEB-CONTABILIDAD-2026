@@ -291,6 +291,11 @@ const BookClosings = () => {
         allRelevant.forEach(t => {
             const amount = parseFloat(t.amount || 0);
 
+            // Identificar explícitamente si es una transferencia interna
+            const catUpper = String(t.category || '').toUpperCase();
+            const isPureTransfer = t.isInternalTransfer || catUpper === 'TRANSFERENCIA INTERNA' || catUpper.includes('TRANSFERENCIA');
+            const transferSuffix = isPureTransfer ? ' (TRANS. INTERNA)' : '';
+
             // A. Asientos Manuales
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
@@ -300,21 +305,15 @@ const BookClosings = () => {
 
                 // Entrada a Banco/Caja
                 if (drCode.startsWith('11') || drCode.startsWith('1295') || drName.includes('CAJA') || drName.includes('COOPERATIVA')) {
-                    // Si el crédito (de donde viene la plata) es un Pasivo (Terceros), mostramos puente
-                    let nameKey = drName;
-                    if (crCode.startsWith('2')) {
-                        nameKey = `${drName} (PUENTE: ${crName})`;
-                    }
+                    let nameKey = `${drName}${transferSuffix}`;
+                    if (crCode.startsWith('2') && !isPureTransfer) nameKey = `${drName} (PUENTE: ${crName})`;
                     flowIn[nameKey] = (flowIn[nameKey] || 0) + amount;
                 }
                 
                 // Salida de Banco/Caja
                 if (crCode.startsWith('11') || crCode.startsWith('1295') || crName.includes('CAJA') || crName.includes('COOPERATIVA')) {
-                    // Si el débito (hacia donde va la plata) es un Pasivo (Terceros), mostramos puente
-                    let nameKey = crName;
-                    if (drCode.startsWith('2')) {
-                        nameKey = `${crName} (PUENTE: ${drName})`;
-                    }
+                    let nameKey = `${crName}${transferSuffix}`;
+                    if (drCode.startsWith('2') && !isPureTransfer) nameKey = `${crName} (PUENTE: ${drName})`;
                     flowOut[nameKey] = (flowOut[nameKey] || 0) + amount;
                 }
                 return;
@@ -324,7 +323,6 @@ const BookClosings = () => {
             const extractTargetNameWithPuente = (tObj) => {
                 let baseDestName = 'CAJA PRINCIPAL';
                 
-                // Identificamos la caja/banco real
                 const str = tObj.destination;
                 if (str) {
                     const parts = str.split('|');
@@ -334,11 +332,13 @@ const BookClosings = () => {
                     else baseDestName = namePart;
                 }
 
+                // Si es transferencia, le agregamos el sufijo y evitamos lógica de puentes
+                if (isPureTransfer) return `${baseDestName}${transferSuffix}`;
+
                 // Identificamos si es un movimiento de terceros
                 const accObj = (accounts || []).find(a => a.name === tObj.category);
                 if (accObj && String(accObj.number).startsWith('2')) {
                     const terceroName = (tObj.category).toUpperCase();
-                    // Retornamos la caja con el apellido del puente
                     return `${baseDestName} (PUENTE: ${terceroName})`;
                 }
 
@@ -348,12 +348,10 @@ const BookClosings = () => {
             if (isCashOrBank(t.destination) || ((accounts || []).find(a => a.name === t.category) && String((accounts || []).find(a => a.name === t.category).number).startsWith('2'))) {
                 const destName = extractTargetNameWithPuente(t);
                 
-                if (t.isInternalTransfer) {
-                    if (t.type === 'expense') flowOut[`${destName} (Transferencia)`] = (flowOut[`${destName} (Transferencia)`] || 0) + amount;
-                    else if (t.type === 'income') flowIn[`${destName} (Transferencia)`] = (flowIn[`${destName} (Transferencia)`] || 0) + amount;
-                } else {
-                    if (t.type === 'income') flowIn[destName] = (flowIn[destName] || 0) + amount;
-                    else if (t.type === 'expense') flowOut[destName] = (flowOut[destName] || 0) + amount;
+                if (t.type === 'income') {
+                    flowIn[destName] = (flowIn[destName] || 0) + amount;
+                } else if (t.type === 'expense') {
+                    flowOut[destName] = (flowOut[destName] || 0) + amount;
                 }
             }
         });
