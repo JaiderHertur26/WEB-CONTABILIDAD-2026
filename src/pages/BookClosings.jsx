@@ -153,11 +153,16 @@ const BookClosings = () => {
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const mIndex = adjustedDate.getMonth();
 
-            // FILTRO ESTRICTO: Identificar si la transacción es un Puente, Cruce o Transferencia
+            // Identificamos explícitamente si es un puente o cruce
+            const catUpper = String(t.category || '').toUpperCase();
+            const drUpper = String(t.debitAccount?.name || '').toUpperCase();
+            const crUpper = String(t.creditAccount?.name || '').toUpperCase();
+            
             const isPuenteOCruce = 
                 t.isInternalTransfer || 
-                String(t.category || '').toUpperCase().includes('PUENTE') || 
-                String(t.category || '').toUpperCase().includes('CRUCE');
+                catUpper.includes('PUENTE') || catUpper.includes('CRUCE') ||
+                drUpper.includes('PUENTE') || drUpper.includes('CRUCE') ||
+                crUpper.includes('PUENTE') || crUpper.includes('CRUCE');
 
             // A. Asiento manual de Partida Doble
             if (t.debitAccount && t.creditAccount) {
@@ -166,7 +171,7 @@ const BookClosings = () => {
                 const drPrefix = drCode.charAt(0);
                 const crPrefix = crCode.charAt(0);
 
-                // Solo sumar a ingresos/gastos operativos si NO es un puente/cruce
+                // BLOQUEO: Solo suma a Ingresos/Gastos Operativos si NO es puente/cruce
                 if (!isPuenteOCruce) {
                     if (crPrefix === '4') { 
                         totalIncome += amount; 
@@ -209,12 +214,12 @@ const BookClosings = () => {
             if (accountObj) {
                 prefix = String(accountObj.number).charAt(0);
             } else if (t.category === 'Transferencia Interna' || isPuenteOCruce) {
-                prefix = '0'; // Forzamos a '0' para que no lo cuente como ingreso/gasto
+                prefix = '0'; // Lo forzamos a 0 para que no caiga en las reglas de 4 o 5
             } else {
                 prefix = t.type === 'income' ? '4' : '5';
             }
             
-            // Solo sumar a ingresos/gastos operativos si NO es un puente/cruce
+            // BLOQUEO: Solo suma a Ingresos/Gastos Operativos si NO es puente/cruce
             if (!isPuenteOCruce) {
                 if (prefix === '4') {
                     if (t.type === 'income') {
@@ -233,7 +238,7 @@ const BookClosings = () => {
                 }
             }
 
-            if (prefix === '2') {
+            if (prefix === '2' || isPuenteOCruce) {
                 const accName = accountObj ? accountObj.name : (t.category || 'Fondo de Terceros');
                 if (t.type === 'income') {
                     tercerosIn += amount;
