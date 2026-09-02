@@ -868,7 +868,8 @@ const months = [
                                 </h2>
                                 <p className="text-slate-500 text-sm mt-1">Transacciones procesadas: {report.transactions.length}</p>
                             </div>
-                            <div className="flex gap-2 print:hidden">
+                                <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
+
                                 <Button variant="outline" onClick={handlePrint} className="text-slate-700 border-slate-300 hover:bg-slate-100">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Acta
                                 </Button>
