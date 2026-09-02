@@ -53,6 +53,12 @@ const BookClosings = () => {
     const [accounts] = useCompanyData('accounts');
     const [bankAccounts] = useCompanyData('bankAccounts');
     const [cashAccounts] = useCompanyData('cash_accounts');
+    const [initialBalance] = useCompanyData('initialBalance');
+    const [fixedAssets] = useCompanyData('fixedAssets');
+    const [realEstates] = useCompanyData('realEstates');
+    const [accountsReceivable] = useCompanyData('accountsReceivable');
+    const [accountsPayable] = useCompanyData('accountsPayable');
+    const [inventory] = useCompanyData('inventory');
     const { toast } = useToast();
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [signatures, setSignatures] = useState({ elaborado: '', revisado: '' });
@@ -375,7 +381,7 @@ const BookClosings = () => {
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
-            monthlySummary, 
+            monthlySummary,
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
@@ -621,7 +627,13 @@ const BookClosings = () => {
         `).join('');
     };
 
-            const executeExecutiveReportPrint = () => {
+            const getSafeYear = (dateStr) => {
+        if (!dateStr) return 0;
+        if (typeof dateStr === 'string' && dateStr.includes('-')) return parseInt(dateStr.split('-')[0], 10);
+        return new Date(dateStr).getFullYear();
+    };
+
+    const executeExecutiveReportPrint = () => {
         setIsExecutiveReportModalOpen(false);
         const printWindow = window.open('', '_blank', 'width=950,height=850');
         const { start, end } = report.period;
@@ -638,81 +650,253 @@ const BookClosings = () => {
         const filteredIncomeFlow = (report.incomeByDestination || []).filter(item => !item.name.includes('PUENTE'));
         const filteredExpenseFlow = (report.expenseByDestination || []).filter(item => !item.name.includes('PUENTE'));
         
-                // REPLICACIÓN DE CONSOLIDACIÓN DE ACTIVOS CORRIENTES EXACTA DE REPORTS.JSX
-        const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
+                // BALANCE GENERAL: esta sección replica la metodología contable de Reports.jsx
+        // para que el Informe Ejecutivo utilice exactamente la misma fuente de saldos.
+        const safeParseFloat = (value) => {
+            const parsed = parseFloat(value);
+            return Number.isNaN(parsed) ? 0 : parsed;
+        };
         const endStr = format(end, 'yyyy-MM-dd');
-        
-        // Filtro exacto acumulativo hasta la fecha de corte eclesiástica (Reports.jsx L.93)
-        const bsTransactions = (transactions || []).filter(t => {
+        const currentYear = end.getFullYear();
+
+        const validTransactions = (transactions || []).filter(t =>
+            !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t.status || '').toLowerCase())
+        );
+        const bsTransactions = validTransactions.filter(t => {
             const tDate = t.date?.substring(0, 10) || '';
-            return tDate <= endStr && !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase());
+            return tDate <= endStr;
+        });
+        const allAccounts = Array.from(new Map((accounts || []).filter(a => a?.name).map(a => [String(a.name).trim(), a])).values());
+
+        const getAccountCreationYear = (accountId, defaultDate) => {
+            if (defaultDate && isValid(parseISO(defaultDate))) return new Date(defaultDate).getFullYear();
+            const accountTransactions = validTransactions.filter(t =>
+                t.destination?.startsWith(accountId) ||
+                t.fromAccount?.startsWith(accountId) ||
+                t.toAccount?.startsWith(accountId) ||
+                (t.debitAccount && t.debitAccount.code === accountId) ||
+                (t.creditAccount && t.creditAccount.code === accountId)
+            );
+            if (accountTransactions.length > 0) {
+                const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
+                return new Date(oldestDate).getFullYear();
+            }
+            return currentYear;
+        };
+
+        const isAccountMatch = (targetId, accountIdOrString) => {
+            if (!accountIdOrString) return false;
+            if (accountIdOrString === targetId) return true;
+            if (accountIdOrString.startsWith(`${targetId}|`)) return true;
+            if (targetId === 'caja_principal' && accountIdOrString.toLowerCase().includes('caja principal')) return true;
+            return false;
+        };
+
+        const initialCash = (initialBalance || []).reduce((sum, item) => {
+            const creationYear = getAccountCreationYear('caja_principal', item.date);
+            return creationYear <= currentYear ? sum + safeParseFloat(item.balance) : sum;
+        }, 0);
+
+        let cajaPrincipalBalance = initialCash;
+        let totalBankBalances = 0;
+        let totalInvestmentBalances = 0;
+
+        (bankAccounts || []).forEach(acc => {
+            const creationYear = getAccountCreationYear(acc.id, acc.date);
+            if (creationYear <= currentYear) {
+                totalBankBalances += safeParseFloat(acc.initialBalance);
+                totalInvestmentBalances += safeParseFloat(acc.initialInvestmentBalance);
+            }
         });
 
-        // Base de saldos iniciales (Reports.jsx L.186 y L.194)
-        let dynamicPrincipalCash = 0;
-        let dynamicBankBalance = 0;
-        let dynamicFraternidadBalance = 0;
+        let customCashBalance = 0;
+        if ((cashAccounts || []).length > 0) {
+            customCashBalance = cashAccounts.reduce((acc, cashAcc) => {
+                let currentBal = 0;
+                const creationYear = getAccountCreationYear(cashAcc.id, cashAcc.date);
+                if (creationYear <= currentYear) currentBal = safeParseFloat(cashAcc.initial_balance);
 
-        if (bankAccounts) {
-            bankAccounts.forEach(acc => {
-                dynamicBankBalance += safeParseFloat(acc.initialBalance);
-                dynamicFraternidadBalance += safeParseFloat(acc.initialInvestmentBalance);
-            });
+                bsTransactions.forEach(t => {
+                    const amount = safeParseFloat(t.amount);
+                    if (t.debitAccount && t.creditAccount) return;
+                    if (t.type !== 'transfer' && t.destination && t.destination.startsWith(cashAcc.id)) {
+                        if (t.type === 'income') currentBal += amount;
+                        else if (t.type === 'expense') currentBal -= amount;
+                    }
+                    if (t.type === 'transfer') {
+                        if (isAccountMatch(cashAcc.id, t.fromAccount)) currentBal -= amount;
+                        if (isAccountMatch(cashAcc.id, t.toAccount)) currentBal += amount;
+                    }
+                });
+                return acc + currentBal;
+            }, 0);
         }
 
-        // Acumulación y cruce del Libro Diario general (Reports.jsx L.204 a L.234)
+        let anticiposValue = 0;
+        let construccionesValue = 0;
+        let otherAssetsValue = 0;
+        let otherLiabilitiesValue = 0;
+        let depreciacionAcumuladaValue = 0;
+        let intangiblesValue = 0;
+
         bsTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
+
             if (t.debitAccount && t.creditAccount) {
                 if (String(t.id).endsWith('-inc')) return;
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
 
-                if (drCode === '11050501') dynamicPrincipalCash += amount;
-                else if (drCode.startsWith('1110') || drCode.startsWith('1120')) dynamicBankBalance += amount;
-                else if (drCode.startsWith('1295')) dynamicFraternidadBalance += amount;
+                if (drCode === '11050501') cajaPrincipalBalance += amount;
+                else if (drCode.startsWith('1110') || drCode.startsWith('1120')) totalBankBalances += amount;
+                else if (drCode.startsWith('1295')) totalInvestmentBalances += amount;
+                else if (drCode.startsWith('1330')) anticiposValue += amount;
+                else if (drCode.startsWith('1508')) construccionesValue += amount;
+                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount;
+                else if (drCode.startsWith('16')) intangiblesValue += amount;
+                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1295') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) otherAssetsValue += amount;
+                else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-                if (crCode === '11050501') dynamicPrincipalCash -= amount;
-                else if (crCode.startsWith('1110') || crCode.startsWith('1120')) dynamicBankBalance -= amount;
-                else if (crCode.startsWith('1295')) dynamicFraternidadBalance -= amount;
+                if (crCode === '11050501') cajaPrincipalBalance -= amount;
+                else if (crCode.startsWith('1110') || crCode.startsWith('1120')) totalBankBalances -= amount;
+                else if (crCode.startsWith('1295')) totalInvestmentBalances -= amount;
+                else if (crCode.startsWith('1330')) anticiposValue -= amount;
+                else if (crCode.startsWith('1508')) construccionesValue -= amount;
+                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount;
+                else if (crCode.startsWith('16')) intangiblesValue -= amount;
+                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1295') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) otherAssetsValue -= amount;
+                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
                 return;
             }
 
             const destParts = (t.destination || '').split('|');
             const destId = destParts[0];
             const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
-            const isBankDest = bankAccounts && bankAccounts.some(b => b.id === destId);
+            const isBankDest = (bankAccounts || []).some(b => b.id === destId);
 
             if (t.type === 'income') {
-                if (isCashDest) dynamicPrincipalCash += amount;
-                else if (isBankDest) dynamicBankBalance += amount;
+                if (isCashDest) cajaPrincipalBalance += amount;
+                else if (isBankDest) totalBankBalances += amount;
             } else if (t.type === 'expense') {
-                if (isCashDest) dynamicPrincipalCash -= amount;
-                else if (isBankDest) dynamicBankBalance -= amount;
+                if (isCashDest) cajaPrincipalBalance -= amount;
+                else if (isBankDest) totalBankBalances -= amount;
             } else if (t.type === 'transfer') {
                 const fromParts = (t.fromAccount || '').split('|');
                 const toParts = (t.toAccount || '').split('|');
                 const fromId = fromParts[0];
                 const toId = toParts[0];
-                
-                if (fromId === 'caja_principal' || (fromParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) dynamicPrincipalCash -= amount;
-                else if (bankAccounts && bankAccounts.some(b => b.id === fromId)) dynamicBankBalance -= amount;
-                
-                if (toId === 'caja_principal' || (toParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) dynamicPrincipalCash += amount;
-                else if (bankAccounts && bankAccounts.some(b => b.id === toId)) dynamicBankBalance += amount;
+
+                if (fromId === 'caja_principal' || (fromParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) cajaPrincipalBalance -= amount;
+                else if ((bankAccounts || []).some(b => b.id === fromId)) totalBankBalances -= amount;
+
+                if (toId === 'caja_principal' || (toParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) cajaPrincipalBalance += amount;
+                else if ((bankAccounts || []).some(b => b.id === toId)) totalBankBalances += amount;
             }
+
+            const acc = allAccounts.find(a => a.name === t.category);
+            if (!acc) return;
+            const num = String(acc.number);
+            const assetImpact = t.type === 'expense' ? amount : -amount;
+            const liabilityImpact = t.type === 'income' ? amount : -amount;
+
+            if (num.startsWith('1295')) totalInvestmentBalances += assetImpact;
+            else if (num.startsWith('1330')) anticiposValue += assetImpact;
+            else if (num.startsWith('1508')) construccionesValue += assetImpact;
+            else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
+            else if (num.startsWith('16')) intangiblesValue += assetImpact;
+            else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1295') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) otherAssetsValue += assetImpact;
+            else if (num.startsWith('2') && !num.startsWith('2305')) otherLiabilitiesValue += liabilityImpact;
         });
 
-        // Ajuste fino por cuentas PUC de aportes
-        bsTransactions.forEach(t => {
-            if (t.debitAccount && t.creditAccount) return;
-            const accountObj = (accounts || []).find(a => a.name === t.category);
-            if (accountObj && String(accountObj.number).startsWith('1295')) {
-                dynamicFraternidadBalance += (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
-            }
-        });
+        const totalCashBalance = cajaPrincipalBalance + customCashBalance;
+        const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
 
-        const dynamicTotalAssets = dynamicPrincipalCash + dynamicBankBalance + dynamicFraternidadBalance;
+        const inventoryValue = (inventory || []).reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
+        const manualFixedAssetsValue = (fixedAssets || []).filter(asset => {
+            if (asset.status === 'Dado de Baja') return false;
+            if (asset.year) return asset.year.toString() === currentYear.toString();
+            if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
+            return false;
+        }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
+
+        const totalDepreciacionInventario = (fixedAssets || []).filter(asset => {
+            if (asset.status === 'Dado de Baja') return false;
+            if (asset.year) return asset.year.toString() === currentYear.toString();
+            if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
+            return false;
+        }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
+
+        const depreciacionPropiedadesGlobal = (realEstates || []).filter(estate => {
+            if (estate.status === 'Dado de Baja') return false;
+            return getSafeYear(estate.date) <= currentYear;
+        }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
+
+        const depreciacionesFuturasPropiedades = validTransactions.filter(t =>
+            t.category === 'Depreciación Acumulada Activos Fijos' &&
+            String(t.description).includes('Edificaciones') &&
+            getSafeYear(t.date) > currentYear
+        ).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
+
+        const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
+        depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
+
+        const realEstatesValue = (realEstates || []).filter(estate => getSafeYear(estate.date) <= currentYear).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
+        const accountsReceivableValue = (accountsReceivable || []).filter(r => {
+            const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : currentYear);
+            return r.status === 'Pendiente' && rYear <= currentYear;
+        }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
+        const accountsPayableValue = (accountsPayable || []).filter(p => {
+            const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : currentYear);
+            return p.status === 'Pendiente' && pYear <= currentYear;
+        }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
+
+        const balanceNetProfit = report.balance;
+        const totalActivoCorriente = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue;
+        const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;
+        const totalAssets = totalActivoCorriente + totalActivoNoCorriente;
+        const totalLiabilities = accountsPayableValue + otherLiabilitiesValue;
+        const totalEquity = totalAssets - totalLiabilities;
+        const retainedEquity = totalEquity - balanceNetProfit;
+
+        const balanceGeneral = {
+            assets: [
+                { item: 'ACTIVO CORRIENTE', isBold: true },
+                { item: '  Efectivo y Equivalentes', isBold: true },
+                { item: '    Caja General', amount: cajaGeneralValue, isSubtotal: true },
+                { item: '      Caja Principal', amount: cajaPrincipalBalance },
+                { item: '      Cuentas Bancarias', amount: totalBankBalances },
+                { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
+                { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
+                { item: '  Anticipos a Proveedores', amount: anticiposValue },
+                { item: '  Otros Activos Corrientes', amount: otherAssetsValue },
+                { item: 'TOTAL ACTIVO CORRIENTE', amount: totalActivoCorriente, isSubtotal: true },
+                { item: 'ACTIVO NO CORRIENTE', isBold: true },
+                { item: '  Activos Intangibles (Licencias)', amount: intangiblesValue },
+                { item: '  Construcciones en Curso', amount: construccionesValue },
+                { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
+                { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
+                { item: '  Inventario', amount: inventoryValue },
+                { item: '  Depreciación Acumulada', amount: depreciacionAcumuladaValue },
+                { item: 'TOTAL ACTIVO NO CORRIENTE', amount: totalActivoNoCorriente, isSubtotal: true }
+            ],
+            liabilities: [
+                { item: 'PASIVO', isBold: true },
+                { item: '  Cuentas por Pagar', amount: accountsPayableValue },
+                { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }
+            ],
+            equity: [
+                { item: 'PATRIMONIO', isBold: true },
+                { item: '  Patrimonio Institucional (Inc. Utilidades Acum.)', amount: retainedEquity },
+                { item: '  Utilidad del Ejercicio', amount: balanceNetProfit }
+            ],
+            totals: {
+                assets: totalAssets,
+                liabilities: totalLiabilities,
+                equity: totalEquity,
+                liabilitiesAndEquity: totalLiabilities + totalEquity
+            }
+        };
+
         const htmlContent = `
             <!DOCTYPE html>
             <html>
@@ -807,36 +991,55 @@ const BookClosings = () => {
                     </div>
                 </div>
 
-                <h3 class="section-heading">3. Situación de Disponibilidad y Estados de Cuenta (Balances)</h3>
+                <h3 class="section-heading">3. Balance General y Situación Patrimonial al Corte</h3>
                 <p class="saludo" style="font-size: 10pt; color: #475569; margin-bottom: 8px;">
-                    Saldos acumulados y estados de liquidez custodiados en las diferentes arcas e instituciones financieras de la parroquia al cierre del ejercicio:
+                    Saldos acumulados a la fecha de corte, siguiendo la misma estructura y metodología utilizada en el Balance General.
                 </p>
-                <table style="width: 100%; margin-bottom: 15px;">
-                    <thead>
-                        <tr>
-		                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt;">CUENTA / ARCA PARROQUIAL</th>
-                            <th style="padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt; text-align: right; width: 35%;">SALDO DISPONIBLE</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Caja Principal (Efectivo Físico)</td>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicPrincipalCash.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Bancolombia Ahorros (Fondos Bancarizados)</td>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicBankBalance.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1;">Cooperativa Fraternidad Sacerdotal (Aportes Acumulados)</td>
-                            <td style="padding: 5px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold;">$${dynamicFraternidadBalance.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                        <tr style="background-color: #f1f5f9;">
-                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: bold; font-family: Arial, sans-serif; font-size: 10pt;">TOTAL EFECTIVO Y ACTIVOS CORRIENTES:</td>
-                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold; color: #1e3a8a; font-size: 11pt;">$${dynamicTotalAssets.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                    </tbody>
-                </table>
+                <div class="grid-2">
+                    <div class="col">
+                        <table>
+                            <thead><tr><th>ACTIVO</th><th style="text-align:right; width:35%;">MONTO</th></tr></thead>
+                            <tbody>
+                                ${balanceGeneral.assets.map(item => `
+                                    <tr>
+                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; ${item.isBold ? 'font-weight:bold;' : ''}">${item.item}</td>
+                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:${item.isSubtotal ? 'bold' : 'normal'};">${item.amount != null ? '$' + item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                                    </tr>
+                                `).join('')}
+                                <tr style="background-color:#f1f5f9;">
+                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; font-weight:bold;">TOTAL ACTIVO</td>
+                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:bold;">$${balanceGeneral.totals.assets.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col">
+                        <table>
+                            <thead><tr><th>PASIVO Y PATRIMONIO</th><th style="text-align:right; width:35%;">MONTO</th></tr></thead>
+                            <tbody>
+                                ${balanceGeneral.liabilities.map(item => `
+                                    <tr>
+                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; ${item.isBold ? 'font-weight:bold;' : ''}">${item.item}</td>
+                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align:right; font-family:monospace;">${item.amount != null ? '$' + item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                                    </tr>
+                                `).join('')}
+                                ${balanceGeneral.equity.map(item => `
+                                    <tr>
+                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; ${item.isBold ? 'font-weight:bold;' : ''}">${item.item}</td>
+                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:${item.isBold ? 'bold' : 'normal'};">${item.amount != null ? '$' + item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                                    </tr>
+                                `).join('')}
+                                <tr style="background-color:#f1f5f9;">
+                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; font-weight:bold;">TOTAL PASIVO + PATRIMONIO</td>
+                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:bold;">$${balanceGeneral.totals.liabilitiesAndEquity.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div style="margin-top:8px; padding:8px; text-align:center; background-color:${Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01 ? '#ecfdf5' : '#fef2f2'}; color:${Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01 ? '#166534' : '#991b1b'}; font-weight:bold; border:1px solid #cbd5e1;">
+                    ${Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01 ? 'Balance General cuadrado' : 'Advertencia: el Balance General no está cuadrado'}
+                </div>
 
                 <h3 class="section-heading">4. Flujo de Movimientos del Mes (Origen de Fondos)</h3>
                 <div class="grid-2">
