@@ -897,220 +897,131 @@ const BookClosings = () => {
             }
         };
 
+        const fmtMoney = (value) => Number(value || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        const cuadre = Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01;
+
         const htmlContent = `
             <!DOCTYPE html>
             <html>
             <head>
-                <title>Informe_Ejecutivo_Curia_${format(start, "yyyyMM")}</title>
+                <meta charset="UTF-8">
+                <title>Informe Ejecutivo - ${activeCompany?.name || 'Parroquia'}</title>
                 <style>
-                    @page { size: letter; margin: 22mm 20mm; }
-                    body { font-family: 'Times New Roman', Times, serif; color: #1e293b; line-height: 1.5; font-size: 11pt; }
-                    .header { text-align: center; margin-bottom: 25px; border-bottom: 1px solid #94a3b8; padding-bottom: 12px; }
-                    .header h1 { margin: 0; font-size: 15pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #0f172a; }
-                    .header p { margin: 2px 0; font-size: 9.5pt; color: #475569; font-family: Arial, sans-serif; }
-                    .meta-dates { margin-bottom: 25px; font-size: 10.5pt; color: #334155; }
-                    .destination-block { margin-bottom: 25px; line-height: 1.4; }
-                    .destination-block .title-dest { font-weight: bold; text-transform: uppercase; }
-                    .report-title { text-align: center; font-size: 13pt; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.5px; }
-                    p.saludo { margin-bottom: 15px; text-align: justify; }
-                    h3.section-heading { font-family: Arial, sans-serif; font-size: 10.5pt; font-weight: bold; text-transform: uppercase; color: #1e3a8a; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin-top: 22px; margin-bottom: 10px; page-break-after: avoid; }
-                    .financial-grid { display: table; width: 100%; margin: 15px 0; border-collapse: collapse; }
-                    .financial-row { display: table-row; }
-                    .financial-cell { display: table-cell; padding: 8px 10px; border: 1px solid #cbd5e1; }
-                    .financial-cell.label { font-weight: bold; background-color: #f8fafc; width: 65%; }
-                    .financial-cell.value { text-align: right; font-family: 'Courier New', Courier, monospace; font-weight: bold; font-size: 11.5pt; }
-                    .text-block { text-align: justify; white-space: pre-line; margin-bottom: 12px; }
-                    .grid-2 { display: flex; gap: 20px; margin-top: 10px; page-break-inside: avoid; }
-                    .col { width: 50%; }
-                    table { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
-                    th { background-color: #f1f5f9; text-align: left; padding: 5px 8px; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 9pt; color: #334155; font-weight: bold; text-transform: uppercase; }
-                    .signatures { margin-top: 55px; display: flex; justify-content: space-between; padding: 0 40px; page-break-inside: avoid; }
-                    .sig-block { width: 40%; text-align: center; }
-                    .sig-name { font-size: 12px; font-weight: bold; margin-bottom: 4px; min-height: 16px; text-transform: uppercase; }
-                    .sig-line { border-top: 1px solid #000; padding-top: 5px; font-size: 10px; font-weight: bold; font-family: Arial, sans-serif; }
+                    @page { size: letter; margin: 17mm 18mm; }
+                    * { box-sizing: border-box; }
+                    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #1f2937; font-size: 10.5pt; line-height: 1.4; }
+                    .header { text-align: center; padding-bottom: 10px; border-bottom: 2px solid #1f2937; }
+                    .header h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: 15pt; letter-spacing: .3px; text-transform: uppercase; }
+                    .header p { margin: 2px 0; font-size: 9pt; color: #4b5563; }
+                    .meta { display: flex; justify-content: space-between; margin: 13px 0 16px; font-size: 9.5pt; }
+                    .title { text-align: center; margin: 0 0 6px; font-family: Georgia, 'Times New Roman', serif; font-size: 14pt; font-weight: 700; text-transform: uppercase; }
+                    .subtitle { text-align: center; margin: 0 0 18px; color: #4b5563; font-size: 9.5pt; }
+                    .recipient { margin-bottom: 15px; line-height: 1.35; }
+                    .recipient strong { text-transform: uppercase; }
+                    .intro { text-align: justify; margin: 0 0 16px; }
+                    .section { margin-top: 15px; page-break-inside: avoid; }
+                    .section-title { margin: 0 0 7px; padding-bottom: 4px; border-bottom: 1px solid #9ca3af; font-size: 9.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border-bottom: 1px solid #d1d5db; padding: 6px 7px; }
+                    th { text-align: left; font-size: 8.5pt; text-transform: uppercase; color: #4b5563; }
+                    td:last-child, th:last-child { text-align: right; }
+                    .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 3px; }
+                    .metric { border: 1px solid #d1d5db; padding: 8px; text-align: center; }
+                    .metric-label { font-size: 8pt; text-transform: uppercase; color: #6b7280; }
+                    .metric-value { margin-top: 3px; font-size: 12.5pt; font-weight: 700; }
+                    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+                    .total td { font-weight: 700; border-top: 1.5px solid #374151; }
+                    .balance-ok { margin-top: 8px; padding: 7px 9px; border: 1px solid #9ca3af; font-size: 9pt; font-weight: 700; text-align: center; }
+                    .note { margin-top: 14px; font-size: 9pt; color: #4b5563; }
+                    .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 55px; margin-top: 38px; page-break-inside: avoid; }
+                    .sig { text-align: center; padding-top: 24px; border-top: 1px solid #111827; font-size: 8.5pt; }
+                    .sig-name { font-weight: 700; font-size: 9pt; margin-bottom: 2px; }
+                    .footer { margin-top: 18px; padding-top: 7px; border-top: 1px solid #d1d5db; text-align: center; color: #6b7280; font-size: 7.5pt; }
                 </style>
             </head>
             <body>
                 <div class="header">
                     <h1>${activeCompany?.name || 'PARROQUIA SANTA CRUZ'}</h1>
                     <p>NIT: ${activeCompany?.doc || '900316227'}</p>
-                    <p>${activeCompany?.address || ''} - Tel: ${activeCompany?.phone || ''}</p>
-                </div>
-                
-                <div class="meta-dates">
-                    <strong>Fecha de Emisión:</strong> ${format(new Date(), "dd 'de' MMMM 'de' yyyy", { locale: es })}<br/>
-                    <strong>Ref:</strong> Informe Executive de Gestión Económica y Pastoral
+                    ${activeCompany?.address ? `<p>${activeCompany.address}${activeCompany?.phone ? ` · Tel. ${activeCompany.phone}` : ''}</p>` : ''}
                 </div>
 
-                <div class="destination-block">
-                    A la atención de:<br/>
-                    <span class="title-dest">${executiveData.destinatarioCuria}</span><br/>
-                    <span>${executiveData.cargoDestinatario}</span><br/>
-                    <strong>Arquidiócesis de Barranquilla</strong>
+                <div class="meta">
+                    <div><strong>Fecha de emisión:</strong> ${format(new Date(), "dd 'de' MMMM 'de' yyyy", { locale: es })}</div>
+                    <div><strong>Período:</strong> ${formattedStart} al ${formattedEnd}</div>
                 </div>
-                
-                <div class="report-title">Informe Ejecutivo de Cierre de Caja y Gestión</div>
-                
-                <p class="saludo">
-                    Respetable Monseñor, por medio del presente documento me dirijo a usted con el debido acatamiento ecónomo, presentando formalmente el balance financiero y el resumen operativo correspondiente al periodo comprendido entre el <strong>${formattedStart}</strong> y el <strong>${formattedEnd}</strong>, detallando de forma clara los movimientos de nuestra comunidad parroquial:
+
+                <div class="title">Informe Ejecutivo de Gestión</div>
+                <div class="subtitle">Resumen financiero y situación patrimonial al cierre</div>
+
+                <div class="recipient">
+                    <div>A la atención de:</div>
+                    <strong>${executiveData.destinatarioCuria}</strong><br/>
+                    ${executiveData.cargoDestinatario}<br/>
+                    Arquidiócesis de Barranquilla
+                </div>
+
+                <p class="intro">
+                    Se presenta el resumen ejecutivo de la gestión económica del período, utilizando como referencia los saldos acumulados del Balance General al ${format(end, "dd 'de' MMMM 'de' yyyy", { locale: es })}.
                 </p>
 
-                <h3 class="section-heading">1. Resumen Consolidado de Operaciones</h3>
-                <div class="financial-grid">
-                    <div class="financial-row">
-                        <div class="financial-cell label">Total Ingresos Operativos e Intenciones Obtenidas</div>
-                        <div class="financial-cell value" style="color: #16a34a;">$${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
-                    </div>
-                    <div class="financial-row">
-                        <div class="financial-cell label">Total Egresos, Gastos de Sostenimiento y Servicios</div>
-                        <div class="financial-cell value" style="color: #dc2626;">$${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
-                    </div>
-                    <div class="financial-row">
-                        <div class="financial-cell label">Superávit Eclesiástico Neto del Periodo (Utilidad)</div>
-                        <div class="financial-cell value" style="color: #1e3a8a;">$${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
-                    </div>
-                </div>
-                
-                <p style="text-align: justify; font-size: 10.5pt; color: #475569; font-style: italic; margin-bottom: 15px;">
-                    Nota analítica: Durante este mes, la partida con mayor representatividad en las entradas financieras correspondió a un totalizado consolidado de "<strong>${principalIngreso}</strong>", mientras que el recurso más demandante en los egresos operativos se concentró bajo el rubro de "<strong>${principalGasto}</strong>".
-                </p>
-
-                <h3 class="section-heading">2. Desglose Analítico de Cuentas Operativas</h3>
-                <div class="grid-2">
-                    <div class="col">
-                        <table>
-                            <thead><tr><th>Ingresos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
-                            <tbody>${generateReportTableRows(report.incomeByCategory)}</tbody>
-                        </table>
-                    </div>
-                    <div class="col">
-                        <table>
-                            <thead><tr><th>Gastos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
-                            <tbody>${generateReportTableRows(report.expenseByCategory)}</tbody>
-                        </table>
+                <div class="section">
+                    <div class="section-title">1. Resumen del período</div>
+                    <div class="metric-grid">
+                        <div class="metric"><div class="metric-label">Ingresos</div><div class="metric-value">$ ${fmtMoney(report.totalIncome)}</div></div>
+                        <div class="metric"><div class="metric-label">Egresos</div><div class="metric-value">$ ${fmtMoney(report.totalExpense)}</div></div>
+                        <div class="metric"><div class="metric-label">Resultado neto</div><div class="metric-value">$ ${fmtMoney(report.balance)}</div></div>
                     </div>
                 </div>
 
-                <h3 class="section-heading">3. Balance General y Situación Patrimonial al Corte</h3>
-                <p class="saludo" style="font-size: 10pt; color: #475569; margin-bottom: 8px;">
-                    Saldos acumulados a la fecha de corte, siguiendo la misma estructura y metodología utilizada en el Balance General.
-                </p>
-                <div class="grid-2">
-                    <div class="col">
-                        <table>
-                            <thead><tr><th>ACTIVO</th><th style="text-align:right; width:35%;">MONTO</th></tr></thead>
-                            <tbody>
-                                ${balanceGeneral.assets.map(item => `
-                                    <tr>
-                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; ${item.isBold ? 'font-weight:bold;' : ''}">${item.item}</td>
-                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:${item.isSubtotal ? 'bold' : 'normal'};">${item.amount != null ? '$' + item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
-                                    </tr>
-                                `).join('')}
-                                <tr style="background-color:#f1f5f9;">
-                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; font-weight:bold;">TOTAL ACTIVO</td>
-                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:bold;">$${balanceGeneral.totals.assets.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="col">
-                        <table>
-                            <thead><tr><th>PASIVO Y PATRIMONIO</th><th style="text-align:right; width:35%;">MONTO</th></tr></thead>
-                            <tbody>
-                                ${balanceGeneral.liabilities.map(item => `
-                                    <tr>
-                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; ${item.isBold ? 'font-weight:bold;' : ''}">${item.item}</td>
-                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align:right; font-family:monospace;">${item.amount != null ? '$' + item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
-                                    </tr>
-                                `).join('')}
-                                ${balanceGeneral.equity.map(item => `
-                                    <tr>
-                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; ${item.isBold ? 'font-weight:bold;' : ''}">${item.item}</td>
-                                        <td style="padding: 4px 8px; border: 1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:${item.isBold ? 'bold' : 'normal'};">${item.amount != null ? '$' + item.amount.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
-                                    </tr>
-                                `).join('')}
-                                <tr style="background-color:#f1f5f9;">
-                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; font-weight:bold;">TOTAL PASIVO + PATRIMONIO</td>
-                                    <td style="padding:6px 8px; border:1px solid #cbd5e1; text-align:right; font-family:monospace; font-weight:bold;">$${balanceGeneral.totals.liabilitiesAndEquity.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div style="margin-top:8px; padding:8px; text-align:center; background-color:${Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01 ? '#ecfdf5' : '#fef2f2'}; color:${Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01 ? '#166534' : '#991b1b'}; font-weight:bold; border:1px solid #cbd5e1;">
-                    ${Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01 ? 'Balance General cuadrado' : 'Advertencia: el Balance General no está cuadrado'}
-                </div>
-
-                <h3 class="section-heading">4. Flujo de Movimientos del Mes (Origen de Fondos)</h3>
-                <div class="grid-2">
-                    <div class="col">
-                        <table>
-                            <thead><tr><th>Dinero Recibido En</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
-                            <tbody>${generateReportTableRows(filteredIncomeFlow)}</tbody>
-                        </table>
-                    </div>
-                    <div class="col">
-                        <table>
-                            <thead><tr><th>Dinero Pagado Desde</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
-                            <tbody>${generateReportTableRows(filteredExpenseFlow)}</tbody>
-                        </table>
-                    </div>
-                </div>
-
-                ${hasConciliacion ? `
-                    <h3 class="section-heading">5. Conciliación de Fondos de Terceros y Colectas Curiales</h3>
-                    <p class="saludo" style="font-size: 10pt; color: #475569; margin-bottom: 8px;">
-                        Detalle del dinero recaudado en calidad de puente institucional que no afecta directamente la utilidad del ejercicio operativo:
-                    </p>
-                    <table style="width: 100%;">
-                        <thead><tr><th>Concepto Eclesiástico / Pasivo</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
+                <div class="section">
+                    <div class="section-title">2. Situación financiera al cierre</div>
+                    <table>
                         <tbody>
-                            ${report.conciliacion?.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #f8fafc; padding: 5px 8px;">Capitalización de Activos (Obras, Infraestructura):</td><td style="text-align: right; font-weight: bold; padding: 5px 8px; width: 35%; font-family: monospace;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
-                            ${report.conciliacion?.tercerosList ? report.conciliacion.tercerosList.map(item => `
-                                <tr>
-                                    <td style="padding: 5px 8px;">Recaudo Campaña: ${item.name}</td>
-                                    <td style="text-align: right; padding: 5px 8px; width: 35%; font-family: monospace; font-weight: bold;">$${item.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                                </tr>
-                            `).join('') : ''}
-                            <tr>
-                                <td style="font-weight: bold; background-color: #f1f5f9; padding: 5px 8px;">Saldo Pendiente (Deuda Viva del Periodo):</td>
-                                <td style="text-align: right; font-weight: bold; background-color: #f1f5f9; padding: 5px 8px; width: 35%; font-family: monospace; color: #1e3a8a;">$${saldoNetoTerceros.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
-                            </tr>
+                            <tr><td>Activo corriente</td><td>$ ${fmtMoney(totalActivoCorriente)}</td></tr>
+                            <tr><td>Activo no corriente</td><td>$ ${fmtMoney(totalActivoNoCorriente)}</td></tr>
+                            <tr class="total"><td>Total activo</td><td>$ ${fmtMoney(balanceGeneral.totals.assets)}</td></tr>
+                            <tr><td>Total pasivo</td><td>$ ${fmtMoney(balanceGeneral.totals.liabilities)}</td></tr>
+                            <tr><td>Patrimonio institucional</td><td>$ ${fmtMoney(retainedEquity)}</td></tr>
+                            <tr><td>Utilidad del ejercicio</td><td>$ ${fmtMoney(balanceNetProfit)}</td></tr>
+                            <tr class="total"><td>Total pasivo + patrimonio</td><td>$ ${fmtMoney(balanceGeneral.totals.liabilitiesAndEquity)}</td></tr>
                         </tbody>
                     </table>
-                ` : ''}
+                    <div class="balance-ok">${cuadre ? 'BALANCE GENERAL CUADRADO' : 'VERIFICAR CUADRE CONTABLE'}</div>
+                </div>
 
-                ${executiveData.logrosPastorales ? `
-                    <h3 class="section-heading">6. Logros Pastorales y Administrativos Financiados</h3>
-                    <div class="text-block">${executiveData.logrosPastorales}</div>
-                ` : ''}
-
-                ${executiveData.proximosProyectos ? `
-                    <h3 class="section-heading">7. Próximas Líneas de Acción y Proyectos de Inversión</h3>
-                    <div class="text-block">${executiveData.proximosProyectos}</div>
-                ` : ''}
-
-                ${executiveData.notasAclaratorias ? `
-                    <h3 class="section-heading">8. Notas Explicativas Adicionales</h3>
-                    <div class="text-block">${executiveData.notasAclaratorias}</div>
-                ` : ''}
-
-                <p class="saludo" style="margin-top: 25px;">
-                    Confiando la transparencia de esta administración en las manos de Dios y esperando que este reporte sea de utilidad para la toma de decisiones arquidiocesanas, quedo a su entera disposición para cualquier aclaración requerida.
-                </p>
-                
-                <p style="margin-bottom: 45px;">Fraternalmente en Cristo,</p>
-
-                <div class="signatures" style="margin-top: 80px; display: flex; justify-content: space-between; padding: 0 40px; page-break-inside: avoid;">
-                    <div class="sig-block" style="width: 40%; text-align: center;">
-                        <div class="sig-name" style="font-size: 12px; font-weight: bold; margin-bottom: 4px; min-height: 16px; text-transform: uppercase;">${signatures.elaborado || 'JAIDER MIGUEL HERRERA TURIZO'}</div>
-                        <div class="sig-line" style="border-top: 1px solid #000; padding-top: 5px; font-size: 10px; font-weight: bold; font-family: Arial, sans-serif;">Elaborado por:</div>
-                    </div>
-                    <div class="sig-block" style="width: 40%; text-align: center;">
-                        <div class="sig-name" style="font-size: 12px; font-weight: bold; margin-bottom: 4px; min-height: 16px; text-transform: uppercase;">${signatures.revisado}</div>
-                        <div class="sig-line" style="border-top: 1px solid #000; padding-top: 5px; font-size: 10px; font-weight: bold; font-family: Arial, sans-serif;">Revisado / Aprobado por:</div>
+                <div class="section">
+                    <div class="section-title">3. Disponibilidad de fondos al cierre</div>
+                    <div class="two-col">
+                        <table>
+                            <tbody>
+                                <tr><td>Caja principal</td><td>$ ${fmtMoney(cajaPrincipalBalance)}</td></tr>
+                                <tr><td>Cuentas bancarias</td><td>$ ${fmtMoney(totalBankBalances)}</td></tr>
+                                <tr><td>Aportes ordinarios</td><td>$ ${fmtMoney(totalInvestmentBalances)}</td></tr>
+                                <tr class="total"><td>Efectivo y equivalentes</td><td>$ ${fmtMoney(cajaGeneralValue)}</td></tr>
+                            </tbody>
+                        </table>
+                        <table>
+                            <tbody>
+                                <tr><td>Cuentas por cobrar</td><td>$ ${fmtMoney(accountsReceivableValue)}</td></tr>
+                                <tr><td>Anticipos a proveedores</td><td>$ ${fmtMoney(anticiposValue)}</td></tr>
+                                <tr><td>Otros activos corrientes</td><td>$ ${fmtMoney(otherAssetsValue)}</td></tr>
+                                <tr class="total"><td>Activo corriente</td><td>$ ${fmtMoney(totalActivoCorriente)}</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
+
+                <div class="note">
+                    <strong>Nota:</strong> Los valores patrimoniales corresponden a saldos acumulados a la fecha de corte. El detalle de movimientos, cuentas y comprobantes permanece disponible en el módulo de Reportes y en los libros contables.
+                </div>
+
+                <div class="signatures">
+                    <div class="sig"><div class="sig-name">${signatures.elaborado || 'JAIDER MIGUEL HERRERA TURIZO'}</div>Elaborado por</div>
+                    <div class="sig"><div class="sig-name">${signatures.revisado || ' '}</div>Revisado / Aprobado por</div>
+                </div>
+
+                <div class="footer">Documento de carácter ejecutivo · Información tomada del cierre contable al ${format(end, "dd/MM/yyyy")}</div>
             </body>
             </html>
         `;
