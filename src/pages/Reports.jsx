@@ -490,7 +490,6 @@ const Reports = () => {
     const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
         
     const equity = [ 
-      { item: 'Patrimonio', isBold: true }, 
       { item: '  Patrimonio Institucional (Inc. Utilidades Acum.)', amount: retainedEquity }, 
       { item: '  Utilidad del Ejercicio', amount: netProfit }
     ];
