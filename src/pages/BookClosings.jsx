@@ -272,17 +272,27 @@ const BookClosings = () => {
                 return;
             }
 
-            const extractTargetName = (str) => {
+            // MODIFICACIÓN APLICADA AQUÍ: Extraer el nombre correctamente y considerar los movimientos a terceros.
+            const extractTargetName = (tObj) => {
+                const str = tObj.destination;
+                
+                // Si la categoría de la transacción empieza por 2 (Terceros), usamos la categoría
+                const accObj = (accounts || []).find(a => a.name === tObj.category);
+                if (accObj && String(accObj.number).startsWith('2')) {
+                    return (tObj.category).toUpperCase();
+                }
+
                 if (!str) return 'CAJA PRINCIPAL';
                 const parts = str.split('|');
                 let name = (parts[1] || parts[0]).toUpperCase();
+                
                 if (name === 'CAJA_PRINCIPAL' || parts[0] === 'caja_principal') return 'CAJA PRINCIPAL';
                 if (name === '11201501' || parts[0] === '11201501') return 'COOPERATIVA FRATERNIDAD SACERDOTAL';
                 return name;
             };
 
-            if (isCashOrBank(t.destination)) {
-                const destName = extractTargetName(t.destination);
+            if (isCashOrBank(t.destination) || ((accounts || []).find(a => a.name === t.category) && String((accounts || []).find(a => a.name === t.category).number).startsWith('2'))) {
+                const destName = extractTargetName(t);
                 
                 if (t.isInternalTransfer) {
                     if (t.type === 'expense') flowOut[`${destName} (Transferencia)`] = (flowOut[`${destName} (Transferencia)`] || 0) + amount;
@@ -470,7 +480,7 @@ const BookClosings = () => {
                     </div>
                 </div>
 
-                <div class="section-title">2. Flujo de Efectivo Real (Entradas y Salidas de Caja/Bancos)</div>
+                <div class="section-title">2. Flujo de Efectivo Real (Entradas y Salidas)</div>
                 <div class="grid-2">
                     <div class="col">
                         <table>
