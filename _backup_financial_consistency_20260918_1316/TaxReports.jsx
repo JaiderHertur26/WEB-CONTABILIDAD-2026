@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
-import { calculateLiquidityBalances } from '@/lib/financialMovements';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -224,28 +223,118 @@ const TaxReports = () => {
             return false;
         };
 
-        // MOTOR ÚNICO DE LIQUIDEZ COMPARTIDO CON BALANCE/DASHBOARD.
-        // Evita reclasificaciones distintas entre Caja, Bancos y Aportes.
-        const liquidity = calculateLiquidityBalances({
-            transactions: baseValidTransactions,
-            initialBalances: fInitialBalance,
-            bankAccounts: fBankAccounts,
-            cashAccounts: fCashAccounts,
-            accounts: allAccounts,
-            cutoffDate: currentYear + '-12-31',
+        const initialCash = fInitialBalance.reduce((sum, item) => {
+            const creationYear = getAccountCreationYear('caja_principal', item.date);
+            if (creationYear <= parseInt(currentYear)) {
+                return sum + safeParseFloat(item.balance);
+            }
+            return sum;
+        }, 0);
+
+        let cashIncomes = 0, cashExpenses = 0;
+        
+        bsTransactions.forEach(t => {
+            const amount = safeParseFloat(t.amount);
+
+            // Bloque Partida Doble Manual
+            if (t.debitAccount && t.creditAccount) {
+                if (String(t.id).endsWith('-inc')) return;
+                const drCode = String(t.debitAccount.code || '');
+                const crCode = String(t.creditAccount.code || '');
+                const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
+                const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
+                
+                if (drCode === '11050501' || drName.includes('CAJA PRINCIPAL')) cashIncomes += amount;  
+                if (crCode === '11050501' || crName.includes('CAJA PRINCIPAL')) cashExpenses += amount; 
+                return; 
+            }
+
+            if (t.type === 'income' || t.type === 'expense') {
+                if (t.destination && (cashAccountIds.has(t.destination) || t.destination.startsWith('caja_principal'))) {
+                    if (t.type === 'income') cashIncomes += amount; else cashExpenses += amount;
+                }
+            }
+            if (t.type === 'transfer') {
+                 if (t.fromAccount && (cashAccountIds.has(t.fromAccount) || t.fromAccount.startsWith('caja_principal'))) cashExpenses += amount;
+                 if (t.toAccount && (cashAccountIds.has(t.toAccount) || t.toAccount.startsWith('caja_principal'))) cashIncomes += amount;
+            }
+        });
+        const cajaPrincipalBalance = initialCash + cashIncomes - cashExpenses;
+
+        let customCashBalance = 0;
+        if (fCashAccounts.length > 0) {
+            customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
+                let currentBal = 0;
+                const creationYear = getAccountCreationYear(cashAcc.id, cashAcc.date);
+                if (creationYear <= parseInt(currentYear)) {
+                    currentBal = safeParseFloat(cashAcc.initial_balance);
+                }
+                bsTransactions.forEach(t => {
+                    const amount = safeParseFloat(t.amount);
+                    if (t.debitAccount && t.creditAccount) return;
+
+                    if (t.type !== 'transfer' && t.destination && t.destination.startsWith(cashAcc.id)) {
+                        if (t.type === 'income') currentBal += amount; else if (t.type === 'expense') currentBal -= amount;
+                    }
+                    if (t.type === 'transfer') {
+                        if (isAccountMatch(cashAcc.id, t.fromAccount)) currentBal -= amount;
+                        if (isAccountMatch(cashAcc.id, t.toAccount)) currentBal += amount;
+                    }
+                });
+                return acc + currentBal;
+            }, 0);
+        }
+        const totalCashBalance = cajaPrincipalBalance + customCashBalance;
+
+        let totalBankBalances = 0, totalInvestmentBalances = 0;
+        fBankAccounts.forEach(acc => {
+            let currentBankBalance = 0, currentInvestmentBalance = 0;
+            const creationYear = getAccountCreationYear(acc.id, acc.date);
+            
+            if (creationYear <= parseInt(currentYear)) {
+                currentBankBalance = safeParseFloat(acc.initialBalance);
+                currentInvestmentBalance = safeParseFloat(acc.initialInvestmentBalance);
+            }
+            
+            bsTransactions.forEach(t => {
+                const amount = safeParseFloat(t.amount);
+                if (t.debitAccount && t.creditAccount) {
+                     const drName = t.debitAccount.name ? t.debitAccount.name.toUpperCase() : '';
+                     const crName = t.creditAccount.name ? t.creditAccount.name.toUpperCase() : '';
+                     const drCode = t.debitAccount.code || '';
+                     const crCode = t.creditAccount.code || '';
+                     
+                     // 1. Saldos de Cuentas Bancarias Regulares
+                     if (drName === acc.bankName?.toUpperCase() || (acc.accountingCode && drCode === acc.accountingCode)) currentBankBalance += amount;
+                     if (crName === acc.bankName?.toUpperCase() || (acc.accountingCode && crCode === acc.accountingCode)) currentBankBalance -= amount;
+                     
+                     // 2. Saldos de Aportes a la Cooperativa / Inversiones (NUEVO BLINDAJE)
+                     if (t.destination && t.destination.startsWith(acc.id)) {
+                         if (drCode.startsWith('1295') || drName.includes('APORTE')) currentInvestmentBalance += amount;
+                         if (crCode.startsWith('1295') || crName.includes('APORTE')) currentInvestmentBalance -= amount;
+                     }
+                     return;
+                }
+
+                if (t.type !== 'transfer' && t.destination && t.destination.startsWith(acc.id)) {
+                     if (t.type === 'income') { if (t.description && t.description.includes('Aporte Ordinario')) currentInvestmentBalance += amount; else currentBankBalance += amount; } 
+                     else currentBankBalance -= amount;
+                }
+                if (t.type === 'transfer') {
+                    if (isAccountMatch(acc.id, t.fromAccount)) currentBankBalance -= amount;
+                    if (isAccountMatch(acc.id, t.toAccount)) currentBankBalance += amount;
+                }
+            });
+            totalBankBalances += currentBankBalance;
+            totalInvestmentBalances += currentInvestmentBalance;
         });
 
-        const cajaPrincipalBalance = liquidity.mainCash;
-        const customCashBalance = liquidity.totalCustomCash;
-        const totalCashBalance = liquidity.totalCash;
-        const totalBankBalances = liquidity.totalBanks;
-        const totalInvestmentBalances = liquidity.investments;
-        const cajaGeneralValue = liquidity.totalLiquidity;
-
-        const dynamicCashAccounts = fCashAccounts.map(acc => ({
-            ...acc,
-            balance: liquidity.customCash[String(acc.id)] || 0,
-        }));
+        const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
+        const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, currentYear).filter(acc => {
+            const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
+            const creationYear = originalAcc ? getAccountCreationYear(originalAcc.id, originalAcc.date) : new Date().getFullYear();
+            return creationYear <= parseInt(currentYear);
+        });
 
         let initialDepreciacion = 0, initialAnticipos = 0, initialConstrucciones = 0, initialOtherAssets = 0, initialOtherLiabilities = 0;
         

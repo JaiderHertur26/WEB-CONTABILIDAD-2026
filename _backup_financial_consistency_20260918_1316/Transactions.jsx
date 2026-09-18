@@ -1538,7 +1538,7 @@ const Transactions = () => {
 
         // 3. Procesar todas las transacciones
         processedTransactions.forEach(t => {
-            if (t.isInternalTransfer && !t.debitAccount && String(t.id || '').endsWith('-inc')) return; 
+            if (t.isInternalTransfer && !t.debitAccount) return; 
             
             const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
             const accountingRows = resolveAccountingRows(t);

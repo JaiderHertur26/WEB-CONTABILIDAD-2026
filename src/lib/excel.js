@@ -101,7 +101,12 @@ export const exportToExcel = (data, fileName, footer) => {
           const value = row[header];
           const lowerHeader = header.toLowerCase();
 
-          if (lowerHeader === 'comprobante') {
+          // Las cadenas vacías se escriben como celdas realmente vacías.
+          // Esto evita que SheetJS serialice valores residuales de estilo (p. ej. "3")
+          // en membretes, separadores y campos sin dato.
+          if (value === '' || value === undefined) {
+            newRow[header] = null;
+          } else if (lowerHeader === 'comprobante') {
             newRow[header] = String(value); // Force to string
           } else if (lowerHeader === 'cantidad') {
             const num = parseInt(value, 10);

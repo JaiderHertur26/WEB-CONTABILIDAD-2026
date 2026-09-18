@@ -21,7 +21,6 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { exportToExcel } from '@/lib/excel';
 import { expandTransactionsByAllocation, getTransactionCategoryLabel } from '@/lib/transactionAllocations';
-import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import {
@@ -696,20 +695,45 @@ const BookClosings = () => {
             return false;
         };
 
-        // Motor único de liquidez compartido con Balance, Dashboard y Tributarios.
-        const liquidity = calculateLiquidityBalances({
-            transactions: baseValidTransactions,
-            initialBalances: initialBalance || [],
-            bankAccounts: bankAccounts || [],
-            cashAccounts: cashAccounts || [],
-            accounts: allAccounts,
-            cutoffDate: endStr,
+        const initialCash = (initialBalance || []).reduce((sum, item) => {
+            const creationYear = getAccountCreationYear('caja_principal', item.date);
+            return creationYear <= currentYear ? sum + safeParseFloat(item.balance) : sum;
+        }, 0);
+
+        let cajaPrincipalBalance = initialCash;
+        let totalBankBalances = 0;
+        let totalInvestmentBalances = 0;
+
+        (bankAccounts || []).forEach(acc => {
+            const creationYear = getAccountCreationYear(acc.id, acc.date);
+            if (creationYear <= currentYear) {
+                totalBankBalances += safeParseFloat(acc.initialBalance);
+                totalInvestmentBalances += safeParseFloat(acc.initialInvestmentBalance);
+            }
         });
 
-        const cajaPrincipalBalance = liquidity.mainCash;
-        const totalBankBalances = liquidity.totalBanks;
-        const totalInvestmentBalances = liquidity.investments;
-        const customCashBalance = liquidity.totalCustomCash;
+        let customCashBalance = 0;
+        if ((cashAccounts || []).length > 0) {
+            customCashBalance = cashAccounts.reduce((acc, cashAcc) => {
+                let currentBal = 0;
+                const creationYear = getAccountCreationYear(cashAcc.id, cashAcc.date);
+                if (creationYear <= currentYear) currentBal = safeParseFloat(cashAcc.initial_balance);
+
+                bsTransactions.forEach(t => {
+                    const amount = safeParseFloat(t.amount);
+                    if (t.debitAccount && t.creditAccount) return;
+                    if (t.type !== 'transfer' && t.destination && t.destination.startsWith(cashAcc.id)) {
+                        if (t.type === 'income') currentBal += amount;
+                        else if (t.type === 'expense') currentBal -= amount;
+                    }
+                    if (t.type === 'transfer') {
+                        if (isAccountMatch(cashAcc.id, t.fromAccount)) currentBal -= amount;
+                        if (isAccountMatch(cashAcc.id, t.toAccount)) currentBal += amount;
+                    }
+                });
+                return acc + currentBal;
+            }, 0);
+        }
 
         let anticiposValue = 0;
         let construccionesValue = 0;
@@ -726,14 +750,20 @@ const BookClosings = () => {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
 
-                if (drCode.startsWith('1330')) anticiposValue += amount;
+                if (drCode === '11050501') cajaPrincipalBalance += amount;
+                else if (drCode.startsWith('1110') || drCode.startsWith('1120')) totalBankBalances += amount;
+                else if (drCode.startsWith('1295')) totalInvestmentBalances += amount;
+                else if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
                 else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount;
                 else if (drCode.startsWith('16')) intangiblesValue += amount;
                 else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1295') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) otherAssetsValue += amount;
                 else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-                if (crCode.startsWith('1330')) anticiposValue -= amount;
+                if (crCode === '11050501') cajaPrincipalBalance -= amount;
+                else if (crCode.startsWith('1110') || crCode.startsWith('1120')) totalBankBalances -= amount;
+                else if (crCode.startsWith('1295')) totalInvestmentBalances -= amount;
+                else if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
                 else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount;
                 else if (crCode.startsWith('16')) intangiblesValue -= amount;
@@ -742,13 +772,38 @@ const BookClosings = () => {
                 return;
             }
 
+            const destParts = (t.destination || '').split('|');
+            const destId = destParts[0];
+            const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
+            const isBankDest = (bankAccounts || []).some(b => b.id === destId);
+
+            if (t.type === 'income') {
+                if (isCashDest) cajaPrincipalBalance += amount;
+                else if (isBankDest) totalBankBalances += amount;
+            } else if (t.type === 'expense') {
+                if (isCashDest) cajaPrincipalBalance -= amount;
+                else if (isBankDest) totalBankBalances -= amount;
+            } else if (t.type === 'transfer') {
+                const fromParts = (t.fromAccount || '').split('|');
+                const toParts = (t.toAccount || '').split('|');
+                const fromId = fromParts[0];
+                const toId = toParts[0];
+
+                if (fromId === 'caja_principal' || (fromParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) cajaPrincipalBalance -= amount;
+                else if ((bankAccounts || []).some(b => b.id === fromId)) totalBankBalances -= amount;
+
+                if (toId === 'caja_principal' || (toParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) cajaPrincipalBalance += amount;
+                else if ((bankAccounts || []).some(b => b.id === toId)) totalBankBalances += amount;
+            }
+
             const acc = allAccounts.find(a => a.name === t.category);
             if (!acc) return;
             const num = String(acc.number);
             const assetImpact = t.type === 'expense' ? amount : -amount;
             const liabilityImpact = t.type === 'income' ? amount : -amount;
 
-            if (num.startsWith('1330')) anticiposValue += assetImpact;
+            if (num.startsWith('1295')) totalInvestmentBalances += assetImpact;
+            else if (num.startsWith('1330')) anticiposValue += assetImpact;
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
             else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
             else if (num.startsWith('16')) intangiblesValue += assetImpact;
@@ -756,8 +811,8 @@ const BookClosings = () => {
             else if (num.startsWith('2') && !num.startsWith('2305')) otherLiabilitiesValue += liabilityImpact;
         });
 
-        const totalCashBalance = liquidity.totalCash;
-        const cajaGeneralValue = liquidity.totalLiquidity;
+        const totalCashBalance = cajaPrincipalBalance + customCashBalance;
+        const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
 
         const inventoryValue = (inventory || []).reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         const manualFixedAssetsValue = (fixedAssets || []).filter(asset => {

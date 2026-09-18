@@ -11,7 +11,6 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
-import { calculateLiquidityBalances, buildCashFlowFromLiquidity } from '@/lib/financialMovements';
 import { isValid, parseISO } from 'date-fns';
 
 const Reports = () => {
@@ -286,23 +285,47 @@ const Reports = () => {
         return false;
     };
 
-    // MOTOR ÚNICO DE LIQUIDEZ:
-    // Caja, Bancos y Aportes se calculan siempre con la misma regla en todos los reportes.
-    // Un ingreso contable sin movimiento de cuentas líquidas (p. ej. activo fijo recibido en donación)
-    // NO se interpreta como entrada de efectivo.
-    const liquidity = calculateLiquidityBalances({
-        transactions: baseValidTransactions,
-        initialBalances: fInitialBalance,
-        bankAccounts: fBankAccounts,
-        cashAccounts: fCashAccounts,
-        accounts: allAccounts,
-        cutoffDate: endDate,
+    const initialCash = fInitialBalance.reduce((sum, item) => {
+        const creationYear = getAccountCreationYear('caja_principal', item.date);
+        if (creationYear <= parseInt(currentYear)) {
+            return sum + safeParseFloat(item.balance);
+        }
+        return sum;
+    }, 0);
+
+    let cajaPrincipalBalance = initialCash;
+    let totalBankBalances = 0;
+    let totalInvestmentBalances = 0;
+
+    fBankAccounts.forEach(acc => {
+        const creationYear = getAccountCreationYear(acc.id, acc.date);
+        if (creationYear <= parseInt(currentYear)) {
+            totalBankBalances += safeParseFloat(acc.initialBalance);
+            totalInvestmentBalances += safeParseFloat(acc.initialInvestmentBalance);
+        }
     });
 
-    const cajaPrincipalBalance = liquidity.mainCash;
-    const totalBankBalances = liquidity.totalBanks;
-    const totalInvestmentBalances = liquidity.investments;
-    const customCashBalance = liquidity.totalCustomCash;
+    let customCashBalance = 0;
+    if (fCashAccounts.length > 0) {
+        customCashBalance = fCashAccounts.reduce((acc, cashAcc) => {
+            let currentBal = 0;
+            const creationYear = getAccountCreationYear(cashAcc.id, cashAcc.date);
+            if (creationYear <= parseInt(currentYear)) currentBal = safeParseFloat(cashAcc.initial_balance);
+
+            bsTransactions.forEach(t => {
+                const amount = safeParseFloat(t.amount);
+                if (t.debitAccount && t.creditAccount) return;
+                if (t.type !== 'transfer' && t.destination && t.destination.startsWith(cashAcc.id)) {
+                    if (t.type === 'income') currentBal += amount; else if (t.type === 'expense') currentBal -= amount;
+                }
+                if (t.type === 'transfer') {
+                    if (isAccountMatch(cashAcc.id, t.fromAccount)) currentBal -= amount;
+                    if (isAccountMatch(cashAcc.id, t.toAccount)) currentBal += amount;
+                }
+            });
+            return acc + currentBal;
+        }, 0);
+    }
     
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, otherLiabilitiesValue = 0, depreciacionAcumuladaValue = 0, intangiblesValue = 0;
 
@@ -314,7 +337,10 @@ const Reports = () => {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
 
-            if (drCode.startsWith('1330')) anticiposValue += amount;
+            if (drCode === '11050501') cajaPrincipalBalance += amount;
+            else if (drCode.startsWith('1110') || drCode.startsWith('1120')) totalBankBalances += amount;
+            else if (drCode.startsWith('1295')) totalInvestmentBalances += amount;
+            else if (drCode.startsWith('1330')) anticiposValue += amount;
             else if (drCode.startsWith('1508')) construccionesValue += amount;
             else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
             else if (drCode.startsWith('16')) intangiblesValue += amount;
@@ -323,7 +349,10 @@ const Reports = () => {
             }
             else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
-            if (crCode.startsWith('1330')) anticiposValue -= amount;
+            if (crCode === '11050501') cajaPrincipalBalance -= amount;
+            else if (crCode.startsWith('1110') || crCode.startsWith('1120')) totalBankBalances -= amount;
+            else if (crCode.startsWith('1295')) totalInvestmentBalances -= amount;
+            else if (crCode.startsWith('1330')) anticiposValue -= amount;
             else if (crCode.startsWith('1508')) construccionesValue -= amount;
             else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
             else if (crCode.startsWith('16')) intangiblesValue -= amount;
@@ -335,13 +364,38 @@ const Reports = () => {
             return;
         }
 
+        const destParts = (t.destination || '').split('|');
+        const destId = destParts[0];
+        const isCashDest = destId === 'caja_principal' || (destParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
+        const isBankDest = fBankAccounts.some(b => b.id === destId);
+
+        if (t.type === 'income') {
+            if (isCashDest) cajaPrincipalBalance += amount;
+            else if (isBankDest) totalBankBalances += amount;
+        } else if (t.type === 'expense') {
+            if (isCashDest) cajaPrincipalBalance -= amount;
+            else if (isBankDest) totalBankBalances -= amount;
+        } else if (t.type === 'transfer') {
+            const fromParts = (t.fromAccount || '').split('|');
+            const toParts = (t.toAccount || '').split('|');
+            const fromId = fromParts[0];
+            const toId = toParts[0];
+            
+            if (fromId === 'caja_principal' || (fromParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) cajaPrincipalBalance -= amount;
+            else if (fBankAccounts.some(b => b.id === fromId)) totalBankBalances -= amount;
+            
+            if (toId === 'caja_principal' || (toParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL')) cajaPrincipalBalance += amount;
+            else if (fBankAccounts.some(b => b.id === toId)) totalBankBalances += amount;
+        }
+
         const acc = allAccounts.find(a => a.name === t.category);
         if (!acc) return;
         const num = String(acc.number);
         const assetImpact = t.type === 'expense' ? amount : -amount;
         const liabilityImpact = t.type === 'income' ? amount : -amount;
 
-        if (num.startsWith('1330')) anticiposValue += assetImpact;
+        if (num.startsWith('1295')) totalInvestmentBalances += assetImpact;
+        else if (num.startsWith('1330')) anticiposValue += assetImpact;
         else if (num.startsWith('1508')) construccionesValue += assetImpact;
         else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
         else if (num.startsWith('16')) intangiblesValue += assetImpact;
@@ -355,10 +409,11 @@ const Reports = () => {
 
     const totalCashBalance = cajaPrincipalBalance + customCashBalance;
     const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
-    const dynamicCashAccounts = fCashAccounts.map(acc => ({
-        ...acc,
-        balance: liquidity.customCash[String(acc.id)] || 0,
-    }));
+    const dynamicCashAccounts = getDynamicCashAccounts(fCashAccounts, validTransactions, currentYear).filter(acc => {
+        const originalAcc = (fCashAccounts || []).find(c => c.id === acc.id);
+        const creationYear = originalAcc ? getAccountCreationYear(originalAcc.id, originalAcc.date) : new Date().getFullYear();
+        return creationYear <= parseInt(currentYear);
+    });
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
@@ -443,18 +498,63 @@ const Reports = () => {
 
     const balanceSheet = { assets: assets.filter(a => a.amount != null || a.isBold || a.isSubtotal), liabilities: liabilities.filter(l => l.amount != null || l.isBold), equity: equity.filter(e => e.amount != null || e.isBold), totals: { assets: totalAssets, liabilities: totalLiabilities, equity: totalEquity, liabilitiesAndEquity: totalLiabilities + totalEquity } };
 
-    // FLUJO DE EFECTIVO POR MOVIMIENTO REAL:
-    // Solo entra al flujo lo que efectivamente afecta Caja/Bancos. Los ingresos contables en especie,
-    // como los $44,4 millones reconocidos contra Activo Fijo, quedan fuera del efectivo.
-    const cashFlow = buildCashFlowFromLiquidity({
-        transactions: baseValidTransactions,
-        initialBalances: fInitialBalance,
-        bankAccounts: fBankAccounts,
-        cashAccounts: fCashAccounts,
-        accounts: allAccounts,
-        startDate,
-        endDate,
+    const initialBank = fBankAccounts.reduce((sum, acc) => {
+        const creationYear = getAccountCreationYear(acc.id, acc.date);
+        if (creationYear <= parseInt(currentYear)) return sum + safeParseFloat(acc.initialBalance);
+        return sum;
+    }, 0);
+    const initialCashTotal = initialCash + initialBank;
+
+    const nonCashKeywords = ['depreciaci', 'amortizaci', 'agotamiento'];
+    const cashExpenseAccounts = expenseAccounts.filter(acc => {
+        const num = String(acc.number);
+        const name = acc.name.toLowerCase();
+        if (num.startsWith('5160') || num.startsWith('5165') || num.startsWith('5168') || num.startsWith('5199')) return false;
+        if (nonCashKeywords.some(kw => name.includes(kw))) return false;
+        return true;
     });
+
+    const cashExpensesTotal = cashExpenseAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '5')), 0);
+    const cashCostsTotal = costAccounts.reduce((sum, acc) => sum + Math.abs(calculateTotalForCategory(acc.name, '6')), 0);
+
+    let cashInvestments = 0;
+    pnlTransactions.forEach(t => {
+        const amount = safeParseFloat(t.amount);
+        
+        const isAdjustment = t.voucherPrefix === 'A' || t.type === 'adjustment' || (t.isInternalTransfer && t.debitAccount && t.creditAccount);
+        if (isAdjustment) return;
+
+        if (t.debitAccount && t.creditAccount) {
+            const drCode = String(t.debitAccount.code || '');
+            if (drCode.startsWith('15') && !drCode.startsWith('1592')) {
+                cashInvestments += amount;
+            }
+        } else {
+            const accObj = allAccounts.find(a => a.name === t.category);
+            const num = accObj ? String(accObj.number) : '';
+            if ((num.startsWith('15') && !num.startsWith('1592') && t.type === 'expense') || (t.isFixedAsset && t.type === 'expense')) {
+                cashInvestments += amount;
+            }
+        }
+    });
+
+    const totalCalculatedUses = cashExpensesTotal + cashCostsTotal + cashInvestments;
+    const finalCalculatedCash = (initialCashTotal + totalIncome) - totalCalculatedUses;
+
+    const cashFlow = {
+        initial: initialCashTotal,
+        sources: [
+            ...incomeAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: calculateTotalForCategory(acc.name, '4') })).filter(i => i.amount !== 0)
+        ],
+        uses: [
+            ...cashExpenseAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '5')) })).filter(i => i.amount !== 0),
+            ...costAccounts.map(acc => ({ item: `${acc.number} ${acc.name}`, amount: Math.abs(calculateTotalForCategory(acc.name, '6')) })).filter(i => i.amount !== 0),
+            { item: 'Inversiones y Adquisiciones Activos', amount: cashInvestments }
+        ],
+        totalSources: totalIncome,
+        totalUses: totalCalculatedUses,
+        final: finalCalculatedCash
+    };
 
     setReportData({ summary: summaryData, incomeStatement, balanceSheet, cashFlow });
   };
@@ -601,7 +701,7 @@ const Reports = () => {
                   </table>
               `;
           } else if (printType === 'cashflow') {
-              const { initial, sources, uses, totalSources, totalUses, final, reconciliationDifference } = reportData.cashFlow;
+              const { initial, sources, uses, totalSources, totalUses, final } = reportData.cashFlow;
               content = `
                   <div class="header">
                       ${arquidiocesis}<br/>
@@ -612,17 +712,16 @@ const Reports = () => {
                   <table class="table">
                       <tr><td class="td bold" colspan="2">Fuentes:</td></tr>
                       <tr><td class="td" style="padding-left:12px;">Disponible Inicial (Caja-Bancos)</td><td class="td td-right border-bottom">${formatNum(initial)}</td></tr>
-                      <tr><td class="td bold" style="padding-left:12px;">Más: Entradas reales de efectivo del período</td><td class="td td-right bold border-bottom">${formatNum(totalSources)}</td></tr>
+                      <tr><td class="td bold" style="padding-left:12px;">Más: Ingresos Ordinarios / del Mes</td><td class="td td-right bold border-bottom">${formatNum(totalSources)}</td></tr>
                       ${(sources || []).map(s => `<tr><td class="td" style="padding-left:36px;">${s.item}</td><td class="td td-right border-bottom">${formatNum(s.amount)}</td></tr>`).join('')}
                       <tr><td class="td bold" style="padding-left:12px;"><br/>Total Disponible</td><td class="td td-right bold border-bottom-double"><br/>${formatNum((initial || 0) + (totalSources || 0))}</td></tr>
                       
                       <tr><td class="td bold" colspan="2"><br/>Usos de Fondo:</td></tr>
-                      <tr><td class="td bold" style="padding-left:12px;">Menos: Salidas reales de efectivo del período</td><td class="td td-right bold border-bottom">${formatNum(totalUses)}</td></tr>
+                      <tr><td class="td bold" style="padding-left:12px;">Menos: Gastos Realizados</td><td class="td td-right bold border-bottom">${formatNum(totalUses)}</td></tr>
                       ${(uses || []).map(u => `<tr><td class="td" style="padding-left:36px;">${u.item}</td><td class="td td-right border-bottom">${formatNum(u.amount)}</td></tr>`).join('')}
                       <tr><td class="td bold" style="padding-left:12px;"><br/>Total Usos de Fondo</td><td class="td td-right bold border-bottom-double"><br/>${formatNum(totalUses)}</td></tr>
                       
                       <tr><td class="td bold" style="padding-left:12px;"><br/>Saldo Disponible</td><td class="td td-right bold border-bottom-double"><br/>${formatNum(final)}</td></tr>
-                      <tr><td class="td bold" style="padding-left:12px;">Conciliación con Caja/Bancos</td><td class="td td-right bold">${Math.abs(reconciliationDifference || 0) < 0.01 ? 'OK' : `Diferencia ${formatNum(reconciliationDifference)}`}</td></tr>
                   </table>
               `;
           }
@@ -805,27 +904,16 @@ const Reports = () => {
                         <tbody>
                             <tr className="border-b"><td className="py-2 font-bold text-slate-800" colSpan="2">Fuentes:</td></tr>
                             <tr className="border-b"><td className="py-2 pl-4 text-slate-600">Disponible Inicial (Caja-Bancos)</td><td className="py-2 text-right font-mono">${(reportData.cashFlow?.initial || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Más: Entradas reales de efectivo del período</td><td className="py-2 text-right font-mono font-bold text-green-700">${(reportData.cashFlow?.totalSources || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            {(reportData.cashFlow?.sources || []).map((source, index) => (
-                                <tr key={"cash-source-" + index} className="border-b"><td className="py-1.5 pl-9 text-slate-600">{source.item}</td><td className="py-1.5 text-right font-mono text-slate-700">${(source.amount || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            ))}
+                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Más: Ingresos Ordinarios / del Mes</td><td className="py-2 text-right font-mono font-bold text-green-700">${(reportData.cashFlow?.totalSources || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                             <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Disponible</td><td className="py-2 text-right font-mono font-bold text-slate-900">${((reportData.cashFlow?.initial || 0) + (reportData.cashFlow?.totalSources || 0)).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                             
                             <tr className="border-b mt-4"><td className="py-2 font-bold text-slate-800" colSpan="2"><br/>Usos de Fondo:</td></tr>
-                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Menos: Salidas reales de efectivo del período</td><td className="py-2 text-right font-mono font-bold text-red-700">${(reportData.cashFlow?.totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            {(reportData.cashFlow?.uses || []).map((use, index) => (
-                                <tr key={"cash-use-" + index} className="border-b"><td className="py-1.5 pl-9 text-slate-600">{use.item}</td><td className="py-1.5 text-right font-mono text-slate-700">${(use.amount || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            ))}
+                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Menos: Gastos Realizados</td><td className="py-2 text-right font-mono font-bold text-red-700">${(reportData.cashFlow?.totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                             <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Usos de Fondo</td><td className="py-2 text-right font-mono font-bold text-slate-900">${(reportData.cashFlow?.totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                             
                             <tr className="bg-blue-100/50"><td className="py-3 pl-4 font-bold text-blue-900 text-lg">Saldo Disponible Final</td><td className="py-3 text-right font-mono font-bold text-blue-900 text-lg">${(reportData.cashFlow?.final || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
                         </tbody>
                     </table>
-                    <div className={`mt-4 p-3 rounded-lg text-sm font-semibold text-center ${Math.abs(reportData.cashFlow?.reconciliationDifference || 0) < 0.01 ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
-                        {Math.abs(reportData.cashFlow?.reconciliationDifference || 0) < 0.01
-                            ? 'Flujo de efectivo conciliado con los saldos reales de Caja y Bancos.'
-                            : `Diferencia de conciliación: $${Math.abs(reportData.cashFlow?.reconciliationDifference || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`}
-                    </div>
                 </div>
             </div>
         </motion.div>

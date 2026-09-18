@@ -12,7 +12,6 @@ import { format, startOfMonth, subMonths, eachMonthOfInterval, startOfDay, endOf
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
-import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const Dashboard = () => {
@@ -206,22 +205,70 @@ const Dashboard = () => {
         }
     };
 
-    // Liquidez calculada por un único motor compartido con Balance y Reportes Tributarios.
-    const liquidity = calculateLiquidityBalances({
-        transactions: validTransactions,
-        initialBalances: fInitialBalance,
-        bankAccounts: fBankAccounts,
-        cashAccounts: fCashAccounts,
-        accounts: allAccounts,
-        cutoffDate: selectedYear + '-12-31',
+    const mayorBalances = {};
+    fInitialBalance.forEach(ib => {
+        const code = String(ib.accountingCode || '11050501');
+        mayorBalances[code] = (mayorBalances[code] || 0) + safeParseFloat(ib.balance);
     });
 
-    const cajaPrincipalBalance = liquidity.mainCash;
-    const totalBankBalances = liquidity.totalBanks;
-    const totalInvestmentBalances = liquidity.investments;
-    const customCashBalance = liquidity.totalCustomCash;
-    const totalCashBalance = liquidity.totalCash;
-    const cajaGeneralTotal = liquidity.totalLiquidity;
+    fBankAccounts.forEach(ba => {
+        const code = String(ba.accountingCode || '111005');
+        mayorBalances[code] = (mayorBalances[code] || 0) + safeParseFloat(ba.initialBalance);
+        if (ba.initialInvestmentBalance) {
+            const invCode = '12950501';
+            mayorBalances[invCode] = (mayorBalances[invCode] || 0) + safeParseFloat(ba.initialInvestmentBalance);
+        }
+    });
+
+    const processedIdsForDash = new Set();
+    bsTransactions.forEach(t => {
+        if (processedIdsForDash.has(t.id)) return;
+        if (t.isInternalTransfer && !t.debitAccount) {
+            const baseId = t.id.replace(/-exp$|-inc$/, '');
+            const isExp = t.id.endsWith('-exp');
+            const siblingId = baseId + (isExp ? '-inc' : '-exp');
+            const sibling = bsTransactions.find(x => x.id === siblingId);
+
+            if (sibling) {
+                processedIdsForDash.add(t.id);
+                processedIdsForDash.add(sibling.id);
+                const expensePart = isExp ? t : sibling;
+                const incomePart = isExp ? sibling : t;
+                const sourceAsset = getAssetDetails(expensePart.destination, expensePart.category);
+                const destAsset = getAssetDetails(incomePart.destination, incomePart.category);
+                const amount = safeParseFloat(expensePart.amount);
+
+                const debNat = ['1', '5', '6', '8'].includes(destAsset.code.charAt(0));
+                const credNat = ['1', '5', '6', '8'].includes(sourceAsset.code.charAt(0));
+
+                mayorBalances[destAsset.code] = (mayorBalances[destAsset.code] || 0) + (debNat ? amount : -amount);
+                mayorBalances[sourceAsset.code] = (mayorBalances[sourceAsset.code] || 0) + (credNat ? -amount : amount);
+                return;
+            }
+        }
+
+        const { debit, credit } = resolveAccountingRow(t);
+        if (debit?.code) {
+            const isDebitNature = ['1', '5', '6', '8'].includes(debit.code.charAt(0));
+            mayorBalances[debit.code] = (mayorBalances[debit.code] || 0) + (isDebitNature ? safeParseFloat(debit.value) : -safeParseFloat(debit.value));
+        }
+        if (credit?.code) {
+            const isDebitNature = ['1', '5', '6', '8'].includes(credit.code.charAt(0));
+            mayorBalances[credit.code] = (mayorBalances[credit.code] || 0) + (isDebitNature ? -safeParseFloat(credit.value) : safeParseFloat(credit.value));
+        }
+    });
+
+    let cajaPrincipalBalance = mayorBalances['11050501'] || 0;
+    let totalBankBalances = Object.keys(mayorBalances).filter(k => k.startsWith('1110') || k.startsWith('1120')).reduce((sum, k) => sum + mayorBalances[k], 0);
+    let totalInvestmentBalances = mayorBalances['12950501'] || 0;
+
+    let customCashBalance = 0;
+    if (fCashAccounts.length > 0) {
+        customCashBalance = fCashAccounts.reduce((acc, cashAcc) => acc + safeParseFloat(cashAcc.initial_balance), 0);
+    }
+
+    const totalCashBalance = cajaPrincipalBalance + customCashBalance;
+    const cajaGeneralTotal = totalCashBalance + totalBankBalances + totalInvestmentBalances;
     
     // --- ASSETS (ACTIVOS UNIFICADOS) ---
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
