@@ -10,7 +10,6 @@ import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext'; 
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
-import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { isValid, parseISO } from 'date-fns';
 
 const Reports = () => {
@@ -94,10 +93,9 @@ const Reports = () => {
     // Mantenemos currentYear derivado dinámicamente para que la lógica de depreciación siga funcionando intacta
     const currentYear = getSafeYear(endDate).toString();
 
-    const baseValidTransactions = allTransactions.filter(t => 
+    const validTransactions = allTransactions.filter(t => 
         !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
     );
-    const validTransactions = expandTransactionsByAllocation(baseValidTransactions);
     
     const cashAccountIds = new Set();
     cashAccountIds.add('caja_principal');

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useToast } from '@/components/ui/use-toast';
-import { Check, ChevronsUpDown, AlertTriangle, Lock, FileText, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronsUpDown, AlertTriangle, Lock, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -81,7 +81,6 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
     contactId: '',
     destination: 'caja_principal|CAJA PRINCIPAL',
     isFixedAsset: false,
-    allocations: [{ id: 'allocation-1', category: '', amount: '' }],
   });
   
   const [registerAsInvoice, setRegisterAsInvoice] = useState(false);
@@ -96,23 +95,10 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
 
   useEffect(() => {
     if (transaction) {
-      const existingAllocations = Array.isArray(transaction.allocations) && transaction.allocations.length > 0
-        ? transaction.allocations.map((line, index) => ({
-            id: line.id || `allocation-${index + 1}`,
-            category: line.category || '',
-            amount: line.amount ?? '',
-          }))
-        : [{
-            id: 'allocation-1',
-            category: transaction.category || '',
-            amount: transaction.amount ?? '',
-          }];
-
       setFormData({
         ...transaction,
         date: new Date(transaction.date).toISOString().split('T')[0],
         destination: transaction.destination || 'caja_principal|CAJA PRINCIPAL',
-        allocations: existingAllocations,
       });
     } else {
       setFormData({
@@ -124,79 +110,24 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
         contactId: '',
         destination: 'caja_principal|CAJA PRINCIPAL',
         isFixedAsset: false,
-        allocations: [{ id: 'allocation-1', category: '', amount: '' }],
       });
     }
     setRegisterAsInvoice(false);
   }, [transaction, open]);
 
-  const updateAllocation = (index, field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      allocations: prev.allocations.map((line, lineIndex) =>
-        lineIndex === index ? { ...line, [field]: value } : line
-      ),
-    }));
-  };
-
-  const addAllocation = () => {
-    setFormData(prev => ({
-      ...prev,
-      allocations: [
-        ...prev.allocations,
-        { id: `allocation-${Date.now()}`, category: '', amount: '' },
-      ],
-    }));
-  };
-
-  const removeAllocation = (index) => {
-    setFormData(prev => ({
-      ...prev,
-      allocations: prev.allocations.length === 1
-        ? prev.allocations
-        : prev.allocations.filter((_, lineIndex) => lineIndex !== index),
-    }));
-  };
-
-  const allocationTotal = (formData.allocations || []).reduce(
-    (sum, line) => sum + (Number(line.amount) || 0),
-    0
-  );
-
   const handleSubmit = (e) => {
     e.preventDefault();
     if (isReadOnly) return;
-
-    const normalizedAllocations = (formData.allocations || []).map((line, index) => {
-      const account = (accounts || []).find(a => a.name === line.category);
-      return {
-        id: line.id || `allocation-${index + 1}`,
-        category: line.category,
-        amount: Number(line.amount) || 0,
-        accountNumber: account?.number || '',
-      };
-    });
-
-    if (
-      normalizedAllocations.length === 0 ||
-      normalizedAllocations.some(line => !line.category || line.amount <= 0)
-    ) {
-      toast({ variant: "destructive", title: "Distribución incompleta", description: "Cada línea debe tener una cuenta contable y un valor mayor que cero." });
+    if (!formData.category) {
+      toast({ variant: "destructive", title: "Campo Requerido", description: "Por favor, selecciona una categoría contable." });
       return;
     }
-
     if (!formData.destination) {
       toast({ variant: "destructive", title: "Campo Requerido", description: "Por favor, selecciona un Origen/Destino." });
       return;
     }
 
-    const dataToSave = {
-      ...formData,
-      allocations: normalizedAllocations,
-      amount: normalizedAllocations.reduce((sum, line) => sum + line.amount, 0),
-      category: normalizedAllocations[0].category,
-      _accountNumber: normalizedAllocations[0].accountNumber || '',
-    };
+    const dataToSave = { ...formData };
     
     // Ensure ID exists for linking
     if (!dataToSave.id) {
@@ -244,13 +175,13 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
                 // Map based on type for InvoiceDetail compatibility
                 clientData: !isExpense ? contact : undefined,
                 supplierData: isExpense ? contact : undefined,
-                items: dataToSave.allocations.map(line => ({
-                    description: `${dataToSave.description} · ${line.category}`,
-                    productName: line.category,
+                items: [{
+                    description: dataToSave.description,
+                    productName: dataToSave.description,
                     productQuantity: 1,
-                    amount: line.amount,
+                    amount: dataToSave.amount,
                     date: dataToSave.date
-                })),
+                }],
                 total: dataToSave.amount,
                 status: 'issued',
                 dateRange: format(new Date(dataToSave.date), 'dd/MM/yyyy')
@@ -273,7 +204,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <DialogTitle className="text-2xl font-bold text-slate-900">{isEditing ? 'Editar' : 'Nueva'} Transacción</DialogTitle>
@@ -308,96 +239,50 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
             <input id="description" required disabled={isReadOnly} placeholder="Detalle de la transacción..." value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500" />
           </div>
 
-          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label className="text-slate-800 font-semibold">Distribución contable</Label>
-                <p className="text-xs text-slate-500 mt-0.5">Agrega una o varias cuentas dentro de la misma transacción.</p>
-              </div>
-              {!isReadOnly && (
-                <Button type="button" variant="outline" size="sm" onClick={addAllocation} className="bg-white">
-                  <Plus className="w-4 h-4 mr-1" /> Agregar cuenta
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {(formData.allocations || []).map((line, index) => (
-                <div key={line.id || index} className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_170px_40px] gap-2 items-end rounded-lg bg-white border border-slate-200 p-3">
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-xs text-slate-600">Cuenta {index + 1}</Label>
-                    <AccountSelector
-                      accounts={sortedAccounts}
-                      value={line.category}
-                      onChange={(val) => updateAllocation(index, 'category', val)}
-                      disabled={isReadOnly}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-slate-600">Valor</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-slate-500">$</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        required
-                        disabled={isReadOnly}
-                        value={line.amount}
-                        onChange={(e) => updateAllocation(index, 'amount', e.target.value)}
-                        className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 disabled:bg-slate-100"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={isReadOnly || formData.allocations.length === 1}
-                    onClick={() => removeAllocation(index)}
-                    className="text-red-500 hover:text-red-700 hover:bg-red-50 disabled:opacity-30"
-                    title="Quitar cuenta"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2 flex flex-col">
+                <Label className="text-slate-700 mb-2">Categoría (Cuenta Contable)</Label>
+                <div className="w-full relative z-50">
+                  <AccountSelector accounts={sortedAccounts} value={formData.category} onChange={(val) => setFormData({ ...formData, category: val })} disabled={isReadOnly} />
                 </div>
-              ))}
             </div>
-
-            <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-              <span className="text-sm font-medium text-slate-600">Total de la transacción</span>
-              <span className="text-lg font-bold text-slate-900">
-                $ {allocationTotal.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-              </span>
+             <div className="space-y-2">
+                <Label htmlFor="destination" className="text-slate-700">Origen/Destino</Label>
+                <select id="destination" required disabled={isReadOnly} value={formData.destination} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-500">
+                    <optgroup label="Cajas Principales">
+                        <option value="caja_principal|CAJA PRINCIPAL">CAJA PRINCIPAL</option>
+                    </optgroup>
+                    
+                    {(bankAccounts && bankAccounts.length > 0) && (
+                        <optgroup label="Bancos">
+                            {bankAccounts.map(b_acc => (
+                                <option key={b_acc.id} value={`${b_acc.id}|${b_acc.bankName}`}>{b_acc.bankName}</option>
+                            ))}
+                        </optgroup>
+                    )}
+                    
+                    {(cashAccounts && cashAccounts.length > 0) && (
+                        <optgroup label="Cajas Menores y Mayores">
+                            {cashAccounts.map(c_acc => (
+                                <option key={c_acc.id} value={`${c_acc.id}|${c_acc.name}`}>{c_acc.name} ({c_acc.type})</option>
+                            ))}
+                        </optgroup>
+                    )}
+                </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="destination" className="text-slate-700">Origen/Destino</Label>
-              <select id="destination" required disabled={isReadOnly} value={formData.destination} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-500">
-                <optgroup label="Cajas Principales">
-                  <option value="caja_principal|CAJA PRINCIPAL">CAJA PRINCIPAL</option>
-                </optgroup>
-                {(bankAccounts && bankAccounts.length > 0) && (
-                  <optgroup label="Bancos">
-                    {bankAccounts.map(b_acc => (
-                      <option key={b_acc.id} value={`${b_acc.id}|${b_acc.bankName}`}>{b_acc.bankName}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {(cashAccounts && cashAccounts.length > 0) && (
-                  <optgroup label="Cajas Menores y Mayores">
-                    {cashAccounts.map(c_acc => (
-                      <option key={c_acc.id} value={`${c_acc.id}|${c_acc.name}`}>{c_acc.name} ({c_acc.type})</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+              <Label htmlFor="amount" className="text-slate-700">Monto</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-2 text-slate-500">$</span>
+                <input id="amount" type="number" step="0.01" required disabled={isReadOnly} value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 disabled:bg-slate-100 disabled:text-slate-500" />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="contactId" className="text-slate-700">Contacto (Opcional)</Label>
-              <ContactSelector
+              <ContactSelector 
                 contacts={contacts || []}
                 value={formData.contactId}
                 onChange={(val) => setFormData({ ...formData, contactId: val })}

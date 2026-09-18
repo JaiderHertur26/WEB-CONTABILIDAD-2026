@@ -20,7 +20,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { exportToExcel } from '@/lib/excel';
-import { expandTransactionsByAllocation, getTransactionCategoryLabel } from '@/lib/transactionAllocations';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import {
@@ -132,14 +131,13 @@ const BookClosings = () => {
             return;
         }
 
-        const allRelevantBase = transactions.filter(t => {
+        const allRelevant = transactions.filter(t => {
             const dateObj = new Date(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const isValidStatus = !['eliminado', 'anulado', 'cancelado'].includes(t.status?.toLowerCase());
             return isWithinInterval(adjustedDate, { start, end }) && isValidStatus;
         });
-        const allRelevant = expandTransactionsByAllocation(allRelevantBase);
 
         allRelevant.sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -376,7 +374,7 @@ const BookClosings = () => {
             }
         });
 
-        const exportTransactions = allRelevantBase.filter(t => !t.isInternalTransfer || (t.isInternalTransfer && t.category !== 'Transferencia Interna'));
+        const exportTransactions = allRelevant.filter(t => !t.isInternalTransfer || (t.isInternalTransfer && t.category !== 'Transferencia Interna'));
 
         setReport({
             period: { start, end },
@@ -406,7 +404,7 @@ const BookClosings = () => {
             let destName = t.destination ? t.destination.split('|')[1] || t.destination.split('|')[0] : 'N/A';
             if (destName === 'caja_principal') destName = 'Caja Principal';
 
-            let accCat = getTransactionCategoryLabel(t);
+            let accCat = t.category;
             if (t.debitAccount && t.creditAccount) {
                 accCat = t.type === 'income' ? t.creditAccount.name : t.debitAccount.name;
             }
@@ -661,10 +659,9 @@ const BookClosings = () => {
         const endStr = format(end, 'yyyy-MM-dd');
         const currentYear = end.getFullYear();
 
-        const baseValidTransactions = (transactions || []).filter(t =>
+        const validTransactions = (transactions || []).filter(t =>
             !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t.status || '').toLowerCase())
         );
-        const validTransactions = expandTransactionsByAllocation(baseValidTransactions);
         const bsTransactions = validTransactions.filter(t => {
             const tDate = t.date?.substring(0, 10) || '';
             return tDate <= endStr;

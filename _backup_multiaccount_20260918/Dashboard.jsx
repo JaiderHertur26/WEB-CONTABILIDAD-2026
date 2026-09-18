@@ -11,7 +11,6 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { format, startOfMonth, subMonths, eachMonthOfInterval, startOfDay, endOfDay, startOfYear, endOfYear, isBefore, isAfter, isWithinInterval } from 'date-fns';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const Dashboard = () => {
@@ -127,19 +126,18 @@ const Dashboard = () => {
     const validTransactions = allTransactions.filter(t => 
         !INVALID_STATUSES.includes(t.status?.toLowerCase())
     );
-    const expandedValidTransactions = expandTransactionsByAllocation(validTransactions);
 
     const pickerStart = startOfDay(dateRange.from);
     const pickerEnd = endOfDay(dateRange.to);
 
-    const transactionsInPeriod = expandedValidTransactions.filter(t => {
+    const transactionsInPeriod = validTransactions.filter(t => {
         if (!t.date) return false;
         const tDate = new Date(t.date);
         const comparisonDate = new Date(tDate.getUTCFullYear(), tDate.getUTCMonth(), tDate.getUTCDate());
         return comparisonDate >= pickerStart && comparisonDate <= pickerEnd;
     });
 
-    const bsTransactions = expandedValidTransactions.filter(t => getSafeYear(t.date) <= parseInt(selectedYear));
+    const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(selectedYear));
 
     const getAccountPrefix = (categoryName) => {
         const account = allAccounts.find(a => a.name === categoryName);

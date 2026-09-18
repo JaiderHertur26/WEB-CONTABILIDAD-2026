@@ -4,7 +4,6 @@ import { ArrowUpRight, ArrowDownRight, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { useCompanyData } from '@/hooks/useCompanyData';
-import { getTransactionCategoryLabel } from '@/lib/transactionAllocations';
 
 const RecentTransactions = () => {
   const [transactionsData] = useCompanyData('transactions');
@@ -59,7 +58,7 @@ const RecentTransactions = () => {
                 </div>
                 <div>
                   <p className="font-medium text-slate-900">{transaction.description}</p>
-                  <p className="text-sm text-slate-500">{getTransactionCategoryLabel(transaction)}</p>
+                  <p className="text-sm text-slate-500">{transaction.category}</p>
                 </div>
               </div>
               <div className="text-right">

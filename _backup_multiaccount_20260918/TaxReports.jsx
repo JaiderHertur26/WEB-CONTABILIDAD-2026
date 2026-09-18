@@ -10,7 +10,6 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
-import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -144,10 +143,9 @@ const TaxReports = () => {
         const allAccounts = Array.from(uniqueAccountsMap.values());
         const currentYear = selectedYear;
 
-        const baseValidTransactions = fTransactions.filter(t => 
+        const validTransactions = fTransactions.filter(t => 
             !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
         );
-        const validTransactions = expandTransactionsByAllocation(baseValidTransactions);
 
         const pnlTransactions = validTransactions.filter(t => getSafeYear(t.date).toString() === currentYear);
         const bsTransactions = validTransactions.filter(t => getSafeYear(t.date) <= parseInt(currentYear));

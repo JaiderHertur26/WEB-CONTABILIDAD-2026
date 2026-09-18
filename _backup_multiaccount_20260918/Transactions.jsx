@@ -8,7 +8,6 @@ import TransactionDialog from '@/components/transactions/TransactionDialog';
 import InternalTransferDialog from '@/components/transactions/InternalTransferDialog';
 import StoreTransaction from '@/components/transactions/StoreTransaction';
 import { exportToExcel } from '@/lib/excel';
-import { getTransactionAllocations, getTransactionCategoryLabel, getTransactionTotal } from '@/lib/transactionAllocations';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
@@ -227,37 +226,34 @@ const Transactions = () => {
         return { code: '1120', name: name || 'BANCO DESCONOCIDO' };
     };
 
-    const resolveAccountingRows = (t) => {
-        const amount = getTransactionTotal(t);
+    const resolveAccountingRow = (t) => {
+        const amount = parseFloat(t.amount);
 
         if (t.debitAccount && t.creditAccount) {
-            return [
-                { account: t.debitAccount, debit: amount, credit: 0 },
-                { account: t.creditAccount, debit: 0, credit: amount },
-            ];
+            return {
+                debit: { ...t.debitAccount, value: amount },
+                credit: { ...t.creditAccount, value: amount }
+            };
         }
 
-        const allocations = getTransactionAllocations(t);
-
-        if ((t.category === 'INGRESOS POR DONACIONES' || t.voucherPrefix === 'A') && allocations.length <= 1) {
+        if (t.category === 'INGRESOS POR DONACIONES' || t.voucherPrefix === 'A') {
             const assetAcc = getAssetDetails(t.destination, t.category);
             const catObj = (accounts || []).find(a => a.name === t.category) || { number: '421004', name: t.category };
-            return [
-                { account: { code: assetAcc.code, name: assetAcc.name }, debit: amount, credit: 0 },
-                { account: { code: catObj.number || '421004', name: catObj.name || t.category }, debit: 0, credit: amount },
-            ];
+            return {
+                debit: { code: assetAcc.code, name: assetAcc.name, value: amount },
+                credit: { code: catObj.number || '421004', name: catObj.name || t.category, value: amount }
+            };
         }
 
         if (t.type === 'transfer' && t.fromAccount && t.toAccount) {
             const debit = getAssetDetails(t.toAccount, t.category);
             const credit = getAssetDetails(t.fromAccount, t.category);
-            return [
-                { account: debit, debit: amount, credit: 0 },
-                { account: credit, debit: 0, credit: amount },
-            ];
+            return { debit: { ...debit, value: amount }, credit: { ...credit, value: amount } };
         }
 
         const assetAcc = getAssetDetails(t.destination, t.category);
+        let debit = { code: '', name: '', value: 0 };
+        let credit = { code: '', name: '', value: 0 };
 
         if (t.isInternalTransfer) {
             let siblingId = '';
@@ -266,49 +262,25 @@ const Transactions = () => {
             const sibling = transactionsMap.get(siblingId);
             const contraAcc = sibling ? getAssetDetails(sibling.destination, sibling.category) : { code: '111005', name: 'TRANSFERENCIA EN TRÁNSITO' };
 
-            return t.type === 'income'
-                ? [
-                    { account: assetAcc, debit: amount, credit: 0 },
-                    { account: contraAcc, debit: 0, credit: amount },
-                ]
-                : [
-                    { account: contraAcc, debit: amount, credit: 0 },
-                    { account: assetAcc, debit: 0, credit: amount },
-                ];
+            if (t.type === 'income') {
+                debit = { ...assetAcc, value: amount };
+                credit = { ...contraAcc, value: amount };
+            } else {
+                debit = { ...contraAcc, value: amount };
+                credit = { ...assetAcc, value: amount };
+            }
+        } else {
+            const catObj = (accounts || []).find(a => a.name === t.category);
+            const catAcc = { code: t._accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')), name: t.category };
+            if (t.type === 'income') {
+                debit = { ...assetAcc, value: amount };
+                credit = { ...catAcc, value: amount };
+            } else {
+                debit = { ...catAcc, value: amount };
+                credit = { ...assetAcc, value: amount };
+            }
         }
-
-        const categoryRows = allocations.map(line => {
-            const catObj = (accounts || []).find(a => a.name === line.category);
-            return {
-                account: {
-                    code: line.accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')),
-                    name: line.category,
-                },
-                amount: Number(line.amount) || 0,
-            };
-        });
-
-        if (t.type === 'income') {
-            return [
-                { account: assetAcc, debit: amount, credit: 0 },
-                ...categoryRows.map(row => ({ account: row.account, debit: 0, credit: row.amount })),
-            ];
-        }
-
-        return [
-            ...categoryRows.map(row => ({ account: row.account, debit: row.amount, credit: 0 })),
-            { account: assetAcc, debit: 0, credit: amount },
-        ];
-    };
-
-    const resolveAccountingRow = (t) => {
-        const rows = resolveAccountingRows(t);
-        const debitRow = rows.find(row => row.debit > 0) || rows[0];
-        const creditRow = rows.find(row => row.credit > 0) || rows[rows.length - 1];
-        return {
-            debit: { ...debitRow.account, value: debitRow.debit || 0 },
-            credit: { ...creditRow.account, value: creditRow.credit || 0 },
-        };
+        return { debit, credit };
     };
 
     useEffect(() => {
@@ -397,20 +369,10 @@ const Transactions = () => {
             const destParts = (t.destination || '').split('|');
             let destName = (destParts[1] || destParts[0] || '').toUpperCase();
             const destId = destParts[0];
-            const allocations = getTransactionAllocations(t);
-            const categoryLabel = getTransactionCategoryLabel(t);
-            const accountNumbers = allocations.map(line => {
-                if (line.accountNumber) return line.accountNumber;
-                return (accounts || []).find(acc => acc.name === line.category)?.number || 'N/A';
-            });
-            const accountNumber = accountNumbers.length > 1 ? accountNumbers.join(' / ') : (accountNumbers[0] || 'N/A');
-            const aportesAmount = allocations.reduce((sum, line) => {
-                const categoryName = (line.category || '').toUpperCase();
-                const lineNumber = line.accountNumber || (accounts || []).find(acc => acc.name === line.category)?.number || '';
-                const isAporte = categoryName.includes('APORTES ORDINARIOS') || categoryName.includes('APORTES COOPERATIVA FRATERNIDAD') || lineNumber === '12950501';
-                return sum + (isAporte ? (Number(line.amount) || 0) : 0);
-            }, 0);
-            const isAportesCategory = aportesAmount > 0 || destId === '12950501';
+            const categoryName = (t.category || '').toUpperCase();
+            const accountObj = (accounts || []).find(acc => acc.name === t.category);
+            const accountNumber = accountObj ? accountObj.number : 'N/A';
+            const isAportesCategory = categoryName.includes('APORTES ORDINARIOS') || categoryName.includes('APORTES COOPERATIVA FRATERNIDAD') || accountNumber === '12950501' || destId === '12950501';
             const isPending = destId === 'pending_payable' || destId === 'pending_receivable';
             const isCashDestination = destId === 'caja_principal' || destName.includes('CAJA PRINCIPAL');
 
@@ -425,20 +387,12 @@ const Transactions = () => {
                 if (isCashDestination) { runningCash -= amount; affectedColumn = 'cash'; }
                 else if (bankAccounts && bankAccounts.some(b => b.id === destId)) { runningBanks -= amount; affectedColumn = 'banks'; }
             } else {
-                if (isAportesCategory) {
-                    const aportesValue = destId === '12950501' ? amount : aportesAmount;
-                    const regularValue = Math.max(0, amount - aportesValue);
-                    runningAportes += aportesValue;
-                    if (regularValue > 0) {
-                        if (isCashDestination) runningCash += regularValue;
-                        else if (bankAccounts && bankAccounts.some(b => b.id === destId)) runningBanks += regularValue;
-                    }
-                    affectedColumn = regularValue > 0 ? 'multiple' : 'aportes';
-                } else if (isCashDestination) { runningCash += amount; affectedColumn = 'cash'; }
+                if (isAportesCategory) { runningAportes += amount; affectedColumn = 'aportes'; }
+                else if (isCashDestination) { runningCash += amount; affectedColumn = 'cash'; }
                 else if (bankAccounts && bankAccounts.some(b => b.id === destId)) { runningBanks += amount; affectedColumn = 'banks'; }
             }
 
-            return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: accountNumber, _categoryLabel: categoryLabel, _destName: isPending ? '(Pendiente)' : destName, _affectedColumn: affectedColumn, _isPending: isPending, voucherPrefix: computed.prefix, _intelligentType: computed.type };
+            return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: accountNumber, _destName: isPending ? '(Pendiente)' : destName, _affectedColumn: affectedColumn, _isPending: isPending, voucherPrefix: computed.prefix, _intelligentType: computed.type };
         });
         
         // 🚀 LIMPIEZA MAESTRA: Filtrar TODOS los espejos inversos de la base de datos antes de calcular el Mayor y el Diario
@@ -469,12 +423,10 @@ const Transactions = () => {
         const usedExactCodes = new Set();
         
         yearTx.forEach(t => {
-            resolveAccountingRows(t).forEach(row => {
-                if (row.account?.code) usedExactCodes.add(String(row.account.code));
-            });
-            if (t._accountNumber) {
-                String(t._accountNumber).split('/').map(code => code.trim()).filter(Boolean).forEach(code => usedExactCodes.add(code));
-            }
+            const { debit, credit } = resolveAccountingRow(t);
+            if (debit?.code) usedExactCodes.add(String(debit.code));
+            if (credit?.code) usedExactCodes.add(String(credit.code));
+            if (t._accountNumber) usedExactCodes.add(String(t._accountNumber));
         });
 
         return (accounts || [])
@@ -519,11 +471,13 @@ const Transactions = () => {
         // Filtro por Cuenta Contable (Múltiple)
         if (accountFilters.length > 0) {
             result = result.filter(t => {
-                const rowCodes = resolveAccountingRows(t).map(row => String(row.account?.code || ''));
-                const baseCodes = String(t._accountNumber || '').split('/').map(code => code.trim());
-                return accountFilters.some(filter =>
-                    rowCodes.some(code => code.startsWith(filter)) ||
-                    baseCodes.some(code => code.startsWith(filter))
+                const { debit, credit } = resolveAccountingRow(t);
+                const drCode = String(debit?.code || '');
+                const crCode = String(credit?.code || '');
+                const baseCode = String(t._accountNumber || '');
+                
+                return accountFilters.some(filter => 
+                    drCode.startsWith(filter) || crCode.startsWith(filter) || baseCode.startsWith(filter)
                 );
             });
         }
@@ -531,7 +485,7 @@ const Transactions = () => {
         // Filtro de Búsqueda de Texto
         if (searchTerm) {
             const lower = searchTerm.toLowerCase();
-            result = result.filter(t => (t.description || '').toLowerCase().includes(lower) || getTransactionCategoryLabel(t).toLowerCase().includes(lower) || (t._accountNumber || '').toLowerCase().includes(lower));
+            result = result.filter(t => (t.description || '').toLowerCase().includes(lower) || (t.category || '').toLowerCase().includes(lower) || (t._accountNumber || '').toLowerCase().includes(lower));
         }
         
         result.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -734,17 +688,9 @@ const Transactions = () => {
                     const tIsCash = tDestId === 'caja_principal' || (tDestParts[1] || '').toUpperCase().includes('CAJA PRINCIPAL');
                     
                     if (tIsCash) {
-                        if (t.type === 'expense') {
-                            currentCashBalance -= amount;
-                        } else if (t.type === 'income') {
-                            const aportesAmount = getTransactionAllocations(t).reduce((sum, line) => {
-                                const categoryName = (line.category || '').toUpperCase();
-                                const accountNumber = line.accountNumber || (accounts || []).find(a => a.name === line.category)?.number || '';
-                                const isAporte = categoryName.includes('APORTES') || accountNumber === '12950501';
-                                return sum + (isAporte ? (Number(line.amount) || 0) : 0);
-                            }, 0);
-                            currentCashBalance += tDestId === '12950501' ? 0 : Math.max(0, amount - aportesAmount);
-                        }
+                        const isAportes = (t.category || '').toUpperCase().includes('APORTES') || tDestId === '12950501';
+                        if (t.type === 'expense') currentCashBalance -= amount;
+                        else if (t.type === 'income' && !isAportes) currentCashBalance += amount;
                     }
                 }
             });
@@ -769,14 +715,13 @@ const Transactions = () => {
         let shouldAutoGenerateBill = false;
         
         if (transactionData.type === 'expense' && !transactionData.isInternalTransfer) {
-            const allocationCategories = getTransactionAllocations(transactionData).map(line => line.category);
             if (Array.isArray(autoBillingCategories)) {
-                shouldAutoGenerateBill = allocationCategories.some(category => autoBillingCategories.includes(category));
+                shouldAutoGenerateBill = autoBillingCategories.includes(transactionData.category);
             } else {
-                shouldAutoGenerateBill = allocationCategories.some(category => {
-                    const catObj = (accounts || []).find(a => a.name === category);
-                    return catObj && SMART_PUC_PREFIXES.some(prefix => String(catObj.number).startsWith(prefix));
-                });
+                const catObj = (accounts || []).find(a => a.name === transactionData.category);
+                if (catObj && SMART_PUC_PREFIXES.some(prefix => String(catObj.number).startsWith(prefix))) {
+                    shouldAutoGenerateBill = true;
+                }
             }
         }
 
@@ -1023,7 +968,7 @@ const Transactions = () => {
                 'Descripción': t.description, 
                 'Tipo': typeLabel, 
                 'Nº Cuenta': t._accountNumber || 'N/A', 
-                'Categoría': getTransactionCategoryLabel(t), 
+                'Categoría': t.category || '-', 
                 'Monto': amountValue, 
                 'Destino': t._destName || '-', 
                 'Saldo Caja': parseFloat(t._calculatedCash) || 0, 
@@ -1076,17 +1021,10 @@ const Transactions = () => {
 
             let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
             const displayDate = formatSafeDate(t.date);
-            resolveAccountingRows(t).forEach(row => {
-                dataToExport.push({
-                    'Fecha': displayDate,
-                    'Comprobante': vId,
-                    'Código PUC': row.account?.code || 'N/A',
-                    'Cuenta': row.account?.name || getTransactionCategoryLabel(t),
-                    'Descripción': t.description,
-                    'Débito': Number(row.debit) || 0,
-                    'Crédito': Number(row.credit) || 0
-                });
-            });
+            const { debit, credit } = resolveAccountingRow(t);
+            
+            dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': debit?.code || 'N/A', 'Cuenta': debit?.name || (t.category || 'SIN CATEGORÍA'), 'Descripción': t.description, 'Débito': parseFloat(debit?.value) || 0, 'Crédito': 0 });
+            dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': credit?.code || 'N/A', 'Cuenta': credit?.name || (t.category || 'SIN CATEGORÍA'), 'Descripción': t.description, 'Débito': 0, 'Crédito': parseFloat(credit?.value) || 0 });
         });
         
         exportToExcel(dataToExport, `Contabilidad_Partida_Doble_${selectedYear}`, {});
@@ -1237,25 +1175,30 @@ const Transactions = () => {
                 }
             }
 
-            const accountingRows = resolveAccountingRows(t);
-            accountingRows.forEach((row, rowIndex) => {
-                const dVal = Number(row.debit) || 0;
-                const cVal = Number(row.credit) || 0;
-                totalDebit += dVal;
-                totalCredit += cVal;
-                const isLast = rowIndex === accountingRows.length - 1;
+            const { debit, credit } = resolveAccountingRow(t);
+            const dVal = parseFloat(debit?.value) || 0;
+            const cVal = parseFloat(credit?.value) || 0;
+            totalDebit += dVal;
+            totalCredit += cVal;
 
-                printRows.push(`
-                    <tr>
-                        <td class="td-center ${isLast ? 'border-b' : ''}">${rowIndex === 0 ? displayDate : ''}</td>
-                        <td class="td-center bold ${isLast ? 'border-b' : ''}">${rowIndex === 0 ? vId : ''}</td>
-                        <td class="td-left ${rowIndex > 0 ? 'indent-1 ' : ''}${isLast ? 'border-b' : ''}"><span class="bold">${row.account?.code || 'N/A'}</span><br/><span class="sub-text">${row.account?.name || '-'}</span></td>
-                        <td class="td-left ${isLast ? 'border-b' : ''}">${rowIndex === 0 ? t.description : ''}</td>
-                        <td class="td-num ${isLast ? 'border-b' : ''}">${dVal > 0 ? dVal.toLocaleString('es-CO', {minimumFractionDigits:2}) : '-'}</td>
-                        <td class="td-num ${isLast ? 'border-b' : ''}">${cVal > 0 ? cVal.toLocaleString('es-CO', {minimumFractionDigits:2}) : '-'}</td>
-                    </tr>
-                `);
-            });
+            printRows.push(`
+                <tr>
+                    <td class="td-center">${displayDate}</td>
+                    <td class="td-center bold">${vId}</td>
+                    <td class="td-left"><span class="bold">${debit?.code || 'N/A'}</span><br/><span class="sub-text">${debit?.name || '-'}</span></td>
+                    <td class="td-left">${t.description}</td>
+                    <td class="td-num">${dVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                    <td class="td-num">-</td>
+                </tr>
+                <tr>
+                    <td class="td-center border-b"></td>
+                    <td class="td-center border-b"></td>
+                    <td class="td-left indent-1 border-b"><span class="bold">${credit?.code || 'N/A'}</span><br/><span class="sub-text">${credit?.name || '-'}</span></td>
+                    <td class="td-left border-b"></td>
+                    <td class="td-num border-b">-</td>
+                    <td class="td-num border-b">${cVal.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                </tr>
+            `);
         });
 
         const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
@@ -1341,17 +1284,15 @@ const Transactions = () => {
     };
 
     const handlePrint = (t) => {
-        const accountingRows = t._isMerged
-            ? [
-                { account: t._destAccount, debit: t._rawAmount, credit: 0 },
-                { account: t._sourceAccount, debit: 0, credit: t._rawAmount },
-              ]
-            : resolveAccountingRows(t);
-
-        const debitRow = accountingRows.find(row => row.debit > 0) || accountingRows[0];
-        const creditRow = accountingRows.find(row => row.credit > 0) || accountingRows[accountingRows.length - 1];
-        const debit = { ...debitRow.account, value: debitRow.debit || 0 };
-        const credit = { ...creditRow.account, value: creditRow.credit || 0 };
+        let debit, credit;
+        if (t._isMerged) {
+            debit = { code: t._destAccount?.code, name: t._destAccount?.name, value: t._rawAmount };
+            credit = { code: t._sourceAccount?.code, name: t._sourceAccount?.name, value: t._rawAmount };
+        } else {
+            const resolved = resolveAccountingRow(t);
+            debit = resolved.debit;
+            credit = resolved.credit;
+        }
 
         let resolvedContactName = t.contact;
         if (!resolvedContactName && t.contactId && contacts) {
@@ -1363,12 +1304,11 @@ const Transactions = () => {
 
         const enrichedTransaction = {
             ...t,
-            contact: resolvedContactName,
-            accountingRows,
+            contact: resolvedContactName, 
             accountCode: t._accountNumber || (t.type === 'income' ? credit.code : debit.code),
             debitAccount: t.debitAccount || debit,
             creditAccount: t.creditAccount || credit,
-            amount: t._rawAmount || getTransactionTotal(t)
+            amount: t._rawAmount || t.amount
         };
 
         setTransactionToPrint(enrichedTransaction);
@@ -1541,11 +1481,7 @@ const Transactions = () => {
             if (t.isInternalTransfer && !t.debitAccount) return; 
             
             const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
-            const accountingRows = resolveAccountingRows(t);
-            const isClaseResultados = accountingRows.some(row => {
-                const code = String(row.account?.code || '');
-                return code.startsWith('4') || code.startsWith('5');
-            });
+            const { debit, credit } = resolveAccountingRow(t);
 
             const processEntry = (accCode, accName, amount, isDebitEntry) => {
                 if (!accCode) return;
@@ -1555,25 +1491,28 @@ const Transactions = () => {
                 const isDebitNature = ['1', '5', '6', '8'].includes(codeStr.charAt(0));
 
                 // 🚀 CORRECCIÓN DE AUDITORÍA: Aislamiento del Efectivo Real (Caja Principal)
+                // Evitamos el cruce erróneo: Los ajustes o saldos históricos de las cuentas de 
+                // resultados (Clases 4 y 5) no deben inflar los movimientos del año de la Caja.
+                const isClaseResultados = String(debit?.code).startsWith('5') || String(credit?.code).startsWith('5') || String(debit?.code).startsWith('4') || String(credit?.code).startsWith('4');
                 const isHistoricalOrAdjustment = t.voucherPrefix === 'A' || String(t.description).toUpperCase().includes('SALDO');
 
                 if (codeStr === '11050501' && isHistoricalOrAdjustment && isClaseResultados) {
-                    return;
+                    return; // ⛔ Abortamos la inserción para no sumar peras con manzanas en la Caja Principal
                 }
 
                 if (tDate < startDate) {
+                    // Historial antes de la fecha inicial va al Saldo Anterior
                     if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
                     else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
                 } else if (tDate >= startDate && tDate <= endDate) {
+                    // Movimientos puros del rango seleccionado (Suma directa aislada)
                     if (isDebitEntry) mayor[codeStr].debito += amount;
                     else mayor[codeStr].credito += amount;
                 }
             };
 
-            accountingRows.forEach(row => {
-                if (row.account?.code && row.debit > 0) processEntry(row.account.code, row.account.name, Number(row.debit) || 0, true);
-                if (row.account?.code && row.credit > 0) processEntry(row.account.code, row.account.name, Number(row.credit) || 0, false);
-            });
+            if (debit?.code) processEntry(debit.code, debit.name, parseFloat(debit.value) || 0, true);
+            if (credit?.code) processEntry(credit.code, credit.name, parseFloat(credit.value) || 0, false);
         });
 
         // 4. Aplicar Ecuación Contable para Nuevo Saldo
@@ -1918,7 +1857,7 @@ const Transactions = () => {
                                                         </div>
                                                     ) : (
                                                         <>
-                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100'}`}>{t._categoryLabel || getTransactionCategoryLabel(t)}</span>
+                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100'}`}>{t.category}</span>
                                                             <span className="block text-[10px] text-slate-400 mt-0.5 truncate max-w-[150px]">Dest: {t._destName}</span>
                                                         </>
                                                     )}
@@ -1970,26 +1909,37 @@ const Transactions = () => {
                                         if (t._isMerged) return null;
                                         
                                         let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
-                                        const accountingRows = resolveAccountingRows(t);
+                                        const { debit, credit } = resolveAccountingRow(t);
                                         let rowColorClass = t.type === 'income' ? 'bg-green-50' : (t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'bg-orange-50' : 'bg-red-50');
 
                                         return (
                                             <React.Fragment key={t.id}>
-                                                {accountingRows.map((row, rowIndex) => (
-                                                    <tr key={`${t.id}-accounting-${rowIndex}`} className={`${rowIndex === 0 ? 'border-t border-slate-100 ' : ''}${rowColorClass}`}>
-                                                        <td className="px-4 py-2 text-slate-500">{rowIndex === 0 ? formatSafeDate(t.date) : ''}</td>
-                                                        <td className="px-4 py-2 font-mono text-xs text-slate-400 font-bold">{rowIndex === 0 ? vId : ''}</td>
-                                                        <td className={`px-4 py-2 ${rowIndex > 0 ? 'pl-8' : ''}`}>
-                                                            <div className="flex flex-col">
-                                                                <span className="font-bold text-slate-700 text-xs">{row.account?.code || 'N/A'}</span>
-                                                                <span className="text-slate-600 text-xs uppercase">{row.account?.name || getTransactionCategoryLabel(t)}</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-2 text-slate-500 italic text-xs">{rowIndex === 0 ? t.description : ''}</td>
-                                                        <td className="px-4 py-2 text-right font-mono text-slate-800">{row.debit > 0 ? Number(row.debit).toLocaleString('es-CO', { minimumFractionDigits: 2 }) : '-'}</td>
-                                                        <td className="px-4 py-2 text-right font-mono text-slate-800">{row.credit > 0 ? Number(row.credit).toLocaleString('es-CO', { minimumFractionDigits: 2 }) : '-'}</td>
-                                                    </tr>
-                                                ))}
+                                                <tr className={`border-t border-slate-100 ${rowColorClass}`}>
+                                                    <td className="px-4 py-2 text-slate-500">{formatSafeDate(t.date)}</td>
+                                                    <td className="px-4 py-2 font-mono text-xs text-slate-400 font-bold">{vId}</td>
+                                                    <td className="px-4 py-2">
+                                                        <div className="flex flex-col">
+                                                            <span className="font-bold text-slate-700 text-xs">{debit?.code || 'N/A'}</span>
+                                                            <span className="text-slate-600 text-xs uppercase">{debit?.name || (t.category || '-')}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-slate-500 italic text-xs">{t.description}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-slate-800">{(debit?.value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-slate-300">-</td>
+                                                </tr>
+                                                <tr className={`${rowColorClass}`}>
+                                                    <td className="px-4 py-1 border-none"></td>
+                                                    <td className="px-4 py-1 border-none"></td>
+                                                    <td className="px-4 py-2 border-none pl-8">
+                                                        <div className="flex flex-col">
+                                                            <span className="font-bold text-slate-700 text-xs">{credit?.code || 'N/A'}</span>
+                                                            <span className="text-slate-600 text-xs uppercase">{credit?.name || (t.category || '-')}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 border-none"></td>
+                                                    <td className="px-4 py-2 border-none text-right font-mono text-slate-300">-</td>
+                                                    <td className="px-4 py-2 border-none text-right font-mono text-slate-800">{(credit?.value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
+                                                </tr>
                                                 <tr><td colSpan="6" className="h-1 bg-slate-50 border-b border-slate-200"></td></tr>
                                             </React.Fragment>
                                         );
@@ -2554,6 +2504,7 @@ const Transactions = () => {
                                             displayTransactions.forEach(t => {
                                                 if (t._isMerged) return;
                                                 let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+                                                const { debit, credit } = resolveAccountingRow(t);
                                                 
                                                 let tercero = t.contact || '-';
                                                 if (tercero === '-' && t.contactId && contacts) {
@@ -2561,19 +2512,15 @@ const Transactions = () => {
                                                     if (foundContact) tercero = foundContact.name;
                                                 }
 
-                                                resolveAccountingRows(t).forEach((row, rowIndex) => {
-                                                    const code = String(row.account?.code || '');
-                                                    const showRow = accountFilters.length === 0 || accountFilters.some(f => code.startsWith(f));
-                                                    if (!showRow || !code) return;
-                                                    const debitValue = Number(row.debit) || 0;
-                                                    const creditValue = Number(row.credit) || 0;
-                                                    if (debitValue > 0) {
-                                                        flatRows.push({ ...t, _rowIndex: rowIndex, vId, tercero, pCode: code, pName: row.account?.name || '-', isDebit: true, val: debitValue });
-                                                    }
-                                                    if (creditValue > 0) {
-                                                        flatRows.push({ ...t, _rowIndex: rowIndex, vId, tercero, pCode: code, pName: row.account?.name || '-', isDebit: false, val: creditValue });
-                                                    }
-                                                });
+                                                const showDebit = accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f));
+                                                const showCredit = accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f));
+
+                                                if (showDebit && debit?.code) {
+                                                    flatRows.push({ ...t, vId, tercero, pCode: debit.code, pName: debit.name, isDebit: true, val: parseFloat(debit.value) || 0 });
+                                                }
+                                                if (showCredit && credit?.code) {
+                                                    flatRows.push({ ...t, vId, tercero, pCode: credit.code, pName: credit.name, isDebit: false, val: parseFloat(credit.value) || 0 });
+                                                }
                                             });
 
                                             // 2. 🚀 Ordenar PRIMERO por Cuenta PUC, y SEGUNDO por Fecha
@@ -2650,21 +2597,17 @@ const Transactions = () => {
                                                     <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
                                                         {displayTransactions.reduce((acc, t) => {
                                                             if (t._isMerged) return acc;
-                                                            return acc + resolveAccountingRows(t).reduce((sum, row) => {
-                                                                const code = String(row.account?.code || '');
-                                                                if (accountFilters.length > 0 && !accountFilters.some(f => code.startsWith(f))) return sum;
-                                                                return sum + (Number(row.debit) || 0);
-                                                            }, 0);
+                                                            const { debit } = resolveAccountingRow(t);
+                                                            if (accountFilters.length > 0 && !accountFilters.some(f => debit?.code.startsWith(f))) return acc;
+                                                            return acc + (parseFloat(debit?.value) || 0);
                                                         }, 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}
                                                     </td>
                                                     <td className="py-3 px-2 text-right border-b-4 border-double border-slate-800">
                                                         {displayTransactions.reduce((acc, t) => {
                                                             if (t._isMerged) return acc;
-                                                            return acc + resolveAccountingRows(t).reduce((sum, row) => {
-                                                                const code = String(row.account?.code || '');
-                                                                if (accountFilters.length > 0 && !accountFilters.some(f => code.startsWith(f))) return sum;
-                                                                return sum + (Number(row.credit) || 0);
-                                                            }, 0);
+                                                            const { credit } = resolveAccountingRow(t);
+                                                            if (accountFilters.length > 0 && !accountFilters.some(f => credit?.code.startsWith(f))) return acc;
+                                                            return acc + (parseFloat(credit?.value) || 0);
                                                         }, 0).toLocaleString('es-CO', { minimumFractionDigits: 2 })}
                                                     </td>
                                                     <td className="py-3 px-2 bg-slate-200 border-b-4 border-double border-slate-800"></td>
@@ -2678,13 +2621,9 @@ const Transactions = () => {
                                                             let d = 0, c = 0;
                                                             displayTransactions.forEach(t => {
                                                                 if (t._isMerged) return;
-                                                                resolveAccountingRows(t).forEach(row => {
-                                                                    const code = String(row.account?.code || '');
-                                                                    if (accountFilters.length === 0 || accountFilters.some(f => code.startsWith(f))) {
-                                                                        d += Number(row.debit) || 0;
-                                                                        c += Number(row.credit) || 0;
-                                                                    }
-                                                                });
+                                                                const { debit, credit } = resolveAccountingRow(t);
+                                                                if (accountFilters.length === 0 || accountFilters.some(f => debit?.code.startsWith(f))) d += (parseFloat(debit?.value) || 0);
+                                                                if (accountFilters.length === 0 || accountFilters.some(f => credit?.code.startsWith(f))) c += (parseFloat(credit?.value) || 0);
                                                             });
                                                             const diff = Math.abs(d - c);
                                                             const naturaleza = d > c ? '(Naturaleza Débito)' : (c > d ? '(Naturaleza Crédito)' : '');

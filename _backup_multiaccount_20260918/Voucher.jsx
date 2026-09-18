@@ -89,9 +89,6 @@ const VoucherContent = ({ transaction }) => {
   };
 
   const accountDetails = getAccountDetails();
-  const accountingRows = Array.isArray(transaction.accountingRows) && transaction.accountingRows.length > 0
-    ? transaction.accountingRows
-    : null;
 
   // Date Formatting
   const dateObj = parseISO(transaction.date);
@@ -196,16 +193,7 @@ const VoucherContent = ({ transaction }) => {
             <table className="w-full text-xs border-collapse" style={{border: '1px solid black'}}>
                 <thead><tr><th className="font-bold bg-gray-200 p-1" style={{border: '1px solid black'}}>CÓDIGO</th><th className="font-bold bg-gray-200 p-1" style={{border: '1px solid black'}}>CUENTA</th><th className="font-bold bg-gray-200 p-1" style={{border: '1px solid black'}}>DEBE</th><th className="font-bold bg-gray-200 p-1" style={{border: '1px solid black'}}>HABER</th></tr></thead>
                 <tbody>
-                    {accountingRows ? (
-                        accountingRows.map((row, index) => (
-                            <tr key={`accounting-row-${index}`}>
-                                <td className="p-1 text-center" style={{border: '1px solid black'}}>{row.account?.code || ''}</td>
-                                <td className="p-1 uppercase" style={{border: '1px solid black'}}>{row.account?.name || ''}</td>
-                                <td className="p-1 text-right" style={{border: '1px solid black'}}>{row.debit > 0 ? Number(row.debit).toLocaleString('es-CO', { minimumFractionDigits: 2 }) : '0.00'}</td>
-                                <td className="p-1 text-right" style={{border: '1px solid black'}}>{row.credit > 0 ? Number(row.credit).toLocaleString('es-CO', { minimumFractionDigits: 2 }) : '0.00'}</td>
-                            </tr>
-                        ))
-                    ) : transaction.debitAccount && transaction.creditAccount ? (
+                    {transaction.debitAccount && transaction.creditAccount ? (
                         <>
                             <tr>
                                 <td className="p-1 text-center" style={{border: '1px solid black'}}>{transaction.debitAccount.code}</td>
