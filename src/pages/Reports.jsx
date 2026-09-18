@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Download, Calendar, Printer } from 'lucide-react';
@@ -31,6 +31,9 @@ const Reports = () => {
   // Rango de fechas
   const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const todayDateKey = new Date().toISOString().split('T')[0];
+  const effectiveEndDate = endDate > todayDateKey ? todayDateKey : endDate;
+  const initializedRangeCompanyRef = useRef('');
 
   const [reportData, setReportData] = useState({ 
       incomeStatement: [], 
@@ -67,7 +70,42 @@ const Reports = () => {
       });
   }, [isConsolidated, activeCompany, companies]);
 
-  useEffect(() => { generateReportData(); }, [transactions, accounts, bankAccounts, initialBalance, cashAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, inventory, startDate, endDate, isConsolidated, filterByCompany]);
+  // El período sugerido comienza el día siguiente al saldo de apertura cuando
+  // esa apertura pertenece al año actual. Así Santa Cruz abre el 01/08/2026
+  // a partir de los saldos recibidos al 31/07/2026, sin inventar enero-julio.
+  useEffect(() => {
+      if (!activeCompany?.id) return;
+      const rangeKey = `${activeCompany.id}|${isConsolidated ? 'C' : 'N'}`;
+      if (initializedRangeCompanyRef.current === rangeKey) return;
+
+      const openingItems = [
+          ...filterByCompany(initialBalance || []),
+          ...filterByCompany(bankAccounts || [])
+      ];
+      if (openingItems.length === 0) return;
+
+      const currentYear = new Date().getFullYear();
+      const yearStart = `${currentYear}-01-01`;
+      const openingDates = openingItems
+          .map(item => String(item?.date || '').slice(0, 10))
+          .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value))
+          .sort();
+
+      let suggestedStart = yearStart;
+      const latestOpening = openingDates.at(-1);
+      if (latestOpening) {
+          const opening = new Date(`${latestOpening}T12:00:00`);
+          opening.setDate(opening.getDate() + 1);
+          const nextDay = `${opening.getFullYear()}-${String(opening.getMonth() + 1).padStart(2, '0')}-${String(opening.getDate()).padStart(2, '0')}`;
+          if (nextDay.startsWith(String(currentYear)) && nextDay > yearStart) suggestedStart = nextDay;
+      }
+
+      setStartDate(suggestedStart);
+      setEndDate(todayDateKey);
+      initializedRangeCompanyRef.current = rangeKey;
+  }, [activeCompany?.id, isConsolidated, initialBalance, bankAccounts, filterByCompany, todayDateKey]);
+
+  useEffect(() => { generateReportData(); }, [transactions, accounts, bankAccounts, initialBalance, cashAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, inventory, startDate, effectiveEndDate, isConsolidated, filterByCompany]);
 
   const generateReportData = () => {
     const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
@@ -93,7 +131,7 @@ const Reports = () => {
     const allAccounts = Array.from(uniqueAccountsMap.values());
     
     // Mantenemos currentYear derivado dinámicamente para que la lógica de depreciación siga funcionando intacta
-    const currentYear = getSafeYear(endDate).toString();
+    const currentYear = getSafeYear(effectiveEndDate).toString();
 
     const baseValidTransactions = allTransactions.filter(t => 
         !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
@@ -113,12 +151,12 @@ const Reports = () => {
     // Filtrado exacto por fechas
     const pnlTransactions = validTransactions.filter(t => {
         const tDate = t.date?.substring(0, 10) || '';
-        return tDate >= startDate && tDate <= endDate;
+        return tDate >= startDate && tDate <= effectiveEndDate;
     });
     
     const bsTransactions = validTransactions.filter(t => {
         const tDate = t.date?.substring(0, 10) || '';
-        return tDate <= endDate;
+        return tDate <= effectiveEndDate;
     });
 
     const getAccountCreationYear = (accountId, defaultDate) => {
@@ -296,7 +334,7 @@ const Reports = () => {
         bankAccounts: fBankAccounts,
         cashAccounts: fCashAccounts,
         accounts: allAccounts,
-        cutoffDate: endDate,
+        cutoffDate: effectiveEndDate,
     });
 
     const cajaPrincipalBalance = liquidity.mainCash;
@@ -453,7 +491,7 @@ const Reports = () => {
         cashAccounts: fCashAccounts,
         accounts: allAccounts,
         startDate,
-        endDate,
+        endDate: effectiveEndDate,
     });
 
     setReportData({ summary: summaryData, incomeStatement, balanceSheet, cashFlow });
@@ -467,7 +505,7 @@ const Reports = () => {
           const dataToExport = [
               { 'Concepto': companyName, 'Monto': '' },
               { 'Concepto': companyNit, 'Monto': '' },
-              { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - DEL ${startDate} AL ${endDate}`, 'Monto': '' },
+              { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - DEL ${startDate} AL ${effectiveEndDate}`, 'Monto': '' },
               { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
               { 'Concepto': '', 'Monto': '' }, 
               { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
@@ -506,7 +544,7 @@ const Reports = () => {
           const companyName = activeCompany?.name || ' ';
           const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
           const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
-          const fechaCorte = printType === 'balance' ? `AL ${endDate}` : `DEL ${startDate} AL ${endDate}`;
+          const fechaCorte = printType === 'balance' ? `AL ${effectiveEndDate}` : `DEL ${startDate} AL ${effectiveEndDate}`;
 
           const styles = `
               <style>
@@ -756,7 +794,8 @@ const Reports = () => {
                     <input 
                         type="date" 
                         value={endDate} 
-                        onChange={e => setEndDate(e.target.value)} 
+                        max={todayDateKey}
+                        onChange={e => setEndDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)} 
                         className="border border-slate-300 rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
                     />
                 </div>

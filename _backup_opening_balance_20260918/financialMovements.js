@@ -7,26 +7,6 @@ const num = (value) => {
 
 const upper = (value) => String(value || '').trim().toUpperCase();
 
-const dateKey = (value) => {
-  if (!value) return '';
-  if (typeof value === 'string') {
-    const direct = value.includes('T') ? value.split('T')[0] : value.slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, '0');
-  const d = String(parsed.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + d;
-};
-
-const latestDate = (values = []) =>
-  values.map(dateKey).filter(Boolean).sort().pop() || '';
-
-const isAfterOpening = (txDate, openingDate) =>
-  !openingDate || !txDate || txDate > openingDate;
-
 export const getLiquidityKindFromCode = (code) => {
   const value = String(code || '').trim();
   if (value.startsWith('1105')) return 'cash';
@@ -129,28 +109,6 @@ export const getTransactionLiquidityDeltas = (transaction, options = {}) => {
   const categoryCode = accountNumberForCategory(transaction.category, context.accounts);
   const destination = classifyEndpoint(transaction.destination, context);
 
-  // Compatibilidad con los aportes históricos guardados como par -exp / -inc:
-  // la pierna de egreso disminuye la fuente (Caja/Banco) y la de ingreso
-  // aumenta Aportes. No son dos cambios de Aportes que se cancelan entre sí.
-  const legacyInvestmentTransfer =
-    transaction.isInternalTransfer &&
-    !transaction.debitAccount &&
-    !transaction.creditAccount &&
-    (
-      getLiquidityKindFromCode(categoryCode) === 'investment' ||
-      upper(transaction.category).includes('APORTES') ||
-      upper(transaction.description).includes('APORTE ORDINARIO')
-    );
-
-  if (legacyInvestmentTransfer) {
-    if (transaction.type === 'expense') {
-      if (destination) addDelta(deltas, destination, -amount, context);
-    } else if (transaction.type === 'income') {
-      addDelta(deltas, { kind: 'investment', id: '12950501' }, amount, context);
-    }
-    return deltas;
-  }
-
   // En ingresos multicuenta, una línea 1295/APORTES se separa del efectivo real.
   // La porción restante sí afecta Caja/Banco. Esto replica la lógica visible de Transacciones.
   if (transaction.type === 'income') {
@@ -199,66 +157,42 @@ export const calculateLiquidityBalances = ({
 } = {}) => {
   const context = buildContext({ bankAccounts, cashAccounts, accounts });
 
-  const mainCashInitialItems = (initialBalances || []).filter(item => {
+  let mainCash = (initialBalances || []).reduce((sum, item) => {
     const code = String(item?.accountingCode || '');
-    return !code || code.startsWith('1105');
-  });
-
-  let mainCash = mainCashInitialItems.reduce((sum, item) => sum + num(item?.balance), 0);
-  const mainCashOpeningDate = latestDate(mainCashInitialItems.map(item => item?.date));
+    if (code && !code.startsWith('1105')) return sum;
+    return sum + num(item?.balance);
+  }, 0);
 
   const customCash = {};
-  const customCashOpeningDates = {};
   (cashAccounts || []).forEach(item => {
-    const id = String(item.id);
-    customCash[id] = num(item.initial_balance ?? item.initialBalance);
-    customCashOpeningDates[id] = dateKey(item.date);
+    customCash[String(item.id)] = num(item.initial_balance ?? item.initialBalance);
   });
 
   const banks = {};
-  const bankOpeningDates = {};
   let investments = 0;
-  const investmentOpeningDates = [];
   (bankAccounts || []).forEach(item => {
-    const id = String(item.id);
-    banks[id] = num(item.initialBalance);
-    bankOpeningDates[id] = dateKey(item.date);
-    const initialInvestment = num(item.initialInvestmentBalance);
-    investments += initialInvestment;
-    if (Math.abs(initialInvestment) > 0.0001 && item.date) investmentOpeningDates.push(item.date);
+    banks[String(item.id)] = num(item.initialBalance);
+    investments += num(item.initialInvestmentBalance);
   });
-  const investmentOpeningDate = latestDate(investmentOpeningDates);
 
-  const cutoff = cutoffDate ? dateKey(cutoffDate) : null;
+  const cutoff = cutoffDate ? String(cutoffDate).slice(0, 10) : null;
   (transactions || []).forEach(transaction => {
     if (!transaction) return;
-    const txDate = dateKey(transaction.date);
+    const txDate = String(transaction.date || '').slice(0, 10);
     if (cutoff && txDate && txDate > cutoff) return;
     const status = upper(transaction.status).toLowerCase();
     if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(status)) return;
 
     const deltas = getTransactionLiquidityDeltas(transaction, context);
-
-    // El saldo inicial ya representa la situación contable a su fecha de corte.
-    // Por eso nunca se vuelven a reproducir movimientos anteriores o iguales
-    // a la fecha del saldo inicial de cada cuenta.
-    if (isAfterOpening(txDate, mainCashOpeningDate)) {
-      mainCash += deltas.mainCash;
-    }
+    mainCash += deltas.mainCash;
 
     Object.entries(deltas.customCash).forEach(([id, value]) => {
-      if (!isAfterOpening(txDate, customCashOpeningDates[id])) return;
       customCash[id] = (customCash[id] || 0) + num(value);
     });
-
     Object.entries(deltas.banks).forEach(([id, value]) => {
-      if (!isAfterOpening(txDate, bankOpeningDates[id])) return;
       banks[id] = (banks[id] || 0) + num(value);
     });
-
-    if (isAfterOpening(txDate, investmentOpeningDate)) {
-      investments += deltas.investments;
-    }
+    investments += deltas.investments;
   });
 
   const totalCustomCash = sumObject(customCash);

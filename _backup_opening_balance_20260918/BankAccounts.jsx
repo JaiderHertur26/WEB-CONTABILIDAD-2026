@@ -34,13 +34,7 @@ const BankAccounts = () => {
             const initialBalance = parseFloat(acc.initialBalance || 0);
             const initialInvestmentBalance = parseFloat(acc.initialInvestmentBalance || 0);
             
-            const openingDate = acc.date ? String(acc.date).slice(0, 10) : '';
-
             const movements = transactions.reduce((accBalances, t) => {
-                const txDate = t?.date ? String(t.date).slice(0, 10) : '';
-                if (openingDate && txDate && txDate <= openingDate) return accBalances;
-                if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t?.status || '').toLowerCase())) return accBalances;
-
                 const amount = parseFloat(t.amount);
                 
                 if (t.destination && t.destination.startsWith(acc.id)) {

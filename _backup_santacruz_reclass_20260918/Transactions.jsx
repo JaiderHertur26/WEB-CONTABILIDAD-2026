@@ -279,21 +279,11 @@ const Transactions = () => {
         }
 
         const categoryRows = allocations.map(line => {
-            const normalize = (value) => String(value || '').trim().toUpperCase();
-            const catObj = (accounts || []).find(a => normalize(a.name) === normalize(line.category));
-            const isLegacyAllocation = line.id === 'legacy-allocation';
-
-            // En registros antiguos puede existir un _accountNumber heredado incorrecto.
-            // Si la categoría existe en el PUC, para legacy manda el catálogo vigente.
-            // En distribuciones multicuenta nuevas se conserva el accountNumber explícito.
-            const resolvedCode = isLegacyAllocation
-                ? (catObj?.number || line.accountNumber || (t.type === 'income' ? '4105' : '5105'))
-                : (line.accountNumber || catObj?.number || (t.type === 'income' ? '4105' : '5105'));
-
+            const catObj = (accounts || []).find(a => a.name === line.category);
             return {
                 account: {
-                    code: resolvedCode,
-                    name: catObj?.name || line.category,
+                    code: line.accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')),
+                    name: line.category,
                 },
                 amount: Number(line.amount) || 0,
             };

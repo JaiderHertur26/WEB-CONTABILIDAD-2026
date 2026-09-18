@@ -224,14 +224,8 @@ const CashAccounts = () => {
   const calculateCurrentBalance = (account) => {
     let balance = parseFloat(account.initial_balance) || 0;
     if (!transactions) return balance;
-
-    const openingDate = account.date ? String(account.date).slice(0, 10) : '';
     
     transactions.forEach(t => {
-      const txDate = t?.date ? String(t.date).slice(0, 10) : '';
-      if (openingDate && txDate && txDate <= openingDate) return;
-      if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t?.status || '').toLowerCase())) return;
-
       const amount = parseFloat(t.amount) || 0;
       
       const isMatch = (idStr) => idStr && (idStr.startsWith(account.id) || (account.id === 'caja_principal' && idStr.includes('caja_principal')));

@@ -21,7 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import * as XLSX from 'xlsx';
 
-const cleanPrintedCompanyName = (name) => String(name || '').replace(/MAR[ÍI]A[\s\u00A0]*AUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
+const cleanPrintedCompanyName = (name) => String(name || '').replace(/MARÍAAUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
 
 const numeroALetras = (num) => {
     if (!num || isNaN(num) || num === 0) return 'CERO PESOS';
@@ -142,9 +142,11 @@ const Transactions = () => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
     });
-    const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-    const todayDateKey = format(new Date(), 'yyyy-MM-dd');
-    const effectiveEndDate = endDate > todayDateKey ? todayDateKey : endDate;
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    });
     // Mantenemos selectedYear oculto para no romper otras funciones que lo usan como referencia
     const selectedYear = startDate ? startDate.split('-')[0] : new Date().getFullYear().toString();
     const [viewMode, setViewMode] = useState('balances');
@@ -279,21 +281,11 @@ const Transactions = () => {
         }
 
         const categoryRows = allocations.map(line => {
-            const normalize = (value) => String(value || '').trim().toUpperCase();
-            const catObj = (accounts || []).find(a => normalize(a.name) === normalize(line.category));
-            const isLegacyAllocation = line.id === 'legacy-allocation';
-
-            // En registros antiguos puede existir un _accountNumber heredado incorrecto.
-            // Si la categoría existe en el PUC, para legacy manda el catálogo vigente.
-            // En distribuciones multicuenta nuevas se conserva el accountNumber explícito.
-            const resolvedCode = isLegacyAllocation
-                ? (catObj?.number || line.accountNumber || (t.type === 'income' ? '4105' : '5105'))
-                : (line.accountNumber || catObj?.number || (t.type === 'income' ? '4105' : '5105'));
-
+            const catObj = (accounts || []).find(a => a.name === line.category);
             return {
                 account: {
-                    code: resolvedCode,
-                    name: catObj?.name || line.category,
+                    code: line.accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')),
+                    name: line.category,
                 },
                 amount: Number(line.amount) || 0,
             };
@@ -329,33 +321,8 @@ const Transactions = () => {
         let startBanks = 0;
         let startAportes = 0;
 
-        const normalizeDateKey = (value) => {
-            if (!value) return '';
-            if (typeof value === 'string') {
-                const direct = value.includes('T') ? value.split('T')[0] : value.slice(0, 10);
-                if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
-            }
-            const parsed = new Date(value);
-            if (Number.isNaN(parsed.getTime())) return '';
-            return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
-        };
-        const latestOpeningDate = (items) =>
-            (items || []).map(item => normalizeDateKey(item?.date)).filter(Boolean).sort().pop() || '';
-
-        const relevantInitialBalances = (initialBalances || []).filter(isRelevant);
-        const relevantBankAccounts = (bankAccounts || []).filter(isRelevant);
-
-        relevantInitialBalances.forEach(ib => { startCash += (parseFloat(ib.balance) || 0); });
-        relevantBankAccounts.forEach(ba => {
-            startBanks += (parseFloat(ba.initialBalance) || 0);
-            startAportes += (parseFloat(ba.initialInvestmentBalance) || 0);
-        });
-
-        const cashOpeningDate = latestOpeningDate(relevantInitialBalances);
-        const bankOpeningDate = latestOpeningDate(relevantBankAccounts);
-        const investmentOpeningDate = latestOpeningDate(
-            relevantBankAccounts.filter(ba => Math.abs(parseFloat(ba.initialInvestmentBalance) || 0) > 0.0001)
-        );
+        (initialBalances || []).forEach(ib => { if (isRelevant(ib)) startCash += (parseFloat(ib.balance) || 0); });
+        (bankAccounts || []).forEach(ba => { if (isRelevant(ba)) { startBanks += (parseFloat(ba.initialBalance) || 0); startAportes += (parseFloat(ba.initialInvestmentBalance) || 0); } });
 
         // 🚀 REGLA LÓGICA 1: Ordenamiento cronológico con desempate dinámico
         const sorted = [...transactions].filter(isRelevant).sort((a, b) => {
@@ -381,11 +348,6 @@ const Transactions = () => {
         const calculated = sorted.map(t => {
             const amount = parseFloat(t.amount) || 0;
             const computed = getTransactionTypeAndPrefix(t);
-            const txDateKey = normalizeDateKey(t.date);
-            const validStatus = !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t.status || '').toLowerCase());
-            const canAffectCash = validStatus && (!cashOpeningDate || !txDateKey || txDateKey > cashOpeningDate);
-            const canAffectBanks = validStatus && (!bankOpeningDate || !txDateKey || txDateKey > bankOpeningDate);
-            const canAffectAportes = validStatus && (!investmentOpeningDate || !txDateKey || txDateKey > investmentOpeningDate);
 
             if (t.debitAccount && t.creditAccount) {
                 // 🚀 BLINDAJE: Garantizar que siempre sean strings para evitar Pantalla Blanca
@@ -395,15 +357,15 @@ const Transactions = () => {
                 const crName = String(t.creditAccount.name || 'S/N');
                 let affected = 'none';
 
-                // Aumentos (Débitos), respetando la fecha de apertura de cada saldo.
-                if (drCode.startsWith('1105') && canAffectCash) { runningCash += amount; affected = 'cash'; }
-                else if ((drCode.startsWith('1110') || drCode.startsWith('1120')) && canAffectBanks) { runningBanks += amount; affected = 'banks'; }
-                else if (drCode.startsWith('1295') && canAffectAportes) { runningAportes += amount; affected = 'aportes'; }
+                // Aumentos (Débitos)
+                if (drCode.startsWith('1105')) { runningCash += amount; affected = 'cash'; }
+                else if (drCode.startsWith('1110') || drCode.startsWith('1120')) { runningBanks += amount; affected = 'banks'; }
+                else if (drCode.startsWith('1295')) { runningAportes += amount; affected = 'aportes'; }
 
-                // Disminuciones (Créditos), respetando la fecha de apertura de cada saldo.
-                if (crCode.startsWith('1105') && canAffectCash) { runningCash -= amount; affected = 'cash'; }
-                else if ((crCode.startsWith('1110') || crCode.startsWith('1120')) && canAffectBanks) { runningBanks -= amount; affected = 'banks'; }
-                else if (crCode.startsWith('1295') && canAffectAportes) { runningAportes -= amount; affected = 'aportes'; }
+                // Disminuciones (Créditos)
+                if (crCode.startsWith('1105')) { runningCash -= amount; affected = 'cash'; }
+                else if (crCode.startsWith('1110') || crCode.startsWith('1120')) { runningBanks -= amount; affected = 'banks'; }
+                else if (crCode.startsWith('1295')) { runningAportes -= amount; affected = 'aportes'; }
 
                 return {
                     ...t,
@@ -426,11 +388,11 @@ const Transactions = () => {
                 const fromId = fromParts[0];
                 const toId = toParts[0];
 
-                if ((fromId === 'caja_principal' || fromParts[1]?.toUpperCase().includes('CAJA PRINCIPAL')) && canAffectCash) runningCash -= amount;
-                else if (bankAccounts && bankAccounts.some(b => b.id === fromId) && canAffectBanks) runningBanks -= amount;
+                if (fromId === 'caja_principal' || fromParts[1]?.toUpperCase().includes('CAJA PRINCIPAL')) runningCash -= amount;
+                else if (bankAccounts && bankAccounts.some(b => b.id === fromId)) runningBanks -= amount;
 
-                if ((toId === 'caja_principal' || toParts[1]?.toUpperCase().includes('CAJA PRINCIPAL')) && canAffectCash) runningCash += amount;
-                else if (bankAccounts && bankAccounts.some(b => b.id === toId) && canAffectBanks) runningBanks += amount;
+                if (toId === 'caja_principal' || toParts[1]?.toUpperCase().includes('CAJA PRINCIPAL')) runningCash += amount;
+                else if (bankAccounts && bankAccounts.some(b => b.id === toId)) runningBanks += amount;
 
                 return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: 'TRANSFER', _destName: toParts[1] || t.toAccount, _affectedColumn: 'none', _isPending: false, voucherPrefix: computed.prefix, _intelligentType: computed.type };
             }
@@ -463,20 +425,20 @@ const Transactions = () => {
             if (isPending) {
                 affectedColumn = 'pending';
             } else if (t.type === 'expense') {
-                if (isCashDestination && canAffectCash) { runningCash -= amount; affectedColumn = 'cash'; }
-                else if (bankAccounts && bankAccounts.some(b => b.id === destId) && canAffectBanks) { runningBanks -= amount; affectedColumn = 'banks'; }
+                if (isCashDestination) { runningCash -= amount; affectedColumn = 'cash'; }
+                else if (bankAccounts && bankAccounts.some(b => b.id === destId)) { runningBanks -= amount; affectedColumn = 'banks'; }
             } else {
                 if (isAportesCategory) {
                     const aportesValue = destId === '12950501' ? amount : aportesAmount;
                     const regularValue = Math.max(0, amount - aportesValue);
-                    if (canAffectAportes) runningAportes += aportesValue;
+                    runningAportes += aportesValue;
                     if (regularValue > 0) {
-                        if (isCashDestination && canAffectCash) runningCash += regularValue;
-                        else if (bankAccounts && bankAccounts.some(b => b.id === destId) && canAffectBanks) runningBanks += regularValue;
+                        if (isCashDestination) runningCash += regularValue;
+                        else if (bankAccounts && bankAccounts.some(b => b.id === destId)) runningBanks += regularValue;
                     }
                     affectedColumn = regularValue > 0 ? 'multiple' : 'aportes';
-                } else if (isCashDestination && canAffectCash) { runningCash += amount; affectedColumn = 'cash'; }
-                else if (bankAccounts && bankAccounts.some(b => b.id === destId) && canAffectBanks) { runningBanks += amount; affectedColumn = 'banks'; }
+                } else if (isCashDestination) { runningCash += amount; affectedColumn = 'cash'; }
+                else if (bankAccounts && bankAccounts.some(b => b.id === destId)) { runningBanks += amount; affectedColumn = 'banks'; }
             }
 
             return { ...t, _calculatedCash: runningCash, _calculatedBanks: runningBanks, _calculatedAportes: runningAportes, _accountNumber: accountNumber, _categoryLabel: categoryLabel, _destName: isPending ? '(Pendiente)' : destName, _affectedColumn: affectedColumn, _isPending: isPending, voucherPrefix: computed.prefix, _intelligentType: computed.type };
@@ -544,7 +506,7 @@ const Transactions = () => {
         result = result.filter(t => {
             if (!t.date) return false;
             const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
-            return tDate >= startDate && tDate <= effectiveEndDate;
+            return tDate >= startDate && tDate <= endDate;
         });
 
         // Filtro de Tipo de Transacción
@@ -577,7 +539,7 @@ const Transactions = () => {
         
         result.sort((a, b) => new Date(a.date) - new Date(b.date));
         setFilteredTransactions(result);
-    }, [processedTransactions, searchTerm, filterType, startDate, effectiveEndDate, accountFilters]);
+    }, [processedTransactions, searchTerm, filterType, startDate, endDate, accountFilters]);
 
     const getDisplayTransactions = () => {
         const groups = [];
@@ -1177,7 +1139,7 @@ const Transactions = () => {
               <body class="bg-white p-8">
                   <div class="border-b-2 border-black pb-4 mb-6 flex justify-between items-end">
                       <div>
-                          <h1 class="text-2xl font-black uppercase text-black tracking-tight">${cleanPrintedCompanyName(activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO")}</h1>
+                          <h1 class="text-2xl font-black uppercase text-black tracking-tight">${activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO"}</h1>
                           <p class="text-sm font-semibold text-black mt-1">NIT: ${activeCompany?.doc || "802012765"} | ${activeCompany?.address || "CRA 9G # 77 - 42"}</p>
                       </div>
                       <div class="text-right">
@@ -1217,14 +1179,14 @@ const Transactions = () => {
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
         // 🚀 Validación Legal: Máximo 31 días
-        const diffDays = differenceInDays(new Date(effectiveEndDate), new Date(startDate));
+        const diffDays = differenceInDays(new Date(endDate), new Date(startDate));
         if (diffDays > 31 || diffDays < 0) {
             toast({ variant: 'destructive', title: "Rango Inválido", description: "El Libro Diario no puede generarse por un periodo mayor a 31 días continuos según normativa." });
             setIsPrinting(false);
             return;
         }
 
-        const periodText = `DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(effectiveEndDate)}`;
+        const periodText = `DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}`;
 
         // Generar filas del Libro Diario (Partida Doble Estricta)
         let totalDebit = 0;
@@ -1650,7 +1612,7 @@ const Transactions = () => {
                     if (isLiquidityCode(codeStr)) return;
                     if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
                     else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
-                } else if (tDate >= startDate && tDate <= effectiveEndDate) {
+                } else if (tDate >= startDate && tDate <= endDate) {
                     if (isDebitEntry) mayor[codeStr].debito += amount;
                     else mayor[codeStr].credito += amount;
                 }
@@ -1675,7 +1637,7 @@ const Transactions = () => {
                 return acc;
             })
             .sort((a, b) => a.code.localeCompare(b.code));
-    }, [processedTransactions, transactions, accounts, initialBalances, bankAccounts, cashAccounts, startDate, effectiveEndDate, isRelevant]);
+    }, [processedTransactions, transactions, accounts, initialBalances, bankAccounts, cashAccounts, startDate, endDate, isRelevant]);
 
     const handlePrintMayorPdf = () => {
         if (libroMayorData.length === 0) { 
@@ -1765,7 +1727,7 @@ const Transactions = () => {
                       <p class="header-title">${companyName}</p>
                       <p class="header-sub">NIT: ${companyNit}</p>
                       <p class="header-center-title">LIBRO MAYOR Y DE BALANCES</p>
-                      <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(effectiveEndDate)}</p>
+                      <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}</p>
                   </div>
                   
                   <table>
@@ -1921,8 +1883,7 @@ const Transactions = () => {
                                     type="date" 
                                     className="text-xs px-2 py-1.5 outline-none text-slate-700 font-mono bg-transparent" 
                                     value={endDate} 
-                                    max={todayDateKey}
-                                    onChange={(e) => setEndDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)}
+                                    onChange={(e) => setEndDate(e.target.value)}
                                     title="Fecha Final"
                                 />
                             </div>
@@ -2670,12 +2631,7 @@ const Transactions = () => {
                                                 return new Date(a.date) - new Date(b.date);
                                             });
 
-                                            // 3. Renderizar calculando el saldo continuo por cuenta.
-                                            // El saldo anterior viene del mismo Libro Mayor para que ambos libros concilien.
-                                            const openingBalancesByCode = libroMayorData.reduce((map, acc) => {
-                                                map[String(acc.code)] = Number(acc.saldoAnterior) || 0;
-                                                return map;
-                                            }, {});
+                                            // 3. Renderizar calculando el saldo continuo por cuenta
                                             const runningBalances = {};
                                             const rowsToRender = [];
                                             let currentAccount = null;
@@ -2687,26 +2643,6 @@ const Transactions = () => {
                                                         rowsToRender.push(<tr key={`sep-${index}`}><td colSpan="8" className="bg-slate-200 h-1"></td></tr>);
                                                     }
                                                     currentAccount = row.pCode;
-                                                    const openingBalance = openingBalancesByCode[row.pCode] || 0;
-                                                    runningBalances[row.pCode] = openingBalance;
-
-                                                    if (Math.abs(openingBalance) > 0.01) {
-                                                        rowsToRender.push(
-                                                            <tr key={`opening-${row.pCode}`} className="bg-amber-50 border-y border-amber-200 font-semibold">
-                                                                <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(startDate)}</td>
-                                                                <td className="py-2 px-1 font-mono text-amber-700 whitespace-nowrap">SALDO</td>
-                                                                <td className="py-2 px-1">
-                                                                    <span className="font-bold text-slate-800 block">{row.pCode}</span>
-                                                                    <span className="uppercase text-slate-500 text-[10px]">{row.pName}</span>
-                                                                </td>
-                                                                <td className="py-2 px-1 text-slate-500">-</td>
-                                                                <td className="py-2 px-1 text-amber-800">SALDO ANTERIOR AL PERÍODO</td>
-                                                                <td className="py-2 px-1 text-right text-slate-400">-</td>
-                                                                <td className="py-2 px-1 text-right text-slate-400">-</td>
-                                                                <td className="py-2 px-1 text-right font-mono font-bold text-amber-800">{openingBalance.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
-                                                            </tr>
-                                                        );
-                                                    }
                                                 }
 
                                                 const isDebitNature = ['1', '5', '6', '8'].includes(row.pCode.charAt(0));

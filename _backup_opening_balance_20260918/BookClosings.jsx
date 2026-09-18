@@ -41,17 +41,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const BookClosings = () => {
-    const { activeCompany, isConsolidated, companies } = useCompany();
-
-    const isRelevantCompany = React.useCallback((item) => {
-        if (!item) return false;
-        const cid = item.company_id || item._companyId || item.companyId;
-        if (!isConsolidated) return !cid || String(cid) === String(activeCompany?.id);
-        const relevantIds = (companies || [])
-            .filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id)
-            .map(c => String(c.id));
-        return !cid || relevantIds.includes(String(cid));
-    }, [activeCompany, isConsolidated, companies]);
+    const { activeCompany } = useCompany();
     const [activeTab, setActiveTab] = useState('day');
     const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth()));
@@ -86,11 +76,11 @@ const BookClosings = () => {
 
 
     const availableYears = React.useMemo(() => {
-        const years = new Set((transactions || []).filter(isRelevantCompany).map(t => new Date(t.date).getFullYear()));
+        const years = new Set((transactions || []).map(t => new Date(t.date).getFullYear()));
         const current = new Date().getFullYear();
         years.add(current);
         return Array.from(years).sort((a, b) => b - a).map(String);
-    }, [transactions, isRelevantCompany]);
+    }, [transactions]);
 
     const calculateRange = () => {
         let start, end;
@@ -109,23 +99,11 @@ const BookClosings = () => {
                 const monthDate = new Date(parseInt(selectedYear), parseInt(selectedMonth), 1);
                 start = startOfMonth(monthDate);
                 end = endOfMonth(monthDate);
-                // En el mes en curso el cierre llega solo hasta hoy, nunca al último día futuro del mes.
-                if (
-                    parseInt(selectedYear) === new Date().getFullYear() &&
-                    parseInt(selectedMonth) === new Date().getMonth() &&
-                    end > new Date()
-                ) {
-                    end = new Date();
-                }
                 break;
             case 'year':
                 const yearDate = new Date(parseInt(selectedYear), 0, 1);
                 start = startOfYear(yearDate);
                 end = endOfYear(yearDate);
-                // En el año en curso el cierre llega solo hasta hoy, nunca hasta meses futuros.
-                if (parseInt(selectedYear) === new Date().getFullYear() && end > new Date()) {
-                    end = new Date();
-                }
                 break;
             case 'custom':
                 start = parseISO(customStart);
@@ -156,11 +134,10 @@ const BookClosings = () => {
         }
 
         const allRelevantBase = transactions.filter(t => {
-            if (!isRelevantCompany(t)) return false;
             const dateObj = new Date(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
-            const isValidStatus = !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t.status || '').toLowerCase());
+            const isValidStatus = !['eliminado', 'anulado', 'cancelado'].includes(t.status?.toLowerCase());
             return isWithinInterval(adjustedDate, { start, end }) && isValidStatus;
         });
         const allRelevant = expandTransactionsByAllocation(allRelevantBase);
@@ -686,7 +663,6 @@ const BookClosings = () => {
         const currentYear = end.getFullYear();
 
         const baseValidTransactions = (transactions || []).filter(t =>
-            isRelevantCompany(t) &&
             !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t.status || '').toLowerCase())
         );
         const validTransactions = expandTransactionsByAllocation(baseValidTransactions);

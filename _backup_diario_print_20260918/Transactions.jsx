@@ -21,7 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import * as XLSX from 'xlsx';
 
-const cleanPrintedCompanyName = (name) => String(name || '').replace(/MAR[ÍI]A[\s\u00A0]*AUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
+const cleanPrintedCompanyName = (name) => String(name || '').replace(/MARÍAAUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
 
 const numeroALetras = (num) => {
     if (!num || isNaN(num) || num === 0) return 'CERO PESOS';
@@ -142,9 +142,11 @@ const Transactions = () => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
     });
-    const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-    const todayDateKey = format(new Date(), 'yyyy-MM-dd');
-    const effectiveEndDate = endDate > todayDateKey ? todayDateKey : endDate;
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    });
     // Mantenemos selectedYear oculto para no romper otras funciones que lo usan como referencia
     const selectedYear = startDate ? startDate.split('-')[0] : new Date().getFullYear().toString();
     const [viewMode, setViewMode] = useState('balances');
@@ -279,21 +281,11 @@ const Transactions = () => {
         }
 
         const categoryRows = allocations.map(line => {
-            const normalize = (value) => String(value || '').trim().toUpperCase();
-            const catObj = (accounts || []).find(a => normalize(a.name) === normalize(line.category));
-            const isLegacyAllocation = line.id === 'legacy-allocation';
-
-            // En registros antiguos puede existir un _accountNumber heredado incorrecto.
-            // Si la categoría existe en el PUC, para legacy manda el catálogo vigente.
-            // En distribuciones multicuenta nuevas se conserva el accountNumber explícito.
-            const resolvedCode = isLegacyAllocation
-                ? (catObj?.number || line.accountNumber || (t.type === 'income' ? '4105' : '5105'))
-                : (line.accountNumber || catObj?.number || (t.type === 'income' ? '4105' : '5105'));
-
+            const catObj = (accounts || []).find(a => a.name === line.category);
             return {
                 account: {
-                    code: resolvedCode,
-                    name: catObj?.name || line.category,
+                    code: line.accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')),
+                    name: line.category,
                 },
                 amount: Number(line.amount) || 0,
             };
@@ -544,7 +536,7 @@ const Transactions = () => {
         result = result.filter(t => {
             if (!t.date) return false;
             const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
-            return tDate >= startDate && tDate <= effectiveEndDate;
+            return tDate >= startDate && tDate <= endDate;
         });
 
         // Filtro de Tipo de Transacción
@@ -577,7 +569,7 @@ const Transactions = () => {
         
         result.sort((a, b) => new Date(a.date) - new Date(b.date));
         setFilteredTransactions(result);
-    }, [processedTransactions, searchTerm, filterType, startDate, effectiveEndDate, accountFilters]);
+    }, [processedTransactions, searchTerm, filterType, startDate, endDate, accountFilters]);
 
     const getDisplayTransactions = () => {
         const groups = [];
@@ -1177,7 +1169,7 @@ const Transactions = () => {
               <body class="bg-white p-8">
                   <div class="border-b-2 border-black pb-4 mb-6 flex justify-between items-end">
                       <div>
-                          <h1 class="text-2xl font-black uppercase text-black tracking-tight">${cleanPrintedCompanyName(activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO")}</h1>
+                          <h1 class="text-2xl font-black uppercase text-black tracking-tight">${activeCompany?.name || "PARROQUIA PADRE MISERICORDIOSO"}</h1>
                           <p class="text-sm font-semibold text-black mt-1">NIT: ${activeCompany?.doc || "802012765"} | ${activeCompany?.address || "CRA 9G # 77 - 42"}</p>
                       </div>
                       <div class="text-right">
@@ -1217,14 +1209,14 @@ const Transactions = () => {
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
         // 🚀 Validación Legal: Máximo 31 días
-        const diffDays = differenceInDays(new Date(effectiveEndDate), new Date(startDate));
+        const diffDays = differenceInDays(new Date(endDate), new Date(startDate));
         if (diffDays > 31 || diffDays < 0) {
             toast({ variant: 'destructive', title: "Rango Inválido", description: "El Libro Diario no puede generarse por un periodo mayor a 31 días continuos según normativa." });
             setIsPrinting(false);
             return;
         }
 
-        const periodText = `DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(effectiveEndDate)}`;
+        const periodText = `DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}`;
 
         // Generar filas del Libro Diario (Partida Doble Estricta)
         let totalDebit = 0;
@@ -1650,7 +1642,7 @@ const Transactions = () => {
                     if (isLiquidityCode(codeStr)) return;
                     if (isDebitEntry) mayor[codeStr].saldoAnterior += (isDebitNature ? amount : -amount);
                     else mayor[codeStr].saldoAnterior += (isDebitNature ? -amount : amount);
-                } else if (tDate >= startDate && tDate <= effectiveEndDate) {
+                } else if (tDate >= startDate && tDate <= endDate) {
                     if (isDebitEntry) mayor[codeStr].debito += amount;
                     else mayor[codeStr].credito += amount;
                 }
@@ -1675,7 +1667,7 @@ const Transactions = () => {
                 return acc;
             })
             .sort((a, b) => a.code.localeCompare(b.code));
-    }, [processedTransactions, transactions, accounts, initialBalances, bankAccounts, cashAccounts, startDate, effectiveEndDate, isRelevant]);
+    }, [processedTransactions, transactions, accounts, initialBalances, bankAccounts, cashAccounts, startDate, endDate, isRelevant]);
 
     const handlePrintMayorPdf = () => {
         if (libroMayorData.length === 0) { 
@@ -1765,7 +1757,7 @@ const Transactions = () => {
                       <p class="header-title">${companyName}</p>
                       <p class="header-sub">NIT: ${companyNit}</p>
                       <p class="header-center-title">LIBRO MAYOR Y DE BALANCES</p>
-                      <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(effectiveEndDate)}</p>
+                      <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(endDate)}</p>
                   </div>
                   
                   <table>
@@ -1921,8 +1913,7 @@ const Transactions = () => {
                                     type="date" 
                                     className="text-xs px-2 py-1.5 outline-none text-slate-700 font-mono bg-transparent" 
                                     value={endDate} 
-                                    max={todayDateKey}
-                                    onChange={(e) => setEndDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)}
+                                    onChange={(e) => setEndDate(e.target.value)}
                                     title="Fecha Final"
                                 />
                             </div>
