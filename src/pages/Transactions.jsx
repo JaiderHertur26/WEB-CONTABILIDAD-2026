@@ -83,6 +83,12 @@ const formatSafeDate = (dateStr) => {
 };
 
 const getTransactionTypeAndPrefix = (t) => {
+    if (t?.isStoreSale) return { type: 'income', prefix: 'I' };
+    if (t?.isStorePurchase) return { type: 'expense', prefix: 'E' };
+    if (t?.isBankReconciliation && t?.type === 'income') return { type: 'income', prefix: 'I' };
+    if (t?.isBankReconciliation && t?.type === 'expense') return { type: 'expense', prefix: 'E' };
+    if (t?.isInventoryCostEntry) return { type: 'adjustment', prefix: 'A' };
+
     const checkCashOrBank = (codeStr, nameStr) => {
         const c = String(codeStr || '').trim();
         const n = String(nameStr || '').toUpperCase().trim();
@@ -120,7 +126,9 @@ const Transactions = () => {
     const [bankAccounts] = useCompanyData('bankAccounts');
     const [cashAccounts] = useCompanyData('cash_accounts');
     const [inventory, saveInventory] = useCompanyData('inventory');
-    const [contacts] = useCompanyData('contacts'); 
+    const [contacts] = useCompanyData('contacts');
+    const [invoices] = useCompanyData('invoices');
+    const [purchaseInvoices] = useCompanyData('purchase_invoices');
 
     const [billingDocuments, saveBillingDocuments] = useCompanyData('billing_documents');
     const [autoBillingCategories, setAutoBillingCategories] = useCompanyData('auto_billing_categories');
@@ -193,6 +201,20 @@ const Transactions = () => {
     const transactionsMap = useMemo(() => {
         return new Map((transactions || []).map(t => [t.id, t]));
     }, [transactions]);
+
+    const invoicedTransactionIds = useMemo(() => new Set(
+        [...(invoices || []), ...(purchaseInvoices || [])]
+            .flatMap(inv => inv.sourceTransactionIds || (inv.items || []).map(item => item.id))
+            .filter(Boolean)
+    ), [invoices, purchaseInvoices]);
+
+    const isSystemManagedTransaction = (transaction) => Boolean(
+        transaction?.isStoreSale ||
+        transaction?.isStorePurchase ||
+        transaction?.isInventoryCostEntry ||
+        transaction?.isBankReconciliation ||
+        transaction?.isInitialStock
+    );
 
     const availableYears = useMemo(() => {
         const filteredTrans = (transactions || []).filter(isRelevant);
@@ -761,6 +783,14 @@ const Transactions = () => {
     const handleSaveTransaction = (transactionData) => {
         if (!canAdd && !editingTransaction) return;
         if (!canEdit && editingTransaction) return;
+        if (editingTransaction && (isSystemManagedTransaction(editingTransaction) || invoicedTransactionIds.has(editingTransaction.id))) {
+            toast({
+                variant:'destructive',
+                title:'Movimiento protegido',
+                description:'Este movimiento proviene de Tienda, Inventario, Conciliación o ya fue facturado. Corrígelo desde su módulo de origen para conservar la trazabilidad.'
+            });
+            return;
+        }
 
         // 🚀 REGLA LÓGICA 2: Middleware de restricción para evitar saldo negativo en Caja Principal
         const isExpense = transactionData.type === 'expense' && !transactionData.isInternalTransfer;
@@ -922,6 +952,14 @@ const Transactions = () => {
         const transactionToDelete = transactions.find(t => t.id === id);
         if (!transactionToDelete) return;
 
+        const linkedInvoice = [...(invoices || []), ...(purchaseInvoices || [])].find(inv =>
+            (inv.sourceTransactionIds || []).includes(id) || (inv.items || []).some(item => item.id === id)
+        );
+        if (linkedInvoice) {
+            toast({ variant:'destructive', title:'Transacción facturada', description:`No puede eliminarse porque pertenece a ${linkedInvoice.invoiceNumber || 'un documento emitido'}. Elimina primero ese documento desde Facturas.` });
+            return;
+        }
+
         let transactionsToDeleteIds = [id];
         const assetToDelete = (fixedAssets || []).find(a => a.transactionId === id);
         if (assetToDelete) saveFixedAssets(fixedAssets.filter(a => a.id !== assetToDelete.id));
@@ -949,6 +987,35 @@ const Transactions = () => {
             }
         }
 
+        const relatedInvoice = [...(invoices || []), ...(purchaseInvoices || [])].find(inv =>
+            (inv.sourceTransactionIds || []).some(txId => transactionsToDeleteIds.includes(txId)) ||
+            (inv.items || []).some(item => transactionsToDeleteIds.includes(item.id))
+        );
+        if (relatedInvoice) {
+            toast({ variant:'destructive', title:'Movimiento vinculado a factura', description:`No puede eliminarse porque el conjunto contable pertenece a ${relatedInvoice.invoiceNumber || 'un documento emitido'}.` });
+            return;
+        }
+
+        const stockChanging = tx => Boolean(tx?.isStoreSale || tx?.isStorePurchase || tx?.isInitialStock);
+        for (const txId of transactionsToDeleteIds) {
+            const tx = transactions.find(t => t.id === txId);
+            if (!stockChanging(tx) || !tx.productId) continue;
+            const currentIndex = transactions.findIndex(t => t.id === txId);
+            const hasLaterStockMovement = transactions.slice(currentIndex + 1).some(other =>
+                !transactionsToDeleteIds.includes(other.id) &&
+                String(other.productId || '') === String(tx.productId) &&
+                stockChanging(other)
+            );
+            if (hasLaterStockMovement) {
+                toast({
+                    variant:'destructive',
+                    title:'Movimiento histórico protegido',
+                    description:'Este producto tiene compras o ventas posteriores. Anula primero los movimientos posteriores para conservar cantidades y costo promedio.'
+                });
+                return;
+            }
+        }
+
         let updatedInventory = [...(inventory || [])];
         let inventoryChanged = false;
 
@@ -960,7 +1027,13 @@ const Transactions = () => {
                     const product = { ...updatedInventory[productIndex] };
                     const qty = parseFloat(tx.productQuantity);
 
-                    if (tx.isPurchase || (tx.type === 'expense' && tx.isPurchase)) {
+                    if (tx.isStorePurchase) {
+                        const hasPreviousQty = tx.previousQuantity !== undefined && tx.previousQuantity !== null && Number.isFinite(Number(tx.previousQuantity));
+                        const hasPreviousCost = tx.previousUnitCost !== undefined && tx.previousUnitCost !== null && Number.isFinite(Number(tx.previousUnitCost));
+                        product.quantity = hasPreviousQty ? Number(tx.previousQuantity) : (parseFloat(product.quantity) - qty);
+                        if (hasPreviousCost) product.unit_cost = Number(tx.previousUnitCost);
+                        inventoryChanged = true;
+                    } else if (tx.isPurchase || (tx.type === 'expense' && tx.isPurchase)) {
                         product.quantity = parseFloat(product.quantity) - qty;
                         inventoryChanged = true;
                     } else if (tx.isInitialStock || (tx.type === 'adjustment' && !tx.isPurchase)) {
@@ -2633,7 +2706,8 @@ const Transactions = () => {
 
                                                         {!t.isLocked ? (
                                                             <>
-                                                                {(canEdit || canAdd) && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }}><Edit2 className="w-3 h-3" /></Button>}
+                                                                {(canEdit || canAdd) && !isSystemManagedTransaction(t) && !invoicedTransactionIds.has(t.id) && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }} title="Editar transacción"><Edit2 className="w-3 h-3" /></Button>}
+                                                                {(isSystemManagedTransaction(t) || invoicedTransactionIds.has(t.id)) && <Lock className="w-3 h-3 text-slate-300 mx-1" title="Movimiento protegido por trazabilidad" />}
                                                                 {canDelete && <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => handleDelete(t.id)}><Trash2 className="w-3 h-3" /></Button>}
                                                             </>
                                                         ) : (
@@ -3640,21 +3714,109 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
         }
     }, [open]);
 
+    const cleanBankNumber = (value) => {
+        if (value == null || value === '') return 0;
+        if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+        let text = String(value).trim();
+        const negative = /^\(.*\)$/.test(text) || /^-/.test(text);
+        text = text.replace(/[()$€£\s]/g, '').replace(/[^0-9,.-]/g, '');
+        const lastComma = text.lastIndexOf(',');
+        const lastDot = text.lastIndexOf('.');
+        if (lastComma >= 0 && lastDot >= 0) {
+            if (lastComma > lastDot) text = text.replace(/\./g, '').replace(',', '.');
+            else text = text.replace(/,/g, '');
+        } else if (lastComma >= 0) {
+            const decimals = text.length - lastComma - 1;
+            text = decimals > 0 && decimals <= 2 ? text.replace(/\./g, '').replace(',', '.') : text.replace(/,/g, '');
+        } else if (lastDot >= 0) {
+            const decimals = text.length - lastDot - 1;
+            if ((text.match(/\./g) || []).length > 1 || decimals === 3) {
+                text = text.replace(/\./g, '');
+            }
+        }
+        const number = Math.abs(parseFloat(text) || 0);
+        return negative ? -number : number;
+    };
+
+    const parseBankDate = (value) => {
+        if (!value) return null;
+        if (value instanceof Date && isValid(value)) return value;
+        if (typeof value === 'number') {
+            const parsed = XLSX.SSF.parse_date_code(value);
+            if (parsed) return new Date(parsed.y, parsed.m - 1, parsed.d);
+        }
+        const text = String(value).trim().split(' ')[0];
+        const iso = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+        if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+        const local = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+        if (local) return new Date(Number(local[3]), Number(local[2]) - 1, Number(local[1]));
+        const localShort = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$/);
+        if (localShort) {
+            const yy = Number(localShort[3]);
+            return new Date(yy >= 70 ? 1900 + yy : 2000 + yy, Number(localShort[2]) - 1, Number(localShort[1]));
+        }
+        const parsed = new Date(text);
+        return isValid(parsed) ? parsed : null;
+    };
+
+    const selectedBankInfo = () => {
+        const bankId = String(selectedBank || '').split('|')[0];
+        const bank = (bankAccounts || []).find(b => String(b.id) === bankId);
+        return {
+            id: bankId,
+            name: bank?.bankName || String(selectedBank || '').split('|')[1] || 'BANCO',
+            code: bank?.accountingCode || '1110',
+        };
+    };
+
+    const transactionBankDirection = (transaction) => {
+        const bank = selectedBankInfo();
+        const sameAccount = account => {
+            if (!account) return false;
+            const code = String(account.code || '').trim();
+            const name = String(account.name || '').trim().toLowerCase();
+            const bankCode = String(bank.code || '').trim();
+            const bankName = String(bank.name || '').trim().toLowerCase();
+            const codeIsUnique = bankCode && (bankAccounts || []).filter(b => String(b.accountingCode || '1110').trim() === bankCode).length <= 1;
+            return name === bankName || (code === bankCode && codeIsUnique);
+        };
+        if (sameAccount(transaction?.debitAccount)) return 'income';
+        if (sameAccount(transaction?.creditAccount)) return 'expense';
+        const destinationId = String(transaction?.destination || '').split('|')[0];
+        const fromId = String(transaction?.fromAccount || '').split('|')[0];
+        const toId = String(transaction?.toAccount || '').split('|')[0];
+        if (destinationId === bank.id && ['income','expense'].includes(transaction?.type)) return transaction.type;
+        if (fromId === bank.id) return 'expense';
+        if (toId === bank.id) return 'income';
+        return null;
+    };
+
+    const reconciliationFingerprint = row =>
+        [selectedBankInfo().id, row.date, row.type, Number(row.amount || 0).toFixed(2), String(row.description || '').trim().toLowerCase().replace(/\s+/g,' ')].join('|');
+
     const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        if (!selectedBank) {
+            toast({ variant:'destructive', title:'Selecciona el banco', description:'Primero indica a qué cuenta bancaria pertenece el extracto.' });
+            e.target.value = '';
+            return;
+        }
 
         const reader = new FileReader();
         reader.onload = (evt) => {
             try {
                 const bstr = evt.target.result;
-                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
                 const wsname = wb.SheetNames[0];
                 const ws = wb.Sheets[wsname];
-                const data = XLSX.utils.sheet_to_json(ws, { raw: false, defval: null });
+                const data = XLSX.utils.sheet_to_json(ws, { raw: true, defval: null });
                 processBankData(data);
             } catch (error) {
+                console.error(error);
                 toast({ variant: 'destructive', title: "Error al leer archivo", description: "Asegúrate de que sea un archivo Excel (.xlsx o .xls) o CSV válido." });
+            } finally {
+                e.target.value = '';
             }
         };
         reader.readAsBinaryString(file);
@@ -3662,68 +3824,72 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
 
     const processBankData = (data) => {
         const missingTransactions = [];
-        const tempVouchers = {};
+        const matchedTransactionIds = new Set();
+        const seenFingerprints = new Set();
 
         data.forEach((row, index) => {
-            const dateStr = row['Fecha'] || row['Date'] || row['FECHA'] || row['fecha'] || '';
-            const desc = row['Clase de Movimiento'] || row['Concepto'] || row['Descripción'] || row['Descripcion'] || row['Detalle'] || 'Movimiento Importado';
+            const dateStr = row['Fecha'] ?? row['Date'] ?? row['FECHA'] ?? row['fecha'] ?? row['Fecha Movimiento'] ?? row['Fecha de Movimiento'] ?? row['FECHA MOVIMIENTO'] ?? '';
+            const desc = String(row['Clase de Movimiento'] ?? row['Concepto'] ?? row['Descripción'] ?? row['Descripcion'] ?? row['Detalle'] ?? row['Referencia'] ?? row['Movimiento'] ?? 'Movimiento Importado');
 
-            const cleanNumber = (val) => {
-                if (!val) return 0;
-                if (typeof val === 'number') return val;
-                return parseFloat(val.replace(/[^0-9.-]+/g, "")) || 0;
-            };
-
-            const amountIn = cleanNumber(row['Consignacion'] || row['Abono'] || row['Ingreso'] || row['Crédito']);
-            const amountOut = cleanNumber(row['Retiro'] || row['Cargo'] || row['Egreso'] || row['Débito']);
-
-            const rawAmount = cleanNumber(row['Monto'] || row['Valor'] || row['Saldo']);
+            const amountIn = cleanBankNumber(row['Consignacion'] ?? row['Consignación'] ?? row['Consignaciones'] ?? row['Abono'] ?? row['Abonos'] ?? row['Ingreso'] ?? row['Ingresos'] ?? row['Crédito'] ?? row['Credito'] ?? row['Créditos'] ?? row['Creditos']);
+            const amountOut = cleanBankNumber(row['Retiro'] ?? row['Retiros'] ?? row['Cargo'] ?? row['Cargos'] ?? row['Egreso'] ?? row['Egresos'] ?? row['Débito'] ?? row['Debito'] ?? row['Débitos'] ?? row['Debitos']);
+            const rawAmount = cleanBankNumber(row['Monto'] ?? row['Valor'] ?? row['Importe'] ?? row['Amount']);
+            const typeHint = String(row['Tipo'] ?? row['Naturaleza'] ?? row['Tipo Movimiento'] ?? row['Tipo de Movimiento'] ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
             let finalAmount = 0;
             let type = 'income';
 
-            if (amountIn > 0) { finalAmount = amountIn; type = 'income'; }
-            else if (amountOut > 0) { finalAmount = amountOut; type = 'expense'; }
+            if (amountIn !== 0) { finalAmount = Math.abs(amountIn); type = 'income'; }
+            else if (amountOut !== 0) { finalAmount = Math.abs(amountOut); type = 'expense'; }
             else if (rawAmount !== 0) {
                 finalAmount = Math.abs(rawAmount);
-                type = rawAmount > 0 ? 'income' : 'expense';
+                if (typeHint.includes('debito') || typeHint.includes('cargo') || typeHint.includes('retiro') || typeHint.includes('egreso')) {
+                    type = 'expense';
+                } else if (typeHint.includes('credito') || typeHint.includes('abono') || typeHint.includes('consign') || typeHint.includes('ingreso')) {
+                    type = 'income';
+                } else {
+                    type = rawAmount > 0 ? 'income' : 'expense';
+                }
             }
 
             if (finalAmount === 0 || !dateStr) return;
 
-            let parsedDate = null;
-            try {
-                const cleanDateStr = dateStr.replace(/\//g, '-');
-                parsedDate = new Date(cleanDateStr);
-                if (isNaN(parsedDate)) throw new Error('Invalid Date');
-            } catch (e) {
-                parsedDate = new Date(); 
+            const parsedDate = parseBankDate(dateStr);
+            if (!parsedDate || !isValid(parsedDate)) return;
+
+            const finalDateStr = format(parsedDate, 'yyyy-MM-dd');
+            const candidate = {
+                id: `import-${index}`,
+                date: finalDateStr,
+                description: desc.substring(0, 100),
+                amount: finalAmount,
+                type,
+                originalRow: row
+            };
+            candidate.fingerprint = reconciliationFingerprint(candidate);
+            if (seenFingerprints.has(candidate.fingerprint)) return;
+            seenFingerprints.add(candidate.fingerprint);
+
+            const exactImported = (transactions || []).find(t =>
+                t.bankReconciliationFingerprint &&
+                t.bankReconciliationFingerprint === candidate.fingerprint
+            );
+            if (exactImported) {
+                matchedTransactionIds.add(exactImported.id);
+                return;
             }
 
-            const isMatched = (transactions || []).some(t => {
-                if (t.type !== type) return false;
+            const matched = (transactions || []).find(t => {
+                if (matchedTransactionIds.has(t.id)) return false;
+                if (transactionBankDirection(t) !== type) return false;
                 const dbAmount = parseFloat(t.amount);
-                const diffAmount = Math.abs(dbAmount - finalAmount);
-                if (diffAmount > 1) return false; 
-
+                if (Math.abs(dbAmount - finalAmount) > 1) return false;
                 const tDate = parseAccountingDate(t.date);
-                const diffDays = Math.abs(differenceInDays(parsedDate, tDate));
-                if (diffDays > 3) return false; 
-
-                return true; 
+                return Math.abs(differenceInDays(parsedDate, tDate)) <= 3;
             });
 
-            if (!isMatched) {
-                const finalDateStr = isValid(parsedDate) ? format(parsedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
-                missingTransactions.push({
-                    id: `import-${index}`,
-                    date: finalDateStr,
-                    description: desc.substring(0, 100), 
-                    amount: finalAmount,
-                    type: type,
-                    originalRow: row 
-                });
-            }
+            if (matched) matchedTransactionIds.add(matched.id);
+            else missingTransactions.push(candidate);
         });
 
         if (missingTransactions.length === 0) {
@@ -3736,13 +3902,13 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
 
             const initialMappings = {};
             missingTransactions.forEach(t => {
-                const text = t.description.toLowerCase();
+                const text = String(t.description || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
                 let suggestedCategory = '';
                 if (text.includes('interes') || text.includes('rendimiento')) {
-                    const c = accounts.find(a => String(a.number).startsWith('4210') || a.name.toLowerCase().includes('financiero'));
+                    const c = (accounts || []).find(a => String(a.number).startsWith('4210') || String(a.name || '').toLowerCase().includes('financiero'));
                     if (c) suggestedCategory = c.name;
                 } else if (text.includes('cuota') || text.includes('manejo') || text.includes('comision') || text.includes('4x1000') || text.includes('gmf')) {
-                    const c = accounts.find(a => String(a.number).startsWith('5305') || a.name.toLowerCase().includes('bancario') || a.name.toLowerCase().includes('financiero'));
+                    const c = (accounts || []).find(a => String(a.number).startsWith('5305') || String(a.name || '').toLowerCase().includes('bancario') || String(a.name || '').toLowerCase().includes('financiero'));
                     if (c) suggestedCategory = c.name;
                 }
                 initialMappings[t.id] = suggestedCategory;
@@ -3801,25 +3967,47 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
             const voucherNumber = nextVouchers[typeKey];
             nextVouchers[typeKey]++;
 
+            const categoryAccount = (accounts || []).find(a => a.name === category);
+            if (!categoryAccount) {
+                toast({ variant:'destructive', title:'Cuenta no encontrada', description:`No se pudo resolver la cuenta contable: ${category}` });
+                hasError = true;
+                return;
+            }
+            if ((transactions || []).some(t => t.bankReconciliationFingerprint === row.fingerprint)) return;
+
+            const bank = selectedBankInfo();
+            const bankAccount = { code: bank.code, name: bank.name };
+            const counterpart = { code: categoryAccount.number, name: categoryAccount.name };
+
             transactionsToAdd.push({
                 id: `${now}-import-${i}`,
                 type: row.type,
                 date: row.date,
-                description: `${row.description} (Conciliación)`,
+                description: `${row.description} (Conciliación bancaria)`,
                 amount: row.amount,
                 category: category,
                 destination: selectedBank,
+                debitAccount: row.type === 'income' ? bankAccount : counterpart,
+                creditAccount: row.type === 'income' ? counterpart : bankAccount,
                 isInternalTransfer: false,
+                isBankReconciliation: true,
+                reconciledBankId: bank.id,
+                bankReconciliationFingerprint: row.fingerprint,
                 voucherNumber: voucherNumber,
                 company_id: activeCompany?.id,
                 companyId: activeCompany?.id
             });
         });
 
-        if (hasError) return; 
+        if (hasError) return;
+        if (transactionsToAdd.length === 0) {
+            toast({ title:'Sin movimientos nuevos', description:'Los movimientos seleccionados ya estaban conciliados o fueron descartados.' });
+            onOpenChange(false);
+            return;
+        }
 
         saveTransactions([...transactions, ...transactionsToAdd]);
-        toast({ title: "Conciliación Exitosa", description: `Se importaron ${transactionsToAdd.length} movimientos faltantes.` });
+        toast({ title: "Conciliación Exitosa", description: `Se importaron ${transactionsToAdd.length} movimientos faltantes con asiento contable explícito.` });
         onOpenChange(false);
     };
 
@@ -3836,16 +4024,29 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                 </DialogHeader>
 
                 {step === 1 && (
-                    <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 mt-4">
+                    <div className="flex flex-col items-center justify-center p-10 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 mt-4">
                         <Upload className="w-12 h-12 text-emerald-500 mb-4" />
-                        <h3 className="text-lg font-bold text-slate-800 mb-2">Sube tu Extracto Bancario</h3>
-                        <p className="text-slate-500 text-sm text-center max-w-md mb-6">
-                            Descarga el extracto de tu Cooperativa o Banco en formato <b>Excel (.xlsx) o CSV</b> y súbelo aquí. El sistema detectará automáticamente los intereses, comisiones o ingresos que te falten registrar.
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">Conciliar extracto bancario</h3>
+                        <p className="text-slate-500 text-sm text-center max-w-xl mb-6">
+                            Selecciona primero la cuenta exacta del extracto. Luego carga Excel o CSV. El sistema compara fecha, valor, sentido del movimiento y la cuenta bancaria para evitar falsos emparejamientos.
                         </p>
-                        <Label className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-medium shadow-sm transition-colors">
-                            Seleccionar Archivo
-                            <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} />
+                        <div className="w-full max-w-md mb-5">
+                            <Label className="font-semibold">Cuenta bancaria del extracto *</Label>
+                            <Select value={selectedBank} onValueChange={setSelectedBank}>
+                                <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Selecciona el banco..." /></SelectTrigger>
+                                <SelectContent>
+                                    {(bankAccounts || []).map(acc => (
+                                        <SelectItem key={acc.id} value={`${acc.id}|${acc.bankName}`}>{acc.bankName}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {(bankAccounts || []).length === 0 && <p className="text-xs text-red-600 mt-2">No hay cuentas bancarias configuradas. Créala primero en Cuentas Bancarias.</p>}
+                        </div>
+                        <Label className={`cursor-pointer px-6 py-3 rounded-lg font-medium shadow-sm transition-colors ${selectedBank ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-200 text-slate-500 pointer-events-none'}`}>
+                            Seleccionar Extracto
+                            <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} disabled={!selectedBank} />
                         </Label>
+                        <p className="text-xs text-slate-400 mt-3">El saldo del extracto no se interpreta como movimiento; sólo se importan débitos/créditos/valores identificables.</p>
                     </div>
                 )}
 
@@ -3861,20 +4062,17 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
 
                         <div className="flex items-center gap-4 mb-4 bg-white p-4 border rounded-lg shadow-sm">
                             <Label className="whitespace-nowrap font-bold text-slate-700">Cuenta del Extracto:</Label>
-                            <Select value={selectedBank} onValueChange={setSelectedBank}>
-                                <SelectTrigger className="w-[300px] border-slate-300">
-                                    <SelectValue placeholder="¿A qué banco ingresó este dinero?" />
+                            <Select value={selectedBank} disabled>
+                                <SelectTrigger className="w-[300px] border-slate-300 bg-slate-50">
+                                    <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="caja_principal|CAJA PRINCIPAL">CAJA PRINCIPAL</SelectItem>
-                                    {bankAccounts?.map(acc => (
+                                    {(bankAccounts || []).map(acc => (
                                         <SelectItem key={acc.id} value={`${acc.id}|${acc.bankName}`}>{acc.bankName}</SelectItem>
-                                    ))}
-                                    {cashAccounts?.map(acc => (
-                                        <SelectItem key={acc.id} value={`${acc.id}|${acc.name}`}>{acc.name} (Caja Menor)</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <span className="text-xs text-slate-500">Para cambiar de banco, vuelve atrás y carga nuevamente el extracto.</span>
                         </div>
 
                         <div className="flex-1 overflow-y-auto border rounded-lg relative">
@@ -3908,7 +4106,7 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                                                 <td className="p-3 text-slate-600 whitespace-nowrap">{formatSafeDate(row.date)}</td>
                                                 <td className="p-3 font-medium text-slate-800">{row.description}</td>
                                                 <td className={`p-3 text-right font-mono font-bold ${row.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {row.type === 'income' ? '+' : '-'}{row.amount.toLocaleString('es-ES', {minimumFractionDigits: 2})}
+                                                    {row.type === 'income' ? '+' : '-'}{row.amount.toLocaleString('es-CO', {minimumFractionDigits: 2})}
                                                 </td>
                                                 <td className="p-3">
                                                     <select 

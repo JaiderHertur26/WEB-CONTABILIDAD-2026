@@ -2,7 +2,7 @@ import { getAccountingYear } from '@/lib/accountingDate';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Plus, Edit2, Trash2, Search, Package, Lock } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Package, Lock, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
@@ -11,6 +11,8 @@ import { useCompanyData } from '@/hooks/useCompanyData';
 import { usePermission } from '@/hooks/usePermission';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import ProductCodeDialog from '@/components/inventory/ProductCodeDialog';
+import { ensureProductCodes, productSearchText, sanitizeProductCode } from '@/lib/productCodes';
 
 const Inventory = () => {
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
@@ -20,54 +22,35 @@ const Inventory = () => {
     
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
+    const [codeProduct, setCodeProduct] = useState(null);
+    const [codeDialogOpen, setCodeDialogOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const { toast } = useToast();
 
     // Calculate totals
     const totalInventoryValue = (products || []).reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
 
-    // CONSOLIDATION LOGIC FOR DISPLAY
-    const consolidatedProducts = useMemo(() => {
-        if (!products) return [];
+    const codedProducts = useMemo(
+        () => (products || []).map(ensureProductCodes).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+        [products]
+    );
 
-        const grouped = products.reduce((acc, product) => {
-            const nameKey = (product.name || '').toLowerCase().trim();
-            if (!acc[nameKey]) {
-                acc[nameKey] = {
-                    ...product, 
-                    quantity: 0,
-                    totalValue: 0,
-                    count: 0,
-                    ids: []
-                };
-            }
-            const qty = parseFloat(product.quantity) || 0;
-            const cost = parseFloat(product.unit_cost) || 0;
-            
-            acc[nameKey].quantity += qty;
-            acc[nameKey].totalValue += (qty * cost);
-            acc[nameKey].count += 1;
-            acc[nameKey].ids.push(product.id);
-            
-            return acc;
-        }, {});
-
-        return Object.values(grouped).map(group => ({
-            ...group,
-            unit_cost: group.quantity > 0 ? (group.totalValue / group.quantity) : group.unit_cost,
-            isConsolidated: group.count > 1
-        })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-    }, [products]);
+    useEffect(() => {
+        if (!canEdit || !Array.isArray(products) || products.length === 0) return;
+        const needsCodes = products.some(p => !p.sku || !p.barcode);
+        if (!needsCodes) return;
+        saveProducts(products.map(ensureProductCodes));
+    }, [products, canEdit, saveProducts]);
 
     // Función para calcular el número de comprobante
     const getNextVoucherNumber = (type, dateStr) => {
         if (!transactions) return 1;
-        const year = new Date(dateStr).getFullYear().toString();
+        const year = getAccountingYear(dateStr).toString();
         
         const typeTransactions = transactions.filter(t => {
             let tType = t.type;
-            if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
+            if (t.isInitialStock || t.type === 'adjustment') tType = 'adjustment';
+            else if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
             const tYear = getAccountingYear(t.date).toString();
             return tType === type && tYear === year;
         });
@@ -83,18 +66,35 @@ const Inventory = () => {
         if (!canAdd && !editingProduct) return;
         if (!canEdit && editingProduct) return;
 
+        const targetId = editingProduct?.id || Date.now().toString();
+        const normalizedProduct = ensureProductCodes({
+            ...(editingProduct || {}),
+            ...productData,
+            id: targetId,
+            sku: sanitizeProductCode(productData.sku),
+            barcode: sanitizeProductCode(productData.barcode),
+        });
+        const duplicateCode = (products || []).some(p =>
+            String(p.id) !== String(targetId) &&
+            [ensureProductCodes(p).sku, ensureProductCodes(p).barcode]
+              .some(code => [normalizedProduct.sku, normalizedProduct.barcode].includes(code))
+        );
+        if (duplicateCode) {
+            toast({ variant: 'destructive', title: 'Código duplicado', description: 'El SKU o código de barras ya pertenece a otro producto.' });
+            return;
+        }
+
         let updatedProducts;
         if (editingProduct) {
-            updatedProducts = products.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p);
+            updatedProducts = products.map(p => p.id === editingProduct.id ? { ...p, ...normalizedProduct } : p);
             toast({ title: "Producto actualizado" });
         } else {
-            const newId = Date.now().toString();
+            const newId = targetId;
             const initialQty = parseFloat(productData.quantity) || 0;
             const unitCost = parseFloat(productData.unit_cost) || 0;
             
             const newProduct = { 
-                ...productData, 
-                id: newId, 
+                ...normalizedProduct,
                 quantity: initialQty 
             };
             updatedProducts = [...(products || []), newProduct];
@@ -107,13 +107,13 @@ const Inventory = () => {
                 const totalValue = initialQty * unitCost;
                 const currentDate = format(new Date(), 'yyyy-MM-dd');
                 
-                // CORRECCIÓN: Ahora pide el consecutivo de TRANSFERENCIA ('transfer') para que tenga la Letra T
-                const nextVoucher = getNextVoucherNumber('transfer', currentDate);
+                const nextVoucher = getNextVoucherNumber('adjustment', currentDate);
 
                 const transaction = {
                     id: `${newId}-init`,
                     date: currentDate,
-                    type: 'transfer', // CORRECCIÓN: Tipo Cruce/Transferencia
+                    type: 'adjustment',
+                    voucherPrefix: 'A',
                     description: `Ingreso a Inventario / Donación: ${productData.name} (${initialQty} ${productData.unit})`,
                     amount: totalValue,
                     category: originAccount.name,
@@ -124,11 +124,13 @@ const Inventory = () => {
                     creditAccount: { code: originAccount.number, name: originAccount.name },
                     
                     isPurchase: false, 
-                    isInternalTransfer: true, // ESTO HACE QUE SE VEA COMO "T" Y CRUCE CONTABLE
+                    isInternalTransfer: false,
                     isInitialStock: true,
                     productId: newId,
                     productQuantity: initialQty,
-                    productName: productData.name
+                    productName: productData.name,
+                    productSku: newProduct.sku,
+                    productBarcode: newProduct.barcode
                 };
 
                 const newTransactions = [...(transactions || []), transaction];
@@ -145,15 +147,19 @@ const Inventory = () => {
 
     const handleDelete = (id) => {
         if (!canDelete) return;
-        if (window.confirm('¿Estás seguro de eliminar este producto? Esto no borrará transacciones históricas pero puede afectar reportes futuros.')) {
+        const hasHistory = (transactions || []).some(t => String(t.productId || '') === String(id));
+        if (hasHistory) {
+            toast({ variant:'destructive', title:'Producto con historial', description:'No puede eliminarse porque tiene movimientos contables. Edítalo o déjalo sin existencia para conservar la trazabilidad.' });
+            return;
+        }
+        if (window.confirm('¿Estás seguro de eliminar este producto sin movimientos?')) {
             saveProducts(products.filter(p => p.id !== id));
             toast({ title: "Producto eliminado" });
         }
     };
 
-    const filteredProducts = consolidatedProducts.filter(p => 
-        (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (p.category || '').toLowerCase().includes(searchTerm.toLowerCase())
+    const filteredProducts = codedProducts.filter(p =>
+        productSearchText(p).includes(searchTerm.toLowerCase().trim())
     );
 
     return (
@@ -161,7 +167,7 @@ const Inventory = () => {
             <Helmet><title>Inventario - JaiderHerTur26</title></Helmet>
             <div className="space-y-6">
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center">
-                    <div><h1 className="text-4xl font-bold text-slate-900">Inventario</h1><p className="text-slate-600">Gestión de productos y existencias.</p></div>
+                    <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Tienda</h1><p className="text-slate-600">Productos, existencias, costo promedio, precio de venta y etiquetas QR / código de barras.</p></div>
                     <div className="flex items-center gap-2">
                         {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
                         {canAdd && <Button onClick={() => { setEditingProduct(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Producto / Donación</Button>}
@@ -178,7 +184,7 @@ const Inventory = () => {
                 </div>
 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-lg p-6 border flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px] relative"><Label>Buscar:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Nombre o categoría..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full mt-1 pl-10 pr-4 py-2 border rounded-lg" /></div>
+                    <div className="flex-1 min-w-[200px] relative"><Label>Buscar:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Nombre, categoría, SKU o código de barras..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full mt-1 pl-10 pr-4 py-2 border rounded-lg" /></div>
                 </motion.div>
 
                 <div className="bg-white rounded-xl shadow-lg border overflow-hidden">
@@ -187,6 +193,7 @@ const Inventory = () => {
                             <thead className="bg-slate-50 text-slate-700">
                                 <tr>
                                     <th className="p-4 font-semibold">Producto</th>
+                                    <th className="p-4 font-semibold">Código</th>
                                     <th className="p-4 font-semibold">Categoría</th>
                                     <th className="p-4 font-semibold text-right">Costo Prom.</th>
                                     <th className="p-4 font-semibold text-right">Precio Venta</th>
@@ -197,10 +204,11 @@ const Inventory = () => {
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {filteredProducts.length === 0 ? (
-                                    <tr><td colSpan="7" className="p-8 text-center text-slate-500">No se encontraron productos.</td></tr>
+                                    <tr><td colSpan="8" className="p-8 text-center text-slate-500">No se encontraron productos.</td></tr>
                                 ) : filteredProducts.map(product => (
                                     <tr key={product.id} className="hover:bg-slate-50">
                                         <td className="p-4"><div className="font-medium text-slate-900">{product.name}</div><div className="text-xs text-slate-500">{product.description}</div></td>
+                                        <td className="p-4"><div className="font-mono text-xs font-semibold text-blue-700">{product.sku}</div><div className="font-mono text-[11px] text-slate-500">{product.barcode}</div></td>
                                         <td className="p-4 text-slate-600">{product.category}</td>
                                         <td className="p-4 text-right font-mono">${parseFloat(product.unit_cost || 0).toLocaleString('es-CO')}</td>
                                         <td className="p-4 text-right font-mono text-green-600">${parseFloat(product.suggested_price || 0).toLocaleString('es-CO')}</td>
@@ -208,8 +216,9 @@ const Inventory = () => {
                                         <td className="p-4 text-right font-bold font-mono">${(product.quantity * product.unit_cost).toLocaleString('es-CO')}</td>
                                         <td className="p-4 text-center">
                                             <div className="flex justify-center gap-1">
-                                                {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingProduct(product); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                                                {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDelete(product.id)}><Trash2 className="w-4 h-4" /></Button>}
+                                                <Button size="icon" variant="ghost" title="QR / código de barras" onClick={() => { setCodeProduct(product); setCodeDialogOpen(true); }}><QrCode className="w-4 h-4 text-indigo-600" /></Button>
+                                                {canEdit && <Button size="icon" variant="ghost" title="Editar producto" onClick={() => { setEditingProduct(product); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
+                                                {canDelete && <Button size="icon" variant="ghost" title="Eliminar producto sin historial" className="hover:text-red-600" onClick={() => handleDelete(product.id)}><Trash2 className="w-4 h-4" /></Button>}
                                             </div>
                                         </td>
                                     </tr>
@@ -220,17 +229,18 @@ const Inventory = () => {
                 </div>
             </div>
             <ProductDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSave} product={editingProduct} />
+            <ProductCodeDialog open={codeDialogOpen} onOpenChange={setCodeDialogOpen} product={codeProduct} />
         </>
     );
 };
 
 const ProductDialog = ({ open, onOpenChange, onSave, product }) => {
     const defaultData = { 
-        name: '', description: '', category: 'General', unit: 'Unidad', unit_cost: '', suggested_price: '', quantity: '0' 
+        name: '', description: '', category: 'General', unit: 'Unidad', unit_cost: '', suggested_price: '', quantity: '0', sku: '', barcode: ''
     };
     const [data, setData] = useState(defaultData);
 
-    useEffect(() => { if (open) setData(product || defaultData); }, [open, product]);
+    useEffect(() => { if (open) setData(product ? ensureProductCodes(product) : defaultData); }, [open, product]);
     const handleSubmit = (e) => { e.preventDefault(); onSave(data); };
 
     return (
@@ -241,6 +251,8 @@ const ProductDialog = ({ open, onOpenChange, onSave, product }) => {
                     <div className="space-y-1"><Label>Nombre</Label><input required value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full p-2 border rounded-md" placeholder="Ej: Camándula de Madera" /></div>
                     <div className="space-y-1"><Label>Categoría</Label><input required value={data.category} onChange={e => setData({...data, category: e.target.value})} className="w-full p-2 border rounded-md" /></div>
                     <div className="md:col-span-2 space-y-1"><Label>Descripción</Label><textarea value={data.description} onChange={e => setData({...data, description: e.target.value})} className="w-full p-2 border rounded-md h-20" placeholder="Ej: Donación recibida por..." /></div>
+                    <div className="space-y-1"><Label>SKU / Código interno</Label><input value={data.sku} onChange={e => setData({...data, sku: sanitizeProductCode(e.target.value)})} className="w-full p-2 border rounded-md font-mono" placeholder="Automático si se deja vacío" /></div>
+                    <div className="space-y-1"><Label>Código de barras</Label><input value={data.barcode} onChange={e => setData({...data, barcode: sanitizeProductCode(e.target.value)})} className="w-full p-2 border rounded-md font-mono" placeholder="CODE128 automático si se deja vacío" /></div>
                     <div className="space-y-1"><Label>Unidad de Medida</Label><input required value={data.unit} onChange={e => setData({...data, unit: e.target.value})} className="w-full p-2 border rounded-md" placeholder="Unidad, Kg, Litro..." /></div>
                     
                     <div className="space-y-1">

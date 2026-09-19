@@ -64,6 +64,8 @@ const InvoiceDetail = ({ invoice, company }) => {
             'Documento': invoice.invoiceNumber,
             'Fecha': format(parseAccountingDate(item.date), 'dd/MM/yyyy'),
             'Producto/Servicio': item.productName || item.description,
+            'SKU': item.productSku || '',
+            'Código de barras': item.productBarcode || '',
             'Cantidad': item.productQuantity || 1,
             'Precio Unitario': ((parseFloat(item.amount) / (item.productQuantity || 1))).toLocaleString('es-CO'),
             'Total': parseFloat(item.amount)
@@ -155,7 +157,7 @@ const InvoiceDetail = ({ invoice, company }) => {
                             return (
                                 <tr key={index}>
                                     <td className="py-3 text-slate-600">{format(parseAccountingDate(item.date), 'dd/MM/yyyy')}</td>
-                                    <td className="py-3 font-medium text-slate-800">{item.productName || item.description}</td>
+                                    <td className="py-3 font-medium text-slate-800"><div>{item.productName || item.description}</div>{item.productSku && <div className="font-mono text-[10px] text-blue-600 mt-1">SKU: {item.productSku}{item.productBarcode ? ` · ${item.productBarcode}` : ''}</div>}</td>
                                     <td className="py-3 text-center text-slate-600">{qty}</td>
                                     <td className="py-3 text-right text-slate-600 font-mono">${unitPrice.toLocaleString('es-CO', {minimumFractionDigits: 0})}</td>
                                     <td className="py-3 text-right font-bold text-slate-800 font-mono">${total.toLocaleString('es-CO', {minimumFractionDigits: 0})}</td>

@@ -13,34 +13,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import ContactSelector from '@/components/transactions/ContactSelector';
+import { ensureProductCodes, productMatchesCode, productSearchText, sanitizeProductCode } from '@/lib/productCodes';
 
 const PREDEFINED_CATEGORIES = ['Electrónica', 'Oficina', 'Alimentos', 'Ropa', 'Otros'];
 const PREDEFINED_UNITS = ['Unidad', 'Caja', 'Kg', 'Litro', 'Metro'];
 
-// Helper to consolidate products by name (case-insensitive)
-const groupProductsByName = (rawProducts) => {
-    if (!rawProducts || !Array.isArray(rawProducts)) return [];
-    const groups = {};
-    
-    for (const product of rawProducts) {
-        const nameKey = (product.name || '').trim().toLowerCase();
-        if (!nameKey) continue;
-
-        if (!groups[nameKey]) {
-            // Initialize with the properties of the first product found
-            // This preserves the ID, price, etc. of the "representative" product
-            groups[nameKey] = { ...product, quantity: 0 };
-        }
-        
-        // Accumulate quantity from all matching products
-        const qty = parseFloat(product.quantity || 0);
-        if (!isNaN(qty)) {
-            groups[nameKey].quantity += qty;
-        }
-    }
-
-    return Object.values(groups);
-};
 
 const ProductSelector = ({ products, value, onChange }) => {
     const [open, setOpen] = useState(false);
@@ -79,7 +56,7 @@ const ProductSelector = ({ products, value, onChange }) => {
                             {sortedProducts.map(p => (
                                 <CommandItem 
                                     key={p.id} 
-                                    value={p.name} 
+                                    value={productSearchText(p)}
                                     onSelect={() => { 
                                         onChange(p.id); 
                                         setOpen(false); 
@@ -89,6 +66,7 @@ const ProductSelector = ({ products, value, onChange }) => {
                                     <Check className={cn("mr-2 h-4 w-4", value === p.id ? "opacity-100" : "opacity-0")} />
                                     <div className="flex flex-col w-full">
                                         <span className="font-medium text-slate-900">{p.name}</span>
+                                        <span className="font-mono text-[11px] text-blue-600">{p.sku} · {p.barcode}</span>
                                         <div className="flex justify-between text-xs text-slate-500 mt-1">
                                             <span>Disp: <span className="font-semibold text-slate-700">{p.quantity} {p.unit}</span></span>
                                             <span>Precio: ${parseFloat(p.suggested_price || 0).toLocaleString()}</span>
@@ -215,6 +193,7 @@ const StoreTransaction = ({ open, onOpenChange }) => {
     const [prodUnit, setProdUnit] = useState(PREDEFINED_UNITS[0]);
     const [prodCost, setProdCost] = useState('');
     const [prodQty, setProdQty] = useState('');
+    const [prodSku, setProdSku] = useState('');
     const [purchaseAccount, setPurchaseAccount] = useState(''); // New: Inventory Account
     const [selectedPurchaseContactId, setSelectedPurchaseContactId] = useState(''); // New: Contact ID for Purchase
 
@@ -222,32 +201,44 @@ const StoreTransaction = ({ open, onOpenChange }) => {
     const [selectedProductId, setSelectedProductId] = useState('');
     const [saleQty, setSaleQty] = useState('');
     const [salePrice, setSalePrice] = useState('');
+    const [saleCode, setSaleCode] = useState('');
     const [incomeAccount, setIncomeAccount] = useState(''); // New: Revenue Account
     
     // Contact State (Replaces individual doc fields)
     const [selectedContactId, setSelectedContactId] = useState('');
 
-    // Filter for Sales (Qty > 0) AND Grouping by Name
     const availableProducts = useMemo(() => {
         if (!products || !Array.isArray(products)) return [];
-        
-        // 1. Group duplicates by name (consolidating stock)
-        const grouped = groupProductsByName(products);
-
-        // 2. Filter positive stock
-        return grouped.filter(p => {
+        return products.map(ensureProductCodes).filter(p => {
             const quantity = parseFloat(p.quantity || 0);
             return !isNaN(quantity) && quantity > 0;
         });
     }, [products]);
 
     // Computed
-    // IMPORTANT: find in availableProducts (the consolidated list) so we see the SUMMED quantity, not just the first item's quantity
     const selectedProductForSale = useMemo(() => {
         return availableProducts.find(p => p.id === selectedProductId);
     }, [availableProducts, selectedProductId]);
 
     const selectedContact = contacts?.find(c => c.id === selectedContactId);
+
+    useEffect(() => {
+        if (!canAdd || !Array.isArray(products) || !products.some(p => !p.sku || !p.barcode)) return;
+        saveProducts(products.map(ensureProductCodes));
+    }, [products, canAdd, saveProducts]);
+
+    const resolveSaleCode = (rawCode, notify = false) => {
+        const code = sanitizeProductCode(rawCode);
+        if (!code) return false;
+        const match = availableProducts.find(p => productMatchesCode(p, code));
+        if (match) {
+            setSelectedProductId(match.id);
+            setSaleCode(match.barcode || match.sku);
+            return true;
+        }
+        if (notify) toast({ variant:'destructive', title:'Código no encontrado', description:'No existe un producto disponible con ese SKU o código de barras.' });
+        return false;
+    };
 
     // Update Sale Price and Defaults when product selected
     useEffect(() => {
@@ -283,7 +274,9 @@ const StoreTransaction = ({ open, onOpenChange }) => {
 
         const typeTransactions = (transactions || []).filter(t => {
             let transactionType = t.type;
-            if (t.isInternalTransfer || t.type === 'transfer' || t.type === 'adjustment') {
+            if (t.isInventoryCostEntry || t.type === 'adjustment') {
+                transactionType = 'adjustment';
+            } else if (t.isInternalTransfer || t.type === 'transfer') {
                 transactionType = 'transfer';
             }
             const transactionYear = String(t.date || '').includes('-')
@@ -331,8 +324,23 @@ const StoreTransaction = ({ open, onOpenChange }) => {
         return { code: '0000', name: nameToFind || 'CUENTA' };
     };
 
+    const resolvePurchaseCode = (rawCode, notify = false) => {
+        const code = sanitizeProductCode(rawCode);
+        if (!code) return false;
+        const match = (products || []).map(ensureProductCodes).find(p => productMatchesCode(p, code));
+        if (!match) {
+            if (notify) toast({ title:'Código disponible', description:'No existe aún; se usará para crear un producto nuevo si completas la compra.' });
+            return false;
+        }
+        setProdSku(match.barcode || match.sku);
+        setProdName(match.name || '');
+        setProdDesc(match.description || '');
+        setProdCategory(match.category || PREDEFINED_CATEGORIES[0]);
+        setProdUnit(match.unit || PREDEFINED_UNITS[0]);
+        return true;
+    };
+
     const handlePurchase = () => {
-        // 1. Validation
         if (!prodName || !prodCost || !prodQty || !cashAccount || !purchaseAccount || !selectedPurchaseContactId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Por favor completa los campos obligatorios (*).' });
             return;
@@ -340,7 +348,6 @@ const StoreTransaction = ({ open, onOpenChange }) => {
 
         const costVal = parseFloat(prodCost);
         const qtyVal = parseFloat(prodQty);
-
         if (costVal <= 0 || qtyVal <= 0) {
             toast({ variant: 'destructive', title: 'Error', description: 'Costo y cantidad deben ser mayores a 0.' });
             return;
@@ -348,29 +355,53 @@ const StoreTransaction = ({ open, onOpenChange }) => {
 
         const totalCost = costVal * qtyVal;
         const now = Date.now();
-        
-        // 2. Create New Product or Update Existing
-        let finalProduct;
+        const normalizedCode = sanitizeProductCode(prodSku);
         let updatedProductsList = [...(products || [])];
-        const existingProductIndex = updatedProductsList.findIndex(p => p.name.toLowerCase() === prodName.toLowerCase());
-        const voucher = getNextVoucherNumber('expense');
+        const coded = updatedProductsList.map(ensureProductCodes);
+        const sameNameIndexes = coded
+            .map((p, index) => ({ p, index }))
+            .filter(x => String(x.p.name || '').trim().toLowerCase() === prodName.trim().toLowerCase());
+
+        let existingProductIndex = -1;
+        if (normalizedCode) {
+            existingProductIndex = coded.findIndex(p => productMatchesCode(p, normalizedCode));
+        } else if (sameNameIndexes.length === 1) {
+            existingProductIndex = sameNameIndexes[0].index;
+        } else if (sameNameIndexes.length > 1) {
+            toast({ variant:'destructive', title:'Producto ambiguo', description:'Hay varios productos con el mismo nombre. Ingresa o escanea el SKU/código para identificar cuál recibe la compra.' });
+            return;
+        }
+
+        const debitAcc = getAccountObject(purchaseAccount);
+        const creditAcc = getAccountObject(cashAccount);
+        let finalProduct;
         let targetProductId;
+        let previousQuantity = 0;
+        let previousUnitCost = 0;
 
         if (existingProductIndex >= 0) {
-             const existing = updatedProductsList[existingProductIndex];
-             targetProductId = existing.id;
-             finalProduct = {
-                 ...existing,
-                 quantity: parseFloat(existing.quantity) + qtyVal,
-                 unit_cost: costVal,
-                 description: prodDesc || existing.description,
-                 category: prodCategory,
-                 unit: prodUnit
-             };
-             updatedProductsList[existingProductIndex] = finalProduct;
+            const existing = ensureProductCodes(updatedProductsList[existingProductIndex]);
+            const oldQty = parseFloat(existing.quantity) || 0;
+            const oldCost = parseFloat(existing.unit_cost) || 0;
+            previousQuantity = oldQty;
+            previousUnitCost = oldCost;
+            const newQty = oldQty + qtyVal;
+            const weightedCost = newQty > 0 ? ((oldQty * oldCost) + totalCost) / newQty : costVal;
+            targetProductId = existing.id;
+            finalProduct = {
+                ...existing,
+                quantity: newQty,
+                unit_cost: weightedCost,
+                description: prodDesc || existing.description,
+                category: prodCategory || existing.category,
+                unit: prodUnit || existing.unit,
+                inventoryAccountCode: debitAcc.code,
+                inventoryAccountName: debitAcc.name,
+            };
+            updatedProductsList[existingProductIndex] = finalProduct;
         } else {
             targetProductId = `prod-${now}`;
-            finalProduct = {
+            finalProduct = ensureProductCodes({
                 id: targetProductId,
                 name: prodName,
                 description: prodDesc,
@@ -378,49 +409,47 @@ const StoreTransaction = ({ open, onOpenChange }) => {
                 unit: prodUnit,
                 unit_cost: costVal,
                 suggested_price: costVal * 1.3,
-                quantity: qtyVal
-            };
+                quantity: qtyVal,
+                sku: normalizedCode,
+                barcode: normalizedCode,
+                inventoryAccountCode: debitAcc.code,
+                inventoryAccountName: debitAcc.name,
+            });
             updatedProductsList.push(finalProduct);
         }
 
-        // 3. Transactions - PURCHASE
-        // Debit: Inventory Asset (purchaseAccount)
-        // Credit: Cash/Bank (cashAccount)
-        const debitAcc = getAccountObject(purchaseAccount);
-        const creditAcc = getAccountObject(cashAccount);
-
+        const voucher = getNextVoucherNumber('expense');
         const selectedPurchaseContact = contacts?.find(c => c.id === selectedPurchaseContactId);
-
         const purchaseTx = {
             id: `${now}-pur`,
             type: 'expense',
             date,
-            description: `Compra: ${prodName} x ${qtyVal} ${prodUnit}`,
+            description: `Compra: ${finalProduct.name} x ${qtyVal} ${finalProduct.unit}`,
             amount: totalCost,
-            category: 'Compra Inventario', // Fallback category
-            
-            // Explicit Accounting Fields
+            category: 'Compra Inventario',
             debitAccount: debitAcc,
             creditAccount: creditAcc,
-            
             voucherNumber: voucher,
             isPurchase: true,
+            isStorePurchase: true,
             productId: targetProductId,
             productQuantity: qtyVal,
-            productName: prodName,
-
-            // Contact Info
+            productName: finalProduct.name,
+            productSku: finalProduct.sku,
+            productBarcode: finalProduct.barcode,
+            unitCost: costVal,
+            previousQuantity,
+            previousUnitCost,
+            resultingQuantity: parseFloat(finalProduct.quantity) || 0,
+            resultingUnitCost: parseFloat(finalProduct.unit_cost) || 0,
             contactId: selectedPurchaseContactId,
             contactName: selectedPurchaseContact?.name || 'Proveedor desconocido'
         };
 
         saveTransactions([...(transactions || []), purchaseTx]);
         saveProducts(updatedProductsList);
-
-        toast({ title: "Compra registrada", description: `Se han añadido ${qtyVal} ${prodUnit} de "${prodName}" al inventario.` });
-
-        // Clear form (keep accounts)
-        setProdName(''); setProdDesc(''); setProdQty(''); setProdCost(''); setSelectedPurchaseContactId('');
+        toast({ title: "Compra registrada", description: `Se añadieron ${qtyVal} ${finalProduct.unit} de "${finalProduct.name}". Costo promedio actualizado a $${finalProduct.unit_cost.toLocaleString('es-CO',{maximumFractionDigits:2})}.` });
+        setProdName(''); setProdDesc(''); setProdQty(''); setProdCost(''); setProdSku(''); setSelectedPurchaseContactId('');
     };
 
     const handleSale = () => {
@@ -431,24 +460,34 @@ const StoreTransaction = ({ open, onOpenChange }) => {
 
         const qtyVal = parseFloat(saleQty);
         const priceVal = parseFloat(salePrice);
-        
-        // Validate against the CONSOLIDATED quantity
+        if (qtyVal <= 0 || priceVal < 0) {
+            toast({ variant:'destructive', title:'Valores inválidos', description:'La cantidad debe ser mayor a cero y el precio no puede ser negativo.' });
+            return;
+        }
         if (qtyVal > parseFloat(selectedProductForSale.quantity)) {
             toast({ variant: 'destructive', title: 'Stock Insuficiente', description: `Solo hay ${selectedProductForSale.quantity} disponibles.` });
             return;
         }
 
         const totalSale = priceVal * qtyVal;
+        const unitCost = parseFloat(selectedProductForSale.unit_cost) || 0;
+        const totalCost = unitCost * qtyVal;
         const now = Date.now();
-
-        // 1. Revenue Transaction (Income)
-        // Debit: Cash/Bank (cashAccount)
-        // Credit: Revenue (incomeAccount)
         const incomeVoucher = getNextVoucherNumber('income');
+        const adjustmentVoucher = getNextVoucherNumber('adjustment');
         const incomeTxId = `${now}-sale`;
+        const costTxId = `${now}-cogs`;
 
         const debitAcc = getAccountObject(cashAccount);
         const creditAcc = getAccountObject(incomeAccount);
+        const inventoryAccount = (accounts || []).find(a =>
+            String(a.number) === String(selectedProductForSale.inventoryAccountCode || '') ||
+            String(a.number).startsWith('1435')
+        ) || (accounts || []).find(a => String(a.number).startsWith('14')) || { number:'1435', name:'INVENTARIOS' };
+        const costAccount = (accounts || []).find(a => String(a.number).startsWith('6135')) ||
+            (accounts || []).find(a => String(a.number).startsWith('61')) ||
+            (accounts || []).find(a => String(a.number).startsWith('6')) ||
+            { number:'6135', name:'COSTO DE VENTAS' };
 
         const incomeTx = {
             id: incomeTxId,
@@ -456,40 +495,54 @@ const StoreTransaction = ({ open, onOpenChange }) => {
             date,
             description: `Venta: ${selectedProductForSale.name} x ${qtyVal}`,
             amount: totalSale,
-            category: incomeAccount, // Fallback category
-            
-            // Explicit Accounting Fields
+            category: incomeAccount,
             debitAccount: debitAcc,
             creditAccount: creditAcc,
-            
             voucherNumber: incomeVoucher,
             productId: selectedProductForSale.id,
             productQuantity: qtyVal,
-            
-            // Customer Info for Invoicing (Reference to Contact)
+            productName: selectedProductForSale.name,
+            productSku: selectedProductForSale.sku,
+            productBarcode: selectedProductForSale.barcode,
+            unitPrice: priceVal,
+            unitCost,
+            isStoreSale: true,
+            relatedTransactionId: totalCost > 0 ? costTxId : null,
             contactId: selectedContactId,
             contactName: selectedContact?.name || 'Cliente desconocido'
         };
 
-        // 2. Update Inventory Stock (Quantity Only)
-        // IMPORTANT: We update the specific product entry ID returned by grouping (the representative)
-        // This maintains strict transaction logic (updating the selected ID)
-        // even if it technically dips that specific row into negative while the group is positive.
-        const updatedProducts = products.map(p => {
-            if (p.id === selectedProductId) {
-                return { ...p, quantity: parseFloat(p.quantity) - qtyVal };
+        const costTx = totalCost > 0 ? {
+            id: costTxId,
+            type: 'adjustment',
+            date,
+            description: `Costo de venta: ${selectedProductForSale.name} x ${qtyVal}`,
+            amount: totalCost,
+            category: costAccount.name,
+            debitAccount: { code: costAccount.number, name: costAccount.name },
+            creditAccount: { code: inventoryAccount.number, name: inventoryAccount.name },
+            voucherNumber: adjustmentVoucher,
+            voucherPrefix: 'A',
+            isInventoryCostEntry: true,
+            linkedSaleTransactionId: incomeTxId,
+            relatedTransactionId: incomeTxId,
+            productId: selectedProductForSale.id,
+            productName: selectedProductForSale.name,
+            productSku: selectedProductForSale.sku,
+            productBarcode: selectedProductForSale.barcode,
+        } : null;
+
+        const updatedProducts = (products || []).map(p => {
+            if (String(p.id) === String(selectedProductId)) {
+                return { ...ensureProductCodes(p), quantity: (parseFloat(p.quantity) || 0) - qtyVal };
             }
             return p;
         });
 
-        const newTransactions = [...(transactions || []), incomeTx];
-
-        saveTransactions(newTransactions);
+        saveTransactions([...(transactions || []), incomeTx, ...(costTx ? [costTx] : [])]);
         saveProducts(updatedProducts);
-        
-        toast({ title: "Venta registrada", description: "Inventario actualizado y venta contabilizada." });
-        
-        setSaleQty(''); setSelectedProductId(''); setSalePrice(''); setSelectedContactId('');
+        toast({ title: "Venta registrada", description: `Venta e inventario contabilizados. Costo de venta: $${totalCost.toLocaleString('es-CO',{maximumFractionDigits:2})}.` });
+        setSaleQty(''); setSelectedProductId(''); setSalePrice(''); setSaleCode(''); setSelectedContactId('');
     };
 
     return (
@@ -511,15 +564,27 @@ const StoreTransaction = ({ open, onOpenChange }) => {
 
                     {/* VENTA TAB */}
                     <TabsContent value="sale" className="space-y-4">
-                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                            <Label className="mb-2 block font-medium">Buscar Producto *</Label>
-                            {availableProducts.length > 0 ? (
-                                <ProductSelector products={availableProducts} value={selectedProductId} onChange={setSelectedProductId} />
-                            ) : (
-                                <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded border border-amber-200">
-                                    No hay productos con stock. Registra una compra primero.
-                                </div>
-                            )}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                            <div>
+                                <Label className="mb-1 block font-medium">Escanear / escribir SKU o código de barras</Label>
+                                <input
+                                    value={saleCode}
+                                    onChange={e => { setSaleCode(e.target.value); resolveSaleCode(e.target.value, false); }}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); resolveSaleCode(saleCode, true); } }}
+                                    className="w-full p-2 border rounded-md bg-white font-mono"
+                                    placeholder="Use un lector USB/Bluetooth o escriba el código y presione Enter"
+                                />
+                            </div>
+                            <div>
+                                <Label className="mb-2 block font-medium">Buscar Producto *</Label>
+                                {availableProducts.length > 0 ? (
+                                    <ProductSelector products={availableProducts} value={selectedProductId} onChange={id => { setSelectedProductId(id); const p=availableProducts.find(x=>x.id===id); if(p)setSaleCode(p.barcode||p.sku); }} />
+                                ) : (
+                                    <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded border border-amber-200">
+                                        No hay productos con stock. Registra una compra primero.
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {/* Customer Info Section */}
@@ -602,6 +667,17 @@ const StoreTransaction = ({ open, onOpenChange }) => {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
+                                    <Label>SKU / Código de barras</Label>
+                                    <input
+                                        type="text"
+                                        value={prodSku}
+                                        onChange={e => { const code = sanitizeProductCode(e.target.value); setProdSku(code); resolvePurchaseCode(code, false); }}
+                                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); resolvePurchaseCode(prodSku, true); } }}
+                                        className="w-full p-2 border rounded-md font-mono"
+                                        placeholder="Escanee un producto existente o deje vacío para generar"
+                                    />
+                                </div>
+                                <div className="space-y-2">
                                     <Label>Nombre del Producto *</Label>
                                     <input type="text" value={prodName} onChange={e => setProdName(e.target.value)} className="w-full p-2 border rounded-md" placeholder="Ej: Resma Papel"/>
                                 </div>
@@ -638,7 +714,7 @@ const StoreTransaction = ({ open, onOpenChange }) => {
                         
                         <div className="space-y-2">
                             <Label>Cuenta Inventario (Activo) *</Label>
-                            <AccountSelector accounts={accounts} value={purchaseAccount} onChange={setPurchaseAccount} prefixFilter="1" placeholder="Ej: 1435 Mercancía..." />
+                            <AccountSelector accounts={accounts} value={purchaseAccount} onChange={setPurchaseAccount} prefixFilter="14" placeholder="Ej: 1435 Mercancía..." />
                         </div>
 
                         <div className="space-y-2">

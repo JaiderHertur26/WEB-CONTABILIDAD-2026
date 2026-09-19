@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import ContactSelector from '@/components/transactions/ContactSelector';
+import { usePermission } from '@/hooks/usePermission';
 
 const Invoices = () => {
   const { activeCompany } = useCompany();
@@ -26,6 +27,7 @@ const Invoices = () => {
   const [purchaseInvoices, savePurchaseInvoices] = useCompanyData('purchase_invoices');
   const [contacts] = useCompanyData('contacts');
   const { toast } = useToast();
+  const { canAdd, canDelete, isReadOnly } = usePermission();
 
   const [mainTab, setMainTab] = useState('sales');
   const [activeTab, setActiveTab] = useState('generate');
@@ -54,12 +56,20 @@ const Invoices = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
 
+  const invoicedSaleIds = useMemo(() => new Set(
+    (invoices || []).flatMap(inv => inv.sourceTransactionIds || (inv.items || []).map(item => item.id)).filter(Boolean)
+  ), [invoices]);
+  const invoicedPurchaseIds = useMemo(() => new Set(
+    (purchaseInvoices || []).flatMap(inv => inv.sourceTransactionIds || (inv.items || []).map(item => item.id)).filter(Boolean)
+  ), [purchaseInvoices]);
+
   // ================= SALES LOGIC =================
   const filteredSales = useMemo(() => {
     if (!transactions) return [];
     let sales = transactions.filter(t => 
         t.type === 'income' && 
-        t.contactId && 
+        t.contactId &&
+        !invoicedSaleIds.has(t.id) &&
         !['eliminado', 'anulado'].includes(t.status?.toLowerCase())
     );
     if (filterContactId) sales = sales.filter(t => t.contactId === filterContactId);
@@ -69,7 +79,7 @@ const Invoices = () => {
         sales = sales.filter(t => isWithinInterval(parseISO(t.date), { start, end }));
     }
     return sales.sort((a, b) => accountingDateValue(b.date) - accountingDateValue(a.date));
-  }, [transactions, filterContactId, dateFrom, dateTo]);
+  }, [transactions, filterContactId, dateFrom, dateTo, invoicedSaleIds]);
 
   const filteredHistorySales = useMemo(() => {
     if (!invoices) return [];
@@ -104,6 +114,7 @@ const Invoices = () => {
   };
 
   const handleGenerateInvoice = () => {
+      if (!canAdd) return;
       const salesToInvoice = filteredSales.filter(s => selectedSales.includes(s.id));
       if (salesToInvoice.length === 0) return;
 
@@ -127,7 +138,9 @@ const Invoices = () => {
       const newInvoice = {
           id: `inv-${Date.now()}`,
           type: 'sale',
-          sourceType: 'sale',
+          sourceType: 'transaction',
+          documentOrigin: salesToInvoice.every(s => s.isStoreSale) ? 'store' : 'transactions',
+          sourceTransactionIds: salesToInvoice.map(s => s.id),
           invoiceNumber: invoiceNum,
           createdAt: new Date().toISOString(),
           clientData: contact || { name: 'Cliente Desconocido', id: firstSale.contactId },
@@ -152,6 +165,7 @@ const Invoices = () => {
           t.type === 'expense' && 
           t.isPurchase === true &&
           t.contactId &&
+          !invoicedPurchaseIds.has(t.id) &&
           !['eliminado', 'anulado'].includes(t.status?.toLowerCase())
       );
       if (filterSupplierId) purchases = purchases.filter(t => t.contactId === filterSupplierId);
@@ -161,7 +175,7 @@ const Invoices = () => {
           purchases = purchases.filter(t => isWithinInterval(parseISO(t.date), { start, end }));
       }
       return purchases.sort((a, b) => accountingDateValue(b.date) - accountingDateValue(a.date));
-  }, [transactions, filterSupplierId, dateFromPurchase, dateToPurchase]);
+  }, [transactions, filterSupplierId, dateFromPurchase, dateToPurchase, invoicedPurchaseIds]);
 
   const filteredHistoryPurchases = useMemo(() => {
     if (!purchaseInvoices) return [];
@@ -196,6 +210,7 @@ const Invoices = () => {
   };
 
   const handleGeneratePurchaseInvoice = () => {
+      if (!canAdd) return;
       const purchasesToInvoice = filteredPurchases.filter(s => selectedPurchases.includes(s.id));
       if (purchasesToInvoice.length === 0) return;
 
@@ -219,7 +234,9 @@ const Invoices = () => {
       const newInvoice = {
           id: `pur-inv-${Date.now()}`,
           type: 'purchase',
-          sourceType: 'purchase',
+          sourceType: 'transaction',
+          documentOrigin: purchasesToInvoice.every(s => s.isStorePurchase || s.isPurchase) ? 'store' : 'transactions',
+          sourceTransactionIds: purchasesToInvoice.map(s => s.id),
           invoiceNumber: invoiceNum,
           createdAt: new Date().toISOString(),
           supplierData: supplier || { name: 'Proveedor Desconocido', id: firstPurchase.contactId },
@@ -248,7 +265,7 @@ const Invoices = () => {
   };
 
   const executeDelete = () => {
-      if (!invoiceToDelete) return;
+      if (!invoiceToDelete || !canDelete) return;
 
       if (['purchase', 'expense'].includes(invoiceToDelete.type)) {
           const updated = (purchaseInvoices || []).filter(inv => inv.id !== invoiceToDelete.id);
@@ -275,7 +292,7 @@ const Invoices = () => {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-4xl font-bold text-slate-900 mb-2">Facturación y Compras</h1>
-            <p className="text-slate-600">Gestiona facturas de venta y documentos de compra.</p>
+            <p className="text-slate-600">Emite documentos desde transacciones reales, evita doble facturación y conserva la trazabilidad con Tienda e Inventario.</p>
           </div>
         </div>
 
@@ -322,7 +339,7 @@ const Invoices = () => {
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
                             <div className="p-4 border-b flex justify-between items-center bg-blue-50/30">
                                 <div className="text-sm text-slate-500">Mostrando {filteredSales.length} ventas encontradas</div>
-                                <Button onClick={handleOpenGenerateModal} disabled={selectedSales.length === 0} className="bg-blue-600 hover:bg-blue-700">
+                                <Button onClick={handleOpenGenerateModal} disabled={!canAdd || selectedSales.length === 0} className="bg-blue-600 hover:bg-blue-700">
                                     <FileText className="w-4 h-4 mr-2" /> Generar Factura ({selectedSales.length})
                                 </Button>
                             </div>
@@ -350,7 +367,7 @@ const Invoices = () => {
                                                         <td className="px-4 py-3"><button onClick={() => toggleSaleSelection(sale.id)} className="flex items-center">{isSelected ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-slate-300 hover:text-slate-500"/>}</button></td>
                                                         <td className="px-4 py-3 text-slate-600">{format(parseISO(sale.date), 'dd/MM/yyyy')}</td>
                                                         <td className="px-4 py-3 font-medium text-slate-700">{contactName}</td>
-                                                        <td className="px-4 py-3 text-slate-700">{sale.productName || sale.description}</td>
+                                                        <td className="px-4 py-3 text-slate-700"><div>{sale.productName || sale.description}</div>{sale.productSku&&<div className="font-mono text-[10px] text-blue-600">{sale.productSku}{sale.productBarcode?` · ${sale.productBarcode}`:''}</div>}</td>
                                                         <td className="px-4 py-3 text-center text-slate-600">{sale.productQuantity}</td>
                                                         <td className="px-4 py-3 text-right font-bold font-mono text-slate-800">${parseFloat(sale.amount).toLocaleString('es-CO')}</td>
                                                     </tr>
@@ -400,7 +417,9 @@ const Invoices = () => {
                                                     <td className="px-6 py-4 text-slate-600">{format(new Date(inv.createdAt), 'dd/MM/yyyy')}</td>
                                                     <td className="px-6 py-4 font-medium text-slate-700">{inv.clientData?.name}</td>
                                                     <td className="px-6 py-4">
-                                                        {inv.sourceType === 'transaction' ? (
+                                                        {inv.documentOrigin === 'store' ? (
+                                                            <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">Tienda</Badge>
+                                                        ) : inv.sourceType === 'transaction' ? (
                                                             <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">Transacción</Badge>
                                                         ) : (
                                                             <Badge variant="outline" className="text-slate-500">Venta Directa</Badge>
@@ -409,7 +428,7 @@ const Invoices = () => {
                                                     <td className="px-6 py-4 text-right font-mono font-bold text-slate-800">${parseFloat(inv.total).toLocaleString('es-CO')}</td>
                                                     <td className="px-6 py-4 text-center flex justify-center gap-2">
                                                         <Button variant="outline" size="sm" onClick={() => openInvoiceDetail(inv)} className="text-blue-600"><Eye className="w-4 h-4 mr-2" /> Ver</Button>
-                                                        <Button variant="outline" size="sm" onClick={() => confirmDelete(inv)} className="text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4 mr-2" /> Eliminar</Button>
+                                                        {canDelete && <Button variant="outline" size="sm" onClick={() => confirmDelete(inv)} className="text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4 mr-2" /> Eliminar</Button>}
                                                     </td>
                                                 </tr>
                                             ))
@@ -455,7 +474,7 @@ const Invoices = () => {
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
                             <div className="p-4 border-b flex justify-between items-center bg-orange-50/30">
                                 <div className="text-sm text-slate-500">Mostrando {filteredPurchases.length} compras encontradas</div>
-                                <Button onClick={handleOpenGeneratePurchaseModal} disabled={selectedPurchases.length === 0} className="bg-orange-600 hover:bg-orange-700">
+                                <Button onClick={handleOpenGeneratePurchaseModal} disabled={!canAdd || selectedPurchases.length === 0} className="bg-orange-600 hover:bg-orange-700">
                                     <FileText className="w-4 h-4 mr-2" /> Generar Documento ({selectedPurchases.length})
                                 </Button>
                             </div>
@@ -483,7 +502,7 @@ const Invoices = () => {
                                                         <td className="px-4 py-3"><button onClick={() => togglePurchaseSelection(pur.id)} className="flex items-center">{isSelected ? <CheckSquare className="w-5 h-5 text-orange-600"/> : <Square className="w-5 h-5 text-slate-300 hover:text-slate-500"/>}</button></td>
                                                         <td className="px-4 py-3 text-slate-600">{format(parseISO(pur.date), 'dd/MM/yyyy')}</td>
                                                         <td className="px-4 py-3 font-medium text-slate-700">{contactName}</td>
-                                                        <td className="px-4 py-3 text-slate-700">{pur.productName || pur.description}</td>
+                                                        <td className="px-4 py-3 text-slate-700"><div>{pur.productName || pur.description}</div>{pur.productSku&&<div className="font-mono text-[10px] text-orange-600">{pur.productSku}{pur.productBarcode?` · ${pur.productBarcode}`:''}</div>}</td>
                                                         <td className="px-4 py-3 text-center text-slate-600">{pur.productQuantity}</td>
                                                         <td className="px-4 py-3 text-right font-bold font-mono text-slate-800">${parseFloat(pur.amount).toLocaleString('es-CO')}</td>
                                                     </tr>
@@ -532,7 +551,9 @@ const Invoices = () => {
                                                     <td className="px-6 py-4 text-slate-600">{format(new Date(inv.createdAt), 'dd/MM/yyyy')}</td>
                                                     <td className="px-6 py-4 font-medium text-slate-700">{inv.supplierData?.name}</td>
                                                     <td className="px-6 py-4">
-                                                        {inv.sourceType === 'transaction' ? (
+                                                        {inv.documentOrigin === 'store' ? (
+                                                            <Badge variant="secondary" className="bg-orange-100 text-orange-700">Tienda</Badge>
+                                                        ) : inv.sourceType === 'transaction' ? (
                                                             <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">Transacción</Badge>
                                                         ) : (
                                                             <Badge variant="outline" className="text-slate-500">Compra Directa</Badge>
@@ -541,7 +562,7 @@ const Invoices = () => {
                                                     <td className="px-6 py-4 text-right font-mono font-bold text-slate-800">${parseFloat(inv.total).toLocaleString('es-CO')}</td>
                                                     <td className="px-6 py-4 text-center flex justify-center gap-2">
                                                         <Button variant="outline" size="sm" onClick={() => openInvoiceDetail(inv)} className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"><Eye className="w-4 h-4 mr-2" /> Ver</Button>
-                                                        <Button variant="outline" size="sm" onClick={() => confirmDelete(inv)} className="text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4 mr-2" /> Eliminar</Button>
+                                                        {canDelete && <Button variant="outline" size="sm" onClick={() => confirmDelete(inv)} className="text-red-600 hover:bg-red-50"><Trash2 className="w-4 h-4 mr-2" /> Eliminar</Button>}
                                                     </td>
                                                 </tr>
                                             ))
