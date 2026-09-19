@@ -5,7 +5,7 @@ import { Download, Calendar, Printer } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { exportToExcel, exportProfessionalTable, exportProfessionalWorkbook } from '@/lib/excel';
+import { exportToExcel } from '@/lib/excel';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext'; 
 import { Label } from "@/components/ui/label";
@@ -452,7 +452,7 @@ const Reports = () => {
     const assets = [
         { item: 'ACTIVO CORRIENTE', isBold: true },
         { item: '  Efectivo y Equivalentes', isBold: true },
-        { item: '    Total Caja, Bancos y Aportes', amount: cajaGeneralValue, isSubtotal: true },
+        { item: '    Caja General', amount: cajaGeneralValue, isSubtotal: true },
         { item: '      Caja Principal', amount: cajaPrincipalBalance },
         ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
         { item: '      Cuentas Bancarias', amount: totalBankBalances },
@@ -499,32 +499,28 @@ const Reports = () => {
   
   const handleExportReport = (data, name) => { 
       try {
-          const companyName = activeCompany?.name || 'ENTIDAD CONTABLE';
-          const companyNit = activeCompany?.doc || '';
-          const rows = (data || []).map(row => ({
-              Concepto: row.item ? String(row.item).trim() : '',
-              Valor: row.amount != null ? Number(row.amount) : null,
-              __style: row.isTotal ? 'total' : (row.isSubtotal ? 'subtotal' : (row.isBold ? 'section' : ''))
-          }));
+          const companyName = activeCompany?.name || ' ';
+          const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
-          exportProfessionalTable({
-              fileName: `${name}_${startDate}_al_${effectiveEndDate}`,
-              companyName,
-              nit: companyNit,
-              title: 'ESTADO DE RESULTADOS INTEGRAL',
-              period: `DEL ${startDate} AL ${effectiveEndDate}`,
-              sheetName: 'Estado de Resultados',
-              columns: [
-                  { key: 'Concepto', label: 'CONCEPTO / CUENTA', width: 58, type: 'text' },
-                  { key: 'Valor', label: 'VALOR (COP)', width: 22, type: 'currency' }
-              ],
-              rows,
-              notes: [
-                  'Cifras expresadas en pesos colombianos (COP).',
-                  'Los fondos de terceros y traslados internos no forman parte del resultado operacional.'
-              ]
-          }); 
-          toast({ title: 'Excel profesional generado', description: 'Estado de Resultados exportado con formato de revisión contable.' }); 
+          const dataToExport = [
+              { 'Concepto': companyName, 'Monto': '' },
+              { 'Concepto': companyNit, 'Monto': '' },
+              { 'Concepto': `ESTADO DE RESULTADOS INTEGRAL - DEL ${startDate} AL ${effectiveEndDate}`, 'Monto': '' },
+              { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
+              { 'Concepto': '', 'Monto': '' }, 
+              { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
+              { 'Concepto': '', 'Monto': '' } 
+          ];
+
+          (data || []).forEach(row => {
+              dataToExport.push({
+                  'Concepto': row.item ? String(row.item).trim() : '',
+                  'Monto': row.amount != null ? row.amount : ''
+              });
+          });
+
+          exportToExcel(dataToExport, `${name}_${startDate}_al_${endDate}`, {}); 
+          toast({ title: 'Exportado a Excel', description: 'El reporte se ha exportado exitosamente.' }); 
       } catch (error) {
           toast({ variant: 'destructive', title: 'Error de Exportación', description: error.message });
       }
@@ -702,90 +698,50 @@ const Reports = () => {
 
   const handleExportBalanceSheet = () => { 
       try {
-          const { assets, liabilities, equity, totals } = reportData.balanceSheet;
-          const toRows = (items = []) => items.map(item => ({
-              Concepto: item.item ? String(item.item).trim() : '',
-              Valor: item.amount != null ? Number(item.amount) : null,
-              __style: item.isTotal ? 'total' : (item.isSubtotal ? 'subtotal' : (item.isBold ? 'section' : ''))
-          }));
+          const { assets, liabilities, equity, totals } = reportData.balanceSheet; 
+          const companyName = activeCompany?.name || ' ';
+          const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
-          const rows = [
-              { Concepto: 'ACTIVO', Valor: null, __style: 'section' },
-              ...toRows(assets),
-              { Concepto: 'TOTAL ACTIVO', Valor: Number(totals?.assets || 0), __style: 'total' },
-              { Concepto: 'PASIVO', Valor: null, __style: 'section' },
-              ...toRows(liabilities),
-              { Concepto: 'TOTAL PASIVOS', Valor: Number(totals?.liabilities || 0), __style: 'subtotal' },
-              { Concepto: 'PATRIMONIO', Valor: null, __style: 'section' },
-              ...toRows(equity),
-              { Concepto: 'TOTAL PATRIMONIO', Valor: Number(totals?.equity || 0), __style: 'subtotal' },
-              { Concepto: 'TOTAL PASIVO + PATRIMONIO', Valor: Number(totals?.liabilitiesAndEquity || 0), __style: 'total' }
+          const dataToExport = [
+              { 'Concepto': companyName, 'Monto': '' },
+              { 'Concepto': companyNit, 'Monto': '' },
+              { 'Concepto': `BALANCE GENERAL - AL ${endDate}`, 'Monto': '' },
+              { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Monto': '' },
+              { 'Concepto': '', 'Monto': '' }, 
+              { 'Concepto': 'CONCEPTO / CUENTA', 'Monto': 'VALOR ($)' },
+              { 'Concepto': '', 'Monto': '' } 
           ];
 
-          exportProfessionalTable({
-              fileName: `Balance_General_al_${effectiveEndDate}`,
-              companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
-              nit: activeCompany?.doc || '',
-              title: 'BALANCE GENERAL',
-              period: `AL ${effectiveEndDate}`,
-              sheetName: 'Balance General',
-              columns: [
-                  { key: 'Concepto', label: 'CONCEPTO / CUENTA', width: 58, type: 'text' },
-                  { key: 'Valor', label: 'VALOR (COP)', width: 22, type: 'currency' }
-              ],
-              rows,
-              notes: [
-                  'Cifras expresadas en pesos colombianos (COP).',
-                  'La línea “Total Caja, Bancos y Aportes” corresponde al subtotal de disponibilidades e inversiones registradas.'
-              ]
+          (assets || []).forEach(a => {
+              dataToExport.push({
+                  'Concepto': a.item ? String(a.item).trim() : '',
+                  'Monto': a.amount != null ? a.amount : ''
+              });
           });
-          toast({ title: 'Excel profesional generado', description: 'Balance General exportado con estructura formal de revisión.' });
-      } catch (error) {
-          toast({ variant: 'destructive', title: 'Error de Exportación', description: error.message });
-      }
-  };
+          dataToExport.push({ 'Concepto': 'TOTAL ACTIVOS', 'Monto': totals?.assets || 0 });
+          dataToExport.push({ 'Concepto': '', 'Monto': '' });
 
-  const handleExportCashFlow = () => {
-      try {
-          const { initial, sources = [], uses = [], totalSources, totalUses, final, reconciliationDifference } = reportData.cashFlow || {};
-          const rows = [
-              { Concepto: 'FUENTES', Valor: null, __style: 'section' },
-              { Concepto: 'Disponible Inicial (Caja-Bancos)', Valor: Number(initial || 0) },
-              { Concepto: 'Entradas reales de efectivo del período', Valor: Number(totalSources || 0), __style: 'subtotal' },
-              ...sources.map(item => ({ Concepto: item.item, Valor: Number(item.amount || 0) })),
-              { Concepto: 'TOTAL DISPONIBLE', Valor: Number(initial || 0) + Number(totalSources || 0), __style: 'total' },
-              { Concepto: 'USOS DE FONDO', Valor: null, __style: 'section' },
-              { Concepto: 'Salidas reales de efectivo del período', Valor: Number(totalUses || 0), __style: 'subtotal' },
-              ...uses.map(item => ({ Concepto: item.item, Valor: Number(item.amount || 0) })),
-              { Concepto: 'TOTAL USOS DE FONDO', Valor: Number(totalUses || 0), __style: 'subtotal' },
-              { Concepto: 'SALDO DISPONIBLE', Valor: Number(final || 0), __style: 'total' },
-              {
-                  Concepto: Math.abs(Number(reconciliationDifference || 0)) < 0.01
-                      ? 'CONCILIACIÓN CON CAJA/BANCOS: OK'
-                      : 'DIFERENCIA DE CONCILIACIÓN',
-                  Valor: Number(reconciliationDifference || 0),
-                  __style: Math.abs(Number(reconciliationDifference || 0)) < 0.01 ? 'success' : 'total'
-              }
-          ];
-
-          exportProfessionalTable({
-              fileName: `Flujo_de_Efectivo_${startDate}_al_${effectiveEndDate}`,
-              companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
-              nit: activeCompany?.doc || '',
-              title: 'FLUJO DE EFECTIVO',
-              period: `DEL ${startDate} AL ${effectiveEndDate}`,
-              sheetName: 'Flujo de Efectivo',
-              columns: [
-                  { key: 'Concepto', label: 'CONCEPTO / CUENTA', width: 60, type: 'text' },
-                  { key: 'Valor', label: 'VALOR (COP)', width: 22, type: 'currency' }
-              ],
-              rows,
-              notes: [
-                  'El flujo refleja movimientos reales de Caja y Bancos; traslados internos se presentan sin duplicar el efectivo.',
-                  'Los recursos de terceros pueden entrar y salir por Caja sin afectar la utilidad operacional.'
-              ]
+          (liabilities || []).forEach(l => {
+              dataToExport.push({
+                  'Concepto': l.item ? String(l.item).trim() : '',
+                  'Monto': l.amount != null ? l.amount : ''
+              });
           });
-          toast({ title: 'Excel profesional generado', description: 'Flujo de Efectivo exportado con conciliación visible.' });
+          dataToExport.push({ 'Concepto': 'TOTAL PASIVOS', 'Monto': totals?.liabilities || 0 });
+          dataToExport.push({ 'Concepto': '', 'Monto': '' });
+
+          (equity || []).forEach(e => {
+              dataToExport.push({
+                  'Concepto': e.item ? String(e.item).trim() : '',
+                  'Monto': e.amount != null ? e.amount : ''
+              });
+          });
+          dataToExport.push({ 'Concepto': 'TOTAL PATRIMONIO', 'Monto': totals?.equity || 0 });
+          dataToExport.push({ 'Concepto': '', 'Monto': '' });
+          dataToExport.push({ 'Concepto': 'TOTAL PASIVO + PATRIMONIO', 'Monto': totals?.liabilitiesAndEquity || 0 });
+
+          exportToExcel(dataToExport, `Balance_General_al_${endDate}`, {}); 
+          toast({ title: 'Exportado a Excel', description: 'El Balance General se ha exportado exitosamente con la estructura formal.' });
       } catch (error) {
           toast({ variant: 'destructive', title: 'Error de Exportación', description: error.message });
       }
@@ -881,7 +837,6 @@ const Reports = () => {
                     <h2 className="text-xl font-bold text-slate-900">Flujo de Efectivo</h2>
                     <div className="flex gap-2">
                         <Button onClick={() => handlePrintClick('cashflow')} className="bg-blue-600 hover:bg-blue-700 text-white"><Printer className="w-4 h-4 mr-2" /> Imprimir PDF</Button>
-                        <Button onClick={handleExportCashFlow} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
                     </div>
                 </div>
                 <div className="p-6">

@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Download, FileText, Search, BookMarked, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { exportToExcel, exportProfessionalTable, exportProfessionalWorkbook } from '@/lib/excel';
+import { exportToExcel } from '@/lib/excel';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -114,39 +114,10 @@ const TaxReports = () => {
     const handleExportExogena = () => {
         const data = generateExogenaData;
         if (data.length === 0) { toast({ variant: 'destructive', title: "No hay datos para exportar" }); return; }
-
-        const total = data.reduce((sum, item) => sum + Number(item['Pago o Abono en Cuenta'] || 0), 0);
-
-        exportProfessionalTable({
-            fileName: `Reporte_Exogena_${selectedYear}`,
-            companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
-            nit: activeCompany?.doc || '',
-            title: 'REPORTE DE PAGOS A TERCEROS / INFORMACIÓN EXÓGENA',
-            period: `AÑO FISCAL ${selectedYear}`,
-            sheetName: 'Pagos a Terceros',
-            orientation: 'landscape',
-            columns: [
-                { key: 'Tipo Doc.', label: 'TIPO DOC.', width: 12, type: 'text' },
-                { key: 'Número Doc.', label: 'NÚMERO DOC.', width: 18, type: 'text' },
-                { key: 'Nombre o Razón Social', label: 'NOMBRE O RAZÓN SOCIAL', width: 36, type: 'text' },
-                { key: 'Dirección', label: 'DIRECCIÓN', width: 32, type: 'text' },
-                { key: 'Teléfono', label: 'TELÉFONO', width: 16, type: 'text' },
-                { key: 'Email', label: 'EMAIL', width: 30, type: 'text' },
-                { key: 'Tipo Contacto', label: 'TIPO CONTACTO', width: 18, type: 'text' },
-                { key: 'Pago o Abono en Cuenta', label: 'PAGO O ABONO EN CUENTA', width: 22, type: 'currency' }
-            ],
-            rows: data,
-            summaryRows: [{
-                'Nombre o Razón Social': 'TOTAL PAGOS / ABONOS',
-                'Pago o Abono en Cuenta': total,
-                __style: 'total'
-            }],
-            notes: [
-                'Reporte contable de apoyo para revisión de información exógena; debe validarse contra los formatos, topes y especificaciones vigentes antes de su presentación.',
-                'Los datos de identificación provienen del maestro de terceros registrado en el sistema.'
-            ]
-        });
-        toast({ title: "Excel profesional generado", description: `Reporte de pagos a terceros ${selectedYear} generado para revisión.` });
+        const total = data.reduce((sum, item) => sum + item['Pago o Abono en Cuenta'], 0);
+        const footer = { 'Pago o Abono en Cuenta': total };
+        exportToExcel(data, `Reporte_Exogena_${selectedYear}`, footer);
+        toast({ title: "¡Exportado!", description: `El Reporte de Exógena para ${selectedYear} ha sido generado.` });
     };
 
     // ============================================================================
@@ -410,7 +381,7 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
 
         const assetsSection = [
             { Concepto: 'PATRIMONIO BRUTO (Total Activos)', Valor: totalAssets, isTotal: true },
-            { Concepto: '  Efectivo y Equivalentes (Total Caja, Bancos y Aportes)', Valor: cajaGeneralValue, isSubtotal: true },
+            { Concepto: '  Efectivo y Equivalentes (Caja General)', Valor: cajaGeneralValue, isSubtotal: true },
             { Concepto: '    Caja Principal', Valor: cajaPrincipalBalance, isDetail: true },
             ...dynamicCashAccounts.map(acc => ({ Concepto: `    ${acc.name}`, Valor: acc.balance, isDetail: true })),
             { Concepto: '    Cuentas Bancarias', Valor: totalBankBalances, isDetail: true },
@@ -445,35 +416,33 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
             toast({ variant: 'destructive', title: "No hay datos para exportar." }); 
             return; 
         }
+        
+        const companyName = activeCompany?.name || 'PARROQUIA PADRE MISERICORDIOSO';
+        const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 802012765';
 
-        const rows = data.map(row => {
-            if (row.isSpacer) return { Concepto: '', Valor: null, __style: 'note' };
-            return {
-                Concepto: row.Concepto ? String(row.Concepto).trim() : '',
-                Valor: row.Valor != null ? Number(row.Valor) : null,
-                __style: row.isTotal ? 'total' : (row.isSubtotal ? 'subtotal' : '')
-            };
-        });
+        const dataToExport = [
+            { 'Concepto': companyName, 'Valor': '' },
+            { 'Concepto': companyNit, 'Valor': '' },
+            { 'Concepto': `DECLARACIÓN DE RENTA - AÑO FISCAL ${selectedYear}`, 'Valor': '' },
+            { 'Concepto': `Fecha de generación: ${new Date().toLocaleDateString('es-CO')}`, 'Valor': '' },
+            { 'Concepto': '', 'Valor': '' }, 
+            { 'Concepto': 'CONCEPTO / CUENTA', 'Valor': 'VALOR ($)' },
+            { 'Concepto': '', 'Valor': '' } 
+        ];
 
-        exportProfessionalTable({
-            fileName: `Reporte_Contable_Renta_${selectedYear}`,
-            companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
-            nit: activeCompany?.doc || '',
-            title: 'REPORTE CONTABLE DE APOYO A DECLARACIÓN DE RENTA',
-            period: `AÑO FISCAL ${selectedYear}`,
-            sheetName: 'Renta',
-            columns: [
-                { key: 'Concepto', label: 'CONCEPTO / CUENTA', width: 62, type: 'text' },
-                { key: 'Valor', label: 'VALOR (COP)', width: 22, type: 'currency' }
-            ],
-            rows,
-            notes: [
-                'Reporte contable de apoyo. No sustituye el formulario oficial ni acredita presentación ante la DIAN.',
-                'Las cifras deben revisarse con el contador, soportes, conciliaciones y reglas fiscales aplicables antes de cualquier presentación tributaria.',
-                'Los saldos de Caja, Bancos y Aportes provienen del mismo motor de liquidez utilizado por el Balance General.'
-            ]
+        data.forEach(({ Concepto, Valor, isSpacer }) => {
+            if (isSpacer) {
+                dataToExport.push({ 'Concepto': '', 'Valor': '' });
+            } else {
+                dataToExport.push({ 
+                    'Concepto': Concepto ? Concepto.trim() : '', 
+                    'Valor': Valor != null ? Valor : '' 
+                });
+            }
         });
-        toast({ title: "Excel profesional generado", description: "Reporte contable de apoyo a Renta generado para revisión." });
+            
+        exportToExcel(dataToExport, `Reporte_Declaracion_Renta_${selectedYear}`);
+        toast({ title: "¡Exportado a Excel!", description: "El reporte se ha exportado exitosamente con la estructura formal." });
     };
     
     return (

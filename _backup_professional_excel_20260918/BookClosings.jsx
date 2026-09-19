@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { exportToExcel, exportProfessionalTable, exportProfessionalWorkbook } from '@/lib/excel';
+import { exportToExcel } from '@/lib/excel';
 import { expandTransactionsByAllocation, getTransactionCategoryLabel } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { useCompanyData } from '@/hooks/useCompanyData';
@@ -422,139 +422,39 @@ const BookClosings = () => {
     const handleExport = () => {
         if (!report) return;
 
-        const fileName = `Acta_Cierre_${format(report.period.start, 'yyyy-MM-dd')}_al_${format(report.period.end, 'yyyy-MM-dd')}`;
-        const periodText = `DEL ${format(report.period.start, 'dd/MM/yyyy')} AL ${format(report.period.end, 'dd/MM/yyyy')}`;
-
-        const summaryRows = [
-            { Concepto: 'RESUMEN GENERAL', Ingresos: null, Gastos: null, Resultado: null, __style: 'section' },
-            { Concepto: 'TOTAL INGRESOS OPERATIVOS', Ingresos: Number(report.totalIncome || 0), Gastos: null, Resultado: null, __style: 'subtotal' },
-            { Concepto: 'TOTAL GASTOS OPERATIVOS', Ingresos: null, Gastos: Number(report.totalExpense || 0), Resultado: null, __style: 'subtotal' },
-            { Concepto: 'UTILIDAD / PÉRDIDA DEL PERÍODO', Ingresos: null, Gastos: null, Resultado: Number(report.balance || 0), __style: 'total' },
-            { Concepto: 'RESUMEN MENSUAL', Ingresos: null, Gastos: null, Resultado: null, __style: 'section' },
-            ...(report.monthlySummary || []).map(item => ({
-                Concepto: item.mes,
-                Ingresos: Number(item.ingresos || 0),
-                Gastos: Number(item.gastos || 0),
-                Resultado: Number(item.utilidad || 0)
-            }))
-        ];
-
-        const pnlRows = [
-            { Concepto: 'INGRESOS OPERACIONALES', Valor: null, __style: 'section' },
-            ...(report.incomeByCategory || []).map(item => ({ Concepto: item.name, Valor: Number(item.total || 0) })),
-            { Concepto: 'TOTAL INGRESOS', Valor: Number(report.totalIncome || 0), __style: 'total' },
-            { Concepto: 'GASTOS OPERACIONALES', Valor: null, __style: 'section' },
-            ...(report.expenseByCategory || []).map(item => ({ Concepto: item.name, Valor: Number(item.total || 0) })),
-            { Concepto: 'TOTAL GASTOS', Valor: Number(report.totalExpense || 0), __style: 'subtotal' },
-            { Concepto: 'UTILIDAD / PÉRDIDA', Valor: Number(report.balance || 0), __style: 'total' }
-        ];
-
-        const cashRows = [
-            { Concepto: 'DINERO RECIBIDO EN', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.incomeByDestination || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: 0 })),
-            { Concepto: 'DINERO PAGADO DESDE', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.expenseByDestination || []).map(item => ({ Concepto: item.name, Entrada: 0, Salida: Number(item.total || 0) })),
-            { Concepto: 'CONCILIACIÓN: CAPITALIZACIONES Y TERCEROS', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.conciliacion?.tercerosList || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: Number(item.total || 0) })),
-            { Concepto: 'CAPITALIZACIONES / TRASLADOS A INVERSIÓN', Entrada: 0, Salida: Number(report.conciliacion?.capitalizacion || 0), __style: 'subtotal' },
-            {
-                Concepto: 'SALDO PENDIENTE DE TERCEROS',
-                Entrada: Number(report.conciliacion?.tercerosIn || 0),
-                Salida: Number(report.conciliacion?.tercerosOut || 0),
-                __style: Math.abs(Number(report.conciliacion?.tercerosIn || 0) - Number(report.conciliacion?.tercerosOut || 0)) < 0.01 ? 'success' : 'subtotal'
-            }
-        ];
-
-        const detailRows = (report.transactions || []).map(t => {
+        const detailData = report.transactions.map(t => {
             const dateObj = new Date(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
+
             let destName = t.destination ? t.destination.split('|')[1] || t.destination.split('|')[0] : 'N/A';
             if (destName === 'caja_principal') destName = 'Caja Principal';
+
             let accCat = getTransactionCategoryLabel(t);
             if (t.debitAccount && t.creditAccount) {
                 accCat = t.type === 'income' ? t.creditAccount.name : t.debitAccount.name;
             }
-            const voucher = t.voucherNumber
-                ? `${t.voucherPrefix || (t.type === 'income' ? 'I' : 'E')}-${String(t.voucherNumber).padStart(4, '0')}`
-                : '-';
 
             return {
-                Fecha: format(adjustedDate, 'dd/MM/yyyy'),
-                Comprobante: voucher,
-                Tipo: t.type === 'income' ? 'Ingreso' : (t.type === 'expense' ? 'Egreso' : 'Movimiento'),
+                'Comprobante': t.voucherNumber || '-',
+                'Fecha': format(adjustedDate, 'dd/MM/yyyy'),
+                'Tipo': t.type === 'income' ? 'Ingreso' : 'Egreso',
                 'Categoría Contable': accCat || 'Sin Categoría',
-                Descripción: t.description || '',
-                'Cuenta / Destino': String(destName || '').toUpperCase(),
-                Ingreso: t.type === 'income' ? Number(t.amount || 0) : 0,
-                Egreso: t.type === 'expense' ? Number(t.amount || 0) : 0
+                'Descripción': t.description,
+                'Cuenta (Caja/Banco)': destName.toUpperCase(),
+                'Ingreso': t.type === 'income' ? parseFloat(t.amount) : 0,
+                'Egreso': t.type === 'expense' ? parseFloat(t.amount) : 0,
             };
         });
 
-        exportProfessionalWorkbook({
-            fileName,
-            companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
-            nit: activeCompany?.doc || '',
-            title: 'ACTA DE CIERRE CONTABLE',
-            period: periodText,
-            sheets: [
-                {
-                    name: 'Resumen',
-                    title: 'ACTA DE CIERRE CONTABLE - RESUMEN',
-                    columns: [
-                        { key: 'Concepto', label: 'CONCEPTO / MES', width: 38, type: 'text' },
-                        { key: 'Ingresos', label: 'INGRESOS', width: 18, type: 'currency' },
-                        { key: 'Gastos', label: 'GASTOS', width: 18, type: 'currency' },
-                        { key: 'Resultado', label: 'RESULTADO', width: 18, type: 'currency' }
-                    ],
-                    rows: summaryRows,
-                    notes: ['La utilidad del período excluye movimientos puente de terceros y traslados internos.']
-                },
-                {
-                    name: 'Estado Resultados',
-                    title: 'ESTADO DE RESULTADOS DEL CIERRE',
-                    columns: [
-                        { key: 'Concepto', label: 'CONCEPTO', width: 55, type: 'text' },
-                        { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
-                    ],
-                    rows: pnlRows
-                },
-                {
-                    name: 'Flujo Conciliación',
-                    title: 'FLUJO REAL Y CONCILIACIÓN',
-                    columns: [
-                        { key: 'Concepto', label: 'CONCEPTO', width: 58, type: 'text' },
-                        { key: 'Entrada', label: 'ENTRADA', width: 19, type: 'currency' },
-                        { key: 'Salida', label: 'SALIDA', width: 19, type: 'currency' }
-                    ],
-                    rows: cashRows,
-                    notes: ['Los recursos de terceros se muestran como movimientos de conciliación y no afectan la utilidad.']
-                },
-                {
-                    name: 'Detalle',
-                    title: 'DETALLE DE MOVIMIENTOS DEL CIERRE',
-                    orientation: 'landscape',
-                    columns: [
-                        { key: 'Fecha', label: 'FECHA', width: 13, type: 'text' },
-                        { key: 'Comprobante', label: 'COMP.', width: 13, type: 'text' },
-                        { key: 'Tipo', label: 'TIPO', width: 13, type: 'text' },
-                        { key: 'Categoría Contable', label: 'CATEGORÍA CONTABLE', width: 32, type: 'text' },
-                        { key: 'Descripción', label: 'DESCRIPCIÓN', width: 44, type: 'text' },
-                        { key: 'Cuenta / Destino', label: 'CUENTA / DESTINO', width: 28, type: 'text' },
-                        { key: 'Ingreso', label: 'INGRESO', width: 18, type: 'currency' },
-                        { key: 'Egreso', label: 'EGRESO', width: 18, type: 'currency' }
-                    ],
-                    rows: detailRows,
-                    summaryRows: [{
-                        Descripción: 'TOTALES DEL PERÍODO',
-                        Ingreso: Number(report.totalIncome || 0),
-                        Egreso: Number(report.totalExpense || 0),
-                        __style: 'total'
-                    }]
-                }
-            ]
+        const fileName = `Cierre_Contable_${format(report.period.start, 'dd-MM-yyyy')}_al_${format(report.period.end, 'dd-MM-yyyy')}`;
+
+        exportToExcel(detailData, fileName, {
+            'Total Ingresos': report.totalIncome,
+            'Total Egresos': report.totalExpense,
+            'Resultado Neto': report.balance
         });
-        toast({ title: "Excel profesional generado", description: "El Acta de Cierre se exportó como expediente contable de varias hojas." });
+        toast({ title: "Exportado", description: "El archivo Excel ha sido descargado." });
     };
 
     const handlePrint = () => {
@@ -759,96 +659,6 @@ const BookClosings = () => {
         return new Date(dateStr).getFullYear();
     };
 
-    const handleExportExecutiveReportExcel = () => {
-        if (!report) return;
-
-        const { start, end } = report.period;
-        const periodText = `DEL ${format(start, 'dd/MM/yyyy')} AL ${format(end, 'dd/MM/yyyy')}`;
-        const netThirdParties = Number(report.conciliacion?.tercerosIn || 0) - Number(report.conciliacion?.tercerosOut || 0);
-
-        const executiveRows = [
-            { Indicador: 'INGRESOS OPERATIVOS', Valor: Number(report.totalIncome || 0), __style: 'subtotal' },
-            { Indicador: 'GASTOS OPERATIVOS', Valor: Number(report.totalExpense || 0), __style: 'subtotal' },
-            { Indicador: 'UTILIDAD / PÉRDIDA', Valor: Number(report.balance || 0), __style: 'total' },
-            { Indicador: 'PRINCIPAL FUENTE DE INGRESO', Detalle: report.incomeByCategory?.[0]?.name || 'Sin movimiento', Valor: Number(report.incomeByCategory?.[0]?.total || 0) },
-            { Indicador: 'PRINCIPAL RUBRO DE GASTO', Detalle: report.expenseByCategory?.[0]?.name || 'Sin movimiento', Valor: Number(report.expenseByCategory?.[0]?.total || 0) },
-            { Indicador: 'RECURSOS DE TERCEROS RECIBIDOS', Valor: Number(report.conciliacion?.tercerosIn || 0) },
-            { Indicador: 'RECURSOS DE TERCEROS ENTREGADOS', Valor: Number(report.conciliacion?.tercerosOut || 0) },
-            { Indicador: 'SALDO NETO DE TERCEROS', Valor: netThirdParties, __style: Math.abs(netThirdParties) < 0.01 ? 'success' : 'subtotal' },
-            { Indicador: 'CAPITALIZACIONES / TRASLADOS A INVERSIÓN', Valor: Number(report.conciliacion?.capitalizacion || 0) }
-        ];
-
-        const incomeRows = (report.incomeByCategory || []).map(item => ({
-            Concepto: item.name,
-            Valor: Number(item.total || 0)
-        }));
-        const expenseRows = (report.expenseByCategory || []).map(item => ({
-            Concepto: item.name,
-            Valor: Number(item.total || 0)
-        }));
-        const cashRows = [
-            { Concepto: 'ENTRADAS REALES', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.incomeByDestination || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: 0 })),
-            { Concepto: 'SALIDAS REALES', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.expenseByDestination || []).map(item => ({ Concepto: item.name, Entrada: 0, Salida: Number(item.total || 0) }))
-        ];
-
-        exportProfessionalWorkbook({
-            fileName: `Informe_Curia_${format(start, 'yyyy-MM-dd')}_al_${format(end, 'yyyy-MM-dd')}`,
-            companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
-            nit: activeCompany?.doc || '',
-            title: 'INFORME EJECUTIVO A LA CURIA',
-            period: periodText,
-            sheets: [
-                {
-                    name: 'Resumen Ejecutivo',
-                    title: 'INFORME EJECUTIVO A LA CURIA',
-                    columns: [
-                        { key: 'Indicador', label: 'INDICADOR', width: 42, type: 'text' },
-                        { key: 'Detalle', label: 'DETALLE', width: 46, type: 'text' },
-                        { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
-                    ],
-                    rows: executiveRows,
-                    notes: [
-                        'El resultado operativo excluye movimientos puente de terceros y traslados internos.',
-                        'El saldo neto de terceros debe revisarse con los respectivos soportes y remisiones.'
-                    ]
-                },
-                {
-                    name: 'Ingresos',
-                    title: 'INGRESOS POR CONCEPTO',
-                    columns: [
-                        { key: 'Concepto', label: 'CONCEPTO', width: 55, type: 'text' },
-                        { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
-                    ],
-                    rows: incomeRows,
-                    summaryRows: [{ Concepto: 'TOTAL INGRESOS', Valor: Number(report.totalIncome || 0), __style: 'total' }]
-                },
-                {
-                    name: 'Gastos',
-                    title: 'GASTOS POR CONCEPTO',
-                    columns: [
-                        { key: 'Concepto', label: 'CONCEPTO', width: 55, type: 'text' },
-                        { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
-                    ],
-                    rows: expenseRows,
-                    summaryRows: [{ Concepto: 'TOTAL GASTOS', Valor: Number(report.totalExpense || 0), __style: 'total' }]
-                },
-                {
-                    name: 'Flujo Real',
-                    title: 'MOVIMIENTOS REALES DE EFECTIVO',
-                    columns: [
-                        { key: 'Concepto', label: 'CONCEPTO / DESTINO', width: 58, type: 'text' },
-                        { key: 'Entrada', label: 'ENTRADA', width: 19, type: 'currency' },
-                        { key: 'Salida', label: 'SALIDA', width: 19, type: 'currency' }
-                    ],
-                    rows: cashRows
-                }
-            ]
-        });
-        toast({ title: 'Excel profesional generado', description: 'Informe ejecutivo para la Curia exportado correctamente.' });
-    };
-
     const executeExecutiveReportPrint = () => {
         setIsExecutiveReportModalOpen(false);
         const printWindow = window.open('', '_blank', 'width=950,height=850');
@@ -1024,7 +834,7 @@ const BookClosings = () => {
             assets: [
                 { item: 'ACTIVO CORRIENTE', isBold: true },
                 { item: '  Efectivo y Equivalentes', isBold: true },
-                { item: '    Total Caja, Bancos y Aportes', amount: cajaGeneralValue, isSubtotal: true },
+                { item: '    Caja General', amount: cajaGeneralValue, isSubtotal: true },
                 { item: '      Caja Principal', amount: cajaPrincipalBalance },
                 { item: '      Cuentas Bancarias', amount: totalBankBalances },
                 { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
@@ -1381,7 +1191,7 @@ const months = [
                                 </Button>
 
                                 <Button variant="outline" onClick={handleExport} className="text-green-700 border-green-200 bg-green-50 hover:bg-green-100">
-                                    <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel Profesional
+                                    <FileSpreadsheet className="w-4 h-4 mr-2" /> Exportar Anexo
                                 </Button>
                             </div>
 
@@ -1697,10 +1507,6 @@ const months = [
                             <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
                                 <Button variant="outline" onClick={() => setIsExecutiveReportModalOpen(false)} className="text-slate-600 border-slate-300">
                                     Cerrar
-                                </Button>
-                                <Button variant="outline" onClick={handleExportExecutiveReportExcel} className="text-green-700 border-green-200 bg-green-50 hover:bg-green-100">
-                                    <FileSpreadsheet className="w-4 h-4 mr-2" />
-                                    Excel Curia
                                 </Button>
                                 <Button onClick={executeExecutiveReportPrint} className="bg-blue-600 hover:bg-blue-700 text-white">
                                     <Printer className="w-4 h-4 mr-2" />

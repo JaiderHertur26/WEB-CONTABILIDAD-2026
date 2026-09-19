@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/use-toast';
 import TransactionDialog from '@/components/transactions/TransactionDialog';
 import InternalTransferDialog from '@/components/transactions/InternalTransferDialog';
 import StoreTransaction from '@/components/transactions/StoreTransaction';
-import { exportToExcel, exportProfessionalTable, exportProfessionalWorkbook } from '@/lib/excel';
+import { exportToExcel } from '@/lib/excel';
 import { getTransactionAllocations, getTransactionCategoryLabel, getTransactionTotal } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { useCompanyData } from '@/hooks/useCompanyData';
@@ -1130,187 +1130,11 @@ const Transactions = () => {
             });
         });
         
-        const totalDebit = dataToExport.reduce((sum, row) => sum + (Number(row['Débito']) || 0), 0);
-        const totalCredit = dataToExport.reduce((sum, row) => sum + (Number(row['Crédito']) || 0), 0);
-
-        exportProfessionalTable({
-            fileName: `Libro_Diario_${startDate}_al_${effectiveEndDate}`,
-            companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
-            nit: activeCompany?.doc || '',
-            title: 'LIBRO DIARIO OFICIAL',
-            period: `DEL ${startDate} AL ${effectiveEndDate}`,
-            sheetName: 'Libro Diario',
-            orientation: 'landscape',
-            columns: [
-                { key: 'Fecha', label: 'FECHA', width: 13, type: 'text' },
-                { key: 'Comprobante', label: 'COMP.', width: 13, type: 'text' },
-                { key: 'Código PUC', label: 'CÓDIGO PUC', width: 14, type: 'text' },
-                { key: 'Cuenta', label: 'CUENTA', width: 34, type: 'text' },
-                { key: 'Descripción', label: 'DETALLE', width: 44, type: 'text' },
-                { key: 'Débito', label: 'DÉBITO (COP)', width: 18, type: 'currency' },
-                { key: 'Crédito', label: 'CRÉDITO (COP)', width: 18, type: 'currency' }
-            ],
-            rows: dataToExport,
-            summaryRows: [{
-                Fecha: 'SUMAS IGUALES',
-                'Débito': totalDebit,
-                'Crédito': totalCredit,
-                __style: Math.abs(totalDebit - totalCredit) < 0.01 ? 'total' : 'subtotal'
-            }],
-            notes: [
-                Math.abs(totalDebit - totalCredit) < 0.01
-                    ? 'Control de partida doble: DÉBITOS = CRÉDITOS.'
-                    : 'ADVERTENCIA: los débitos y créditos no están conciliados.',
-                'Libro generado conforme al período seleccionado; conservar junto con comprobantes y soportes.'
-            ]
-        });
-        toast({ title: "Excel profesional generado", description: "Libro Diario exportado con formato contable y control de partida doble." });
+        exportToExcel(dataToExport, `Contabilidad_Partida_Doble_${selectedYear}`, {});
+        toast({ title: "¡Exportado!", description: "Libro Diario exportado a Excel." });
     };
 
    
-    const buildAuxiliaryExcelData = () => {
-        const flatRows = [];
-
-        displayTransactions.forEach(t => {
-            if (t._isMerged) return;
-            const vId = t.voucherNumber
-                ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}`
-                : '-';
-
-            let tercero = t.contact || '-';
-            if (tercero === '-' && t.contactId && contacts) {
-                const foundContact = contacts.find(c => String(c.id) === String(t.contactId));
-                if (foundContact) tercero = foundContact.name;
-            }
-
-            resolveAccountingRows(t).forEach((row, rowIndex) => {
-                const code = String(row.account?.code || '');
-                const showRow = accountFilters.length === 0 || accountFilters.some(f => code.startsWith(f));
-                if (!showRow || !code) return;
-
-                const debitValue = Number(row.debit) || 0;
-                const creditValue = Number(row.credit) || 0;
-                if (debitValue > 0) {
-                    flatRows.push({ ...t, _rowIndex: rowIndex, vId, tercero, pCode: code, pName: row.account?.name || '-', isDebit: true, val: debitValue });
-                }
-                if (creditValue > 0) {
-                    flatRows.push({ ...t, _rowIndex: rowIndex, vId, tercero, pCode: code, pName: row.account?.name || '-', isDebit: false, val: creditValue });
-                }
-            });
-        });
-
-        flatRows.sort((a, b) => {
-            const codeCompare = a.pCode.localeCompare(b.pCode);
-            if (codeCompare !== 0) return codeCompare;
-            return new Date(a.date) - new Date(b.date);
-        });
-
-        const openingBalancesByCode = libroMayorData.reduce((map, acc) => {
-            map[String(acc.code)] = Number(acc.saldoAnterior) || 0;
-            return map;
-        }, {});
-
-        const runningBalances = {};
-        const rows = [];
-        let currentAccount = null;
-
-        flatRows.forEach(row => {
-            if (currentAccount !== row.pCode) {
-                currentAccount = row.pCode;
-                const openingBalance = openingBalancesByCode[row.pCode] || 0;
-                runningBalances[row.pCode] = openingBalance;
-
-                if (Math.abs(openingBalance) > 0.01) {
-                    rows.push({
-                        Fecha: formatSafeDate(startDate),
-                        Comprobante: 'SALDO',
-                        'Código PUC': row.pCode,
-                        Cuenta: row.pName,
-                        Tercero: '-',
-                        Detalle: 'SALDO ANTERIOR AL PERÍODO',
-                        Débito: 0,
-                        Crédito: 0,
-                        Saldo: openingBalance,
-                        __style: 'subtotal'
-                    });
-                }
-            }
-
-            const isDebitNature = ['1', '5', '6', '8'].includes(row.pCode.charAt(0));
-            if (row.isDebit) {
-                runningBalances[row.pCode] = (runningBalances[row.pCode] || 0) + (isDebitNature ? row.val : -row.val);
-            } else {
-                runningBalances[row.pCode] = (runningBalances[row.pCode] || 0) + (isDebitNature ? -row.val : row.val);
-            }
-
-            rows.push({
-                Fecha: formatSafeDate(row.date),
-                Comprobante: row.vId,
-                'Código PUC': row.pCode,
-                Cuenta: row.pName,
-                Tercero: row.tercero,
-                Detalle: row.description || '',
-                Débito: row.isDebit ? row.val : 0,
-                Crédito: row.isDebit ? 0 : row.val,
-                Saldo: runningBalances[row.pCode]
-            });
-        });
-
-        const totals = rows.reduce((acc, row) => {
-            if (row.Comprobante === 'SALDO') return acc;
-            acc.debit += Number(row.Débito) || 0;
-            acc.credit += Number(row.Crédito) || 0;
-            return acc;
-        }, { debit: 0, credit: 0 });
-
-        return { rows, totals };
-    };
-
-    const handleExportAuxiliarExcel = () => {
-        const { rows, totals } = buildAuxiliaryExcelData();
-        if (rows.length === 0) {
-            toast({ variant: 'destructive', title: 'Libro Auxiliar vacío', description: 'No hay movimientos para exportar.' });
-            return;
-        }
-
-        const accountLabel = accountFilters.length === 0
-            ? 'TODAS LAS CUENTAS'
-            : accountFilters.join(', ');
-
-        exportProfessionalTable({
-            fileName: `Libro_Auxiliar_${startDate}_al_${effectiveEndDate}`,
-            companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
-            nit: activeCompany?.doc || '',
-            title: 'LIBRO AUXILIAR / REPORTES',
-            period: `DEL ${startDate} AL ${effectiveEndDate} | CUENTA: ${accountLabel}`,
-            sheetName: 'Libro Auxiliar',
-            orientation: 'landscape',
-            columns: [
-                { key: 'Fecha', label: 'FECHA', width: 13, type: 'text' },
-                { key: 'Comprobante', label: 'COMPROBANTE', width: 14, type: 'text' },
-                { key: 'Código PUC', label: 'CÓDIGO PUC', width: 14, type: 'text' },
-                { key: 'Cuenta', label: 'CUENTA', width: 32, type: 'text' },
-                { key: 'Tercero', label: 'TERCERO / CONTACTO', width: 28, type: 'text' },
-                { key: 'Detalle', label: 'DETALLE', width: 42, type: 'text' },
-                { key: 'Débito', label: 'DÉBITO', width: 17, type: 'currency' },
-                { key: 'Crédito', label: 'CRÉDITO', width: 17, type: 'currency' },
-                { key: 'Saldo', label: 'SALDO', width: 18, type: 'currency' }
-            ],
-            rows,
-            summaryRows: [{
-                Detalle: 'TOTAL MOVIMIENTOS DEL FILTRO',
-                Débito: totals.debit,
-                Crédito: totals.credit,
-                __style: 'total'
-            }],
-            notes: [
-                'El saldo anterior se toma del Libro Mayor para asegurar conciliación entre libros.',
-                'Los saldos se calculan según la naturaleza débito/crédito de cada cuenta PUC.'
-            ]
-        });
-        toast({ title: 'Excel profesional generado', description: 'Libro Auxiliar exportado con saldos corridos y control de movimientos.' });
-    };
-
     // 🚀 FUNCIÓN DE IMPRESIÓN DEL LIBRO AUXILIAR / REPORTE FILTRADO
     const handlePrintFilteredPdf = () => {
         if (!filteredPrintRef.current) return;
@@ -1592,54 +1416,6 @@ const Transactions = () => {
         setPrintDialogOpen(true);
     };
 
-    const handleExportVoucherExcel = () => {
-        if (!transactionToPrint) return;
-
-        const accountingRows = Array.isArray(transactionToPrint.accountingRows) && transactionToPrint.accountingRows.length
-            ? transactionToPrint.accountingRows
-            : resolveAccountingRows(transactionToPrint);
-
-        const rows = accountingRows.map(row => ({
-            'Código PUC': row.account?.code || '',
-            Cuenta: row.account?.name || '',
-            Débito: Number(row.debit) || 0,
-            Crédito: Number(row.credit) || 0
-        }));
-
-        const totalDebit = rows.reduce((sum, row) => sum + row.Débito, 0);
-        const totalCredit = rows.reduce((sum, row) => sum + row.Crédito, 0);
-        const voucherId = transactionToPrint.voucherNumber
-            ? `${transactionToPrint.voucherPrefix || 'A'}-${String(transactionToPrint.voucherNumber).padStart(4, '0')}`
-            : 'SIN-NUMERO';
-
-        exportProfessionalTable({
-            fileName: `Comprobante_${voucherId}_${String(transactionToPrint.date || '').slice(0, 10)}`,
-            companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
-            nit: activeCompany?.doc || '',
-            title: `COMPROBANTE CONTABLE ${voucherId}`,
-            period: `FECHA: ${formatSafeDate(transactionToPrint.date)} | CONCEPTO: ${transactionToPrint.description || ''}`,
-            sheetName: 'Comprobante',
-            columns: [
-                { key: 'Código PUC', label: 'CÓDIGO PUC', width: 16, type: 'text' },
-                { key: 'Cuenta', label: 'CUENTA', width: 42, type: 'text' },
-                { key: 'Débito', label: 'DÉBITO (COP)', width: 20, type: 'currency' },
-                { key: 'Crédito', label: 'CRÉDITO (COP)', width: 20, type: 'currency' }
-            ],
-            rows,
-            summaryRows: [{
-                Cuenta: 'SUMAS IGUALES',
-                Débito: totalDebit,
-                Crédito: totalCredit,
-                __style: Math.abs(totalDebit - totalCredit) < 0.01 ? 'total' : 'subtotal'
-            }],
-            notes: [
-                `Tercero / contacto: ${transactionToPrint.contact || transactionToPrint.beneficiary || '-'}`,
-                'El comprobante debe conservarse con sus soportes documentales.'
-            ]
-        });
-        toast({ title: 'Excel profesional generado', description: `Comprobante ${voucherId} exportado correctamente.` });
-    };
-
     const handlePrintToPdf = () => {
         if (!voucherRef.current) return;
         setIsPrinting(true);
@@ -1681,74 +1457,6 @@ const Transactions = () => {
             setIsPrinting(false);
             toast({ title: "Documento procesado" });
         }, 500);
-    };
-
-    const handleExportBillingExcel = () => {
-        if (!billingDocToPrint) return;
-
-        const docNumber = `CC-${String(
-            (parseInt(billingDocToPrint?.voucherNumber, 10) || 0) + (parseInt(voucherConfig?.expense, 10) || 0)
-        ).padStart(4, '0')}`;
-
-        exportProfessionalTable({
-            fileName: `Cuenta_de_Cobro_${docNumber}_${String(billingDocToPrint.date || '').slice(0, 10)}`,
-            companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
-            nit: activeCompany?.doc || '',
-            title: `CUENTA DE COBRO / DOCUMENTO SOPORTE ${docNumber}`,
-            period: `FECHA: ${formatSafeDate(billingDocToPrint.date)}`,
-            sheetName: 'Cuenta de Cobro',
-            columns: [
-                { key: 'Campo', label: 'CAMPO', width: 28, type: 'text' },
-                { key: 'Detalle', label: 'DETALLE', width: 58, type: 'text' },
-                { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
-            ],
-            rows: [
-                { Campo: 'Beneficiario / Acreedor', Detalle: billingDocToPrint.beneficiary || '-', Valor: null },
-                { Campo: 'Identificación', Detalle: billingDocToPrint.docNumber || '-', Valor: null },
-                { Campo: 'Concepto', Detalle: billingDocToPrint.concept || '-', Valor: null },
-                { Campo: 'Comprobante relacionado', Detalle: `E-${String(billingDocToPrint.voucherNumber || '').padStart(4, '0')}`, Valor: null },
-                { Campo: 'Valor a pagar', Detalle: '', Valor: Number(billingDocToPrint.amount || 0), __style: 'total' }
-            ],
-            notes: [
-                'Documento de soporte generado a partir del comprobante de egreso registrado en el sistema.',
-                'Debe conservarse con factura, cuenta de cobro, soporte de pago o documento equivalente, según corresponda.'
-            ]
-        });
-        toast({ title: 'Excel profesional generado', description: 'Cuenta de Cobro exportada en formato de revisión.' });
-    };
-
-    const handleExportReceiptExcel = () => {
-        if (!receiptToPrint) return;
-
-        const receiptNumber = `RC-${String(
-            (parseInt(receiptToPrint?.voucherNumber, 10) || 0) + (parseInt(voucherConfig?.income, 10) || 0)
-        ).padStart(4, '0')}`;
-
-        exportProfessionalTable({
-            fileName: `Recibo_de_Caja_${receiptNumber}_${String(receiptToPrint.date || '').slice(0, 10)}`,
-            companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
-            nit: activeCompany?.doc || '',
-            title: `RECIBO DE CAJA / DONACIÓN ${receiptNumber}`,
-            period: `FECHA: ${formatSafeDate(receiptToPrint.date)}`,
-            sheetName: 'Recibo de Caja',
-            columns: [
-                { key: 'Campo', label: 'CAMPO', width: 28, type: 'text' },
-                { key: 'Detalle', label: 'DETALLE', width: 58, type: 'text' },
-                { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
-            ],
-            rows: [
-                { Campo: 'Recibido de', Detalle: receiptToPrint.beneficiary || '-', Valor: null },
-                { Campo: 'Identificación', Detalle: receiptToPrint.docNumber || '-', Valor: null },
-                { Campo: 'Concepto', Detalle: receiptToPrint.description || '-', Valor: null },
-                { Campo: 'Comprobante relacionado', Detalle: `${receiptToPrint.voucherPrefix || 'I'}-${String(receiptToPrint.voucherNumber || '').padStart(4, '0')}`, Valor: null },
-                { Campo: 'Valor recibido', Detalle: numeroALetras(Number(receiptToPrint.amount || 0)), Valor: Number(receiptToPrint.amount || 0), __style: 'total' }
-            ],
-            notes: [
-                'Recibo generado a partir del ingreso registrado en el sistema.',
-                'Conservar con el soporte de origen de los fondos cuando aplique.'
-            ]
-        });
-        toast({ title: 'Excel profesional generado', description: 'Recibo de Caja exportado en formato de revisión.' });
     };
 
     const handlePrintBillingDocPdf = () => {
@@ -1968,61 +1676,6 @@ const Transactions = () => {
             })
             .sort((a, b) => a.code.localeCompare(b.code));
     }, [processedTransactions, transactions, accounts, initialBalances, bankAccounts, cashAccounts, startDate, effectiveEndDate, isRelevant]);
-
-    const handleExportMayorExcel = () => {
-        if (libroMayorData.length === 0) {
-            toast({ variant: 'destructive', title: 'Libro Mayor vacío', description: 'No hay datos para exportar.' });
-            return;
-        }
-
-        const rows = libroMayorData.map(acc => ({
-            Código: acc.code,
-            Cuenta: acc.name,
-            'Saldo Anterior': Number(acc.saldoAnterior) || 0,
-            'Mov. Débito': Number(acc.debito) || 0,
-            'Mov. Crédito': Number(acc.credito) || 0,
-            'Nuevo Saldo': Number(acc.nuevoSaldo) || 0
-        }));
-
-        const totals = rows.reduce((sum, row) => ({
-            anterior: sum.anterior + (Number(row['Saldo Anterior']) || 0),
-            debito: sum.debito + (Number(row['Mov. Débito']) || 0),
-            credito: sum.credito + (Number(row['Mov. Crédito']) || 0),
-            nuevo: sum.nuevo + (Number(row['Nuevo Saldo']) || 0)
-        }), { anterior: 0, debito: 0, credito: 0, nuevo: 0 });
-
-        exportProfessionalTable({
-            fileName: `Libro_Mayor_${startDate}_al_${effectiveEndDate}`,
-            companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
-            nit: activeCompany?.doc || '',
-            title: 'LIBRO MAYOR Y DE BALANCES',
-            period: `DEL ${startDate} AL ${effectiveEndDate}`,
-            sheetName: 'Libro Mayor',
-            orientation: 'landscape',
-            columns: [
-                { key: 'Código', label: 'CÓDIGO', width: 14, type: 'text' },
-                { key: 'Cuenta', label: 'CUENTA', width: 38, type: 'text' },
-                { key: 'Saldo Anterior', label: 'SALDO ANTERIOR', width: 19, type: 'currency' },
-                { key: 'Mov. Débito', label: 'MOV. DÉBITO', width: 18, type: 'currency' },
-                { key: 'Mov. Crédito', label: 'MOV. CRÉDITO', width: 18, type: 'currency' },
-                { key: 'Nuevo Saldo', label: 'NUEVO SALDO', width: 19, type: 'currency' }
-            ],
-            rows,
-            summaryRows: [{
-                Cuenta: 'SUMAS DEL PERÍODO',
-                'Saldo Anterior': totals.anterior,
-                'Mov. Débito': totals.debito,
-                'Mov. Crédito': totals.credito,
-                'Nuevo Saldo': totals.nuevo,
-                __style: 'total'
-            }],
-            notes: [
-                'Los saldos anteriores provienen de los saldos de apertura y movimientos previos al período.',
-                'Los saldos finales se calculan respetando la naturaleza contable de cada cuenta PUC.'
-            ]
-        });
-        toast({ title: 'Excel profesional generado', description: 'Libro Mayor exportado con saldos, movimientos y sumas de control.' });
-    };
 
     const handlePrintMayorPdf = () => {
         if (libroMayorData.length === 0) { 
@@ -2439,10 +2092,7 @@ const Transactions = () => {
                                     <h3 className="font-bold text-purple-900 text-lg">Libro Mayor y de Balances</h3>
                                     <p className="text-xs text-purple-700">Consolidación algorítmica de saldos reglamentarios</p>
                                 </div>
-                                <div className="flex gap-2">
-                                    <Button variant="outline" size="sm" onClick={handlePrintMayorPdf} className="bg-white border-purple-200 text-purple-700 shadow-sm hover:bg-purple-100"><Printer className="w-4 h-4 mr-2" /> Imprimir Mayor Oficial (PDF)</Button>
-                                    <Button variant="outline" size="sm" onClick={handleExportMayorExcel} className="bg-green-50 border-green-200 text-green-700 shadow-sm hover:bg-green-100"><FileSpreadsheet className="w-4 h-4 mr-2" /> Excel Profesional</Button>
-                                </div>
+                                <Button variant="outline" size="sm" onClick={handlePrintMayorPdf} className="bg-white border-purple-200 text-purple-700 shadow-sm hover:bg-purple-100"><Printer className="w-4 h-4 mr-2" /> Imprimir Mayor Oficial (PDF)</Button>
                             </div>
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-800 text-slate-200 font-medium">
@@ -2581,30 +2231,19 @@ const Transactions = () => {
                     Recibo de Caja / Donación
                 </h3>
 
-                <div className="flex gap-2">
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleExportReceiptExcel}
-                        className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                    >
-                        <FileSpreadsheet className="w-4 h-4 mr-2" />
-                        Excel
-                    </Button>
-                    <Button
-                        size="sm"
-                        onClick={handlePrintReceiptPdf}
-                        disabled={isPrinting}
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                    >
-                        {isPrinting ? (
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        ) : (
-                            <Printer className="w-4 h-4 mr-2" />
-                        )}
-                        Imprimir PDF
-                    </Button>
-                </div>
+                <Button
+                    size="sm"
+                    onClick={handlePrintReceiptPdf}
+                    disabled={isPrinting}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                    {isPrinting ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                        <Printer className="w-4 h-4 mr-2" />
+                    )}
+                    Imprimir PDF
+                </Button>
             </div>
 
             <div className="p-6 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center">
@@ -2774,30 +2413,19 @@ const Transactions = () => {
                     Cuenta de Cobro / Doc. Soporte
                 </h3>
 
-                <div className="flex gap-2">
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleExportBillingExcel}
-                        className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                    >
-                        <FileSpreadsheet className="w-4 h-4 mr-2" />
-                        Excel
-                    </Button>
-                    <Button
-                        size="sm"
-                        onClick={handlePrintBillingDocPdf}
-                        disabled={isPrinting}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                        {isPrinting ? (
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        ) : (
-                            <Printer className="w-4 h-4 mr-2" />
-                        )}
-                        Imprimir PDF
-                    </Button>
-                </div>
+                <Button
+                    size="sm"
+                    onClick={handlePrintBillingDocPdf}
+                    disabled={isPrinting}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                    {isPrinting ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                        <Printer className="w-4 h-4 mr-2" />
+                    )}
+                    Imprimir PDF
+                </Button>
             </div>
 
             <div className="p-6 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center">
@@ -2961,13 +2589,7 @@ const Transactions = () => {
             <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
                 <DialogContent className="max-w-6xl p-0 border-none bg-transparent shadow-none">
                     <div className="bg-white rounded-lg overflow-hidden">
-                        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                            <h3 className="font-semibold">Vista Previa</h3>
-                            <div className="flex gap-2">
-                                <Button size="sm" variant="outline" onClick={handleExportVoucherExcel} className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"><FileSpreadsheet className="w-4 h-4 mr-2" />Excel</Button>
-                                <Button size="sm" onClick={handlePrintToPdf} disabled={isPrinting}>{isPrinting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Printer className="w-4 h-4 mr-2" />}Imprimir PDF</Button>
-                            </div>
-                        </div>
+                        <div className="p-4 border-b flex justify-between items-center bg-slate-50"><h3 className="font-semibold">Vista Previa</h3><Button size="sm" onClick={handlePrintToPdf} disabled={isPrinting}>{isPrinting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Printer className="w-4 h-4 mr-2" />}Imprimir PDF</Button></div>
                         <div className="p-8 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center"><div ref={voucherRef} className="bg-white shadow-2xl" style={{ width: '215.9mm', minHeight: '139.7mm' }}><Voucher transaction={transactionToPrint} /></div></div>
                     </div>
                 </DialogContent>
@@ -2982,30 +2604,19 @@ const Transactions = () => {
                                 <BookOpen className="w-4 h-4 mr-2 text-blue-600" />
                                 Vista Previa del Libro Auxiliar
                             </h3>
-                            <div className="flex gap-2">
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleExportAuxiliarExcel}
-                                    className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                                >
-                                    <FileSpreadsheet className="w-4 h-4 mr-2" />
-                                    Excel Profesional
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    onClick={handlePrintFilteredPdf}
-                                    disabled={isPrinting}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                                >
-                                    {isPrinting ? (
-                                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                    ) : (
-                                        <Printer className="w-4 h-4 mr-2" />
-                                    )}
-                                    Imprimir PDF
-                                </Button>
-                            </div>
+                            <Button
+                                size="sm"
+                                onClick={handlePrintFilteredPdf}
+                                disabled={isPrinting}
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
+                            >
+                                {isPrinting ? (
+                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                ) : (
+                                    <Printer className="w-4 h-4 mr-2" />
+                                )}
+                                Imprimir PDF
+                            </Button>
                         </div>
                         <div className="p-6 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center">
                             <div ref={filteredPrintRef} className="bg-white p-8 shadow-sm" style={{ width: '279.4mm', minHeight: '215.9mm', boxSizing: 'border-box' }}>
