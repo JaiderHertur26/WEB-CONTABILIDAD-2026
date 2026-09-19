@@ -22,6 +22,7 @@ import CashAccounts from '@/pages/CashAccounts';
 import Inventory from '@/pages/Inventory';
 import Invoices from '@/pages/Invoices';
 import MassIntentions from '@/pages/MassIntentions'; // NUEVA IMPORTACIÓN
+import Contracts from '@/pages/Contracts';
 import { Toaster } from '@/components/ui/toaster';
 import { LocalAuthProvider, useAuth } from '@/contexts/LocalAuthContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
@@ -50,6 +51,7 @@ const AppRoutes = () => {
 
         <Route path="/organization" element={!isGeneralAdmin ? <Organization /> : <Navigate to="/companies" />} />
         <Route path="/transactions" element={!isGeneralAdmin ? <Transactions /> : <Navigate to="/companies" />} />
+        <Route path="/contracts" element={!isGeneralAdmin ? <Contracts /> : <Navigate to="/companies" />} />
         <Route path="/invoices" element={!isGeneralAdmin ? <Invoices /> : <Navigate to="/companies" />} />
         <Route path="/inventory" element={!isGeneralAdmin ? <Inventory /> : <Navigate to="/companies" />} />
         <Route path="/cash-accounts" element={!isGeneralAdmin ? <CashAccounts /> : <Navigate to="/companies" />} />

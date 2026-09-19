@@ -282,7 +282,7 @@ const Settings = () => {
 
         try {
             const { content, validIds } = backupPreview;
-            const supportedTypes = ['transactions', 'contacts', 'accounts', 'bankAccounts', 'accountsReceivable', 'accountsPayable', 'inventory', 'offices', 'voucher-sequence', 'cash_accounts', 'fixedAssets', 'realEstates', 'initialBalance', 'mass_intentions', 'billing_documents', 'auto_billing_categories'];
+            const supportedTypes = ['transactions', 'contacts', 'accounts', 'bankAccounts', 'accountsReceivable', 'accountsPayable', 'inventory', 'offices', 'voucher-sequence', 'cash_accounts', 'fixedAssets', 'realEstates', 'initialBalance', 'mass_intentions', 'contracts', 'billing_documents', 'auto_billing_categories'];
             let restoredDataCount = 0;
 
             // ❌ SE ELIMINÓ LA ACTUALIZACIÓN DEL PERFIL (NOMBRE, DIRECCIÓN, TELÉFONO). 

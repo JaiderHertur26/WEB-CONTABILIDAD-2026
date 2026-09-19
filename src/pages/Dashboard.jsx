@@ -5,6 +5,7 @@ import { TrendingUp, TrendingDown, DollarSign, PiggyBank, Building, Building2, I
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import StatCard from '@/components/dashboard/StatCard';
 import RecentTransactions from '@/components/dashboard/RecentTransactions';
+import ContractTaxAlert from '@/components/contracts/ContractTaxAlert';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
@@ -525,6 +526,8 @@ const Dashboard = () => {
                 Estás viendo la información combinada de tu empresa y todas sus sub-empresas vinculadas. Para editar datos, se recomienda cambiar a Vista Individual.
             </div>
         )}
+
+        <ContractTaxAlert />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <StatCard title="Total Activos (Patrimonio)" value={`$${stats.generalBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={DollarSign} trend={stats.generalBalance >= 0 ? 'up' : 'down'} color="blue" tooltip="Caja + Cuentas Cobrar + Activos Fijos + Inventario + Construcciones" />

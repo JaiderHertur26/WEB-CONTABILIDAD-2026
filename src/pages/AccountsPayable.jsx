@@ -193,6 +193,11 @@ const AccountsPayable = () => {
 
     const handleDeletePayable = (id) => {
         if (!canDelete) return;
+        const target = (payables || []).find(p => p.id === id);
+        if (target?.contractManaged) {
+            toast({ variant: 'destructive', title: "Cuenta protegida", description: "Esta cuenta fue generada por Contratos. Debe corregirse desde el expediente contractual para preservar la trazabilidad." });
+            return;
+        }
         saveTransactions(transactions.filter(t => t.id !== `txn-exp-${id}`));
         savePayables(payables.filter(p => p.id !== id));
         toast({ title: "Cuenta por pagar eliminada", description: "La transacción asociada también fue eliminada." });
@@ -201,28 +206,50 @@ const AccountsPayable = () => {
     const handleMarkAsPaid = (paymentData) => {
         if (!canAdd) return;
         const { payable, origin } = paymentData;
-
         const currentDate = format(new Date(), 'yyyy-MM-dd');
+
+        if (payable?.contractManaged) {
+            const [originId, originName] = String(origin || '').split('|');
+            const bank = (bankAccounts || []).find(b => String(b.id) === originId);
+            const creditAccount = originId === 'caja_principal'
+                ? { code: '11050501', name: 'CAJA PRINCIPAL' }
+                : { code: bank?.accountingCode || '1110', name: bank?.accountingConcept || bank?.bankName || originName || 'BANCO' };
+            const paymentVoucher = getNextVoucherNumber('transfer', currentDate);
+            const paymentTransaction = {
+                id: `contract-payment-${payable.id}-${Date.now()}`,
+                type: 'transfer',
+                date: currentDate,
+                description: `Pago contrato · ${payable.description}`,
+                amount: parseFloat(payable.amount) || 0,
+                category: 'CUENTAS POR PAGAR',
+                isInternalTransfer: true,
+                isContractEntry: true,
+                contractManaged: true,
+                contractId: payable.contractId,
+                contractActId: payable.contractActId,
+                debitAccount: { code: '23050101', name: 'CUENTAS POR PAGAR' },
+                creditAccount,
+                voucherNumber: paymentVoucher,
+                voucherPrefix: 'T',
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id,
+                contactId: payable.contactId
+            };
+            saveTransactions([...(transactions || []), paymentTransaction]);
+            savePayables((payables || []).map(p => p.id === payable.id
+                ? { ...p, status: 'Pagado', paidAt: currentDate, paymentTransactionId: paymentTransaction.id, paymentOrigin: origin }
+                : p));
+            toast({ title: "Cuenta contractual pagada", description: `Se generó comprobante T-${String(paymentVoucher).padStart(4, '0')} sin alterar el reconocimiento original del acta.` });
+            setPaymentDialogOpen(false);
+            return;
+        }
+
         const newVoucherNumber = getNextVoucherNumber('expense', currentDate);
-
-        const updatedTransactions = transactions.map(t => {
-            if (t.id === `txn-exp-${payable.id}`) {
-                return {
-                    ...t,
-                    destination: origin,
-                    date: currentDate,
-                    description: `${t.description} (Pagado)`,
-                    voucherNumber: newVoucherNumber
-                };
-            }
-            return t;
-        });
-
+        const updatedTransactions = transactions.map(t => t.id === `txn-exp-${payable.id}`
+            ? { ...t, destination: origin, date: currentDate, description: `${t.description} (Pagado)`, voucherNumber: newVoucherNumber }
+            : t);
         saveTransactions(updatedTransactions);
-
-        const updatedPayables = payables.map(p => p.id === payable.id ? { ...p, status: 'Pagado' } : p);
-        savePayables(updatedPayables);
-
+        savePayables(payables.map(p => p.id === payable.id ? { ...p, status: 'Pagado' } : p));
         toast({ title: "¡Cuenta Pagada!", description: `Se ha generado el comprobante de pago E-${String(newVoucherNumber).padStart(4, '0')}.` });
         setPaymentDialogOpen(false);
     };
@@ -355,8 +382,8 @@ const AccountsPayable = () => {
                                         {canAdd && <Button size="icon" variant="ghost" className="hover:text-green-600" onClick={() => { setPayableToPay(p); setPaymentDialogOpen(true); }} title="Marcar como Pagado"><CheckCircle className="w-4 h-4" /></Button>}
                                     </>
                                 )}
-                                {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingPayable(p); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                                {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeletePayable(p.id)}><Trash2 className="w-4 h-4" /></Button>}
+                                {canEdit && !p.contractManaged && <Button size="icon" variant="ghost" onClick={() => { setEditingPayable(p); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
+                                {canDelete && !p.contractManaged && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeletePayable(p.id)}><Trash2 className="w-4 h-4" /></Button>}
                             </div></td>
                         </tr>))}</tbody>
                     </table></div>

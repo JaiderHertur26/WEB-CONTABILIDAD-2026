@@ -6,7 +6,7 @@ import {
   Menu, X, Home, ArrowRightLeft, Building, Landmark, BookOpen,
   Settings, LogOut, Briefcase, FileBarChart2, ArrowDownCircle,
   ArrowUpCircle, Users, ShieldCheck, ShieldAlert, Network,
-  Wallet, Package, FileText, Heart
+  Wallet, Package, FileText, Heart, FileSignature
 } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 
@@ -18,6 +18,7 @@ const navLinks = [
   { icon: Home, text: 'Dashboard', path: '/' },
   { icon: Network, text: 'Mi Organización', path: '/organization' },
   { icon: ArrowRightLeft, text: 'Transacciones', path: '/transactions' },
+  { icon: FileSignature, text: 'Contratos', path: '/contracts' },
   { icon: Heart, text: 'Intenciones de Misa', path: '/mass-intentions' },
   { icon: FileText, text: 'Facturas', path: '/invoices' },
   { icon: Package, text: 'Inventario', path: '/inventory' },
