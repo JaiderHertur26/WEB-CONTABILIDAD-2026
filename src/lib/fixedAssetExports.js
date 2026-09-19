@@ -352,6 +352,7 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
       money(totals.original), money(totals.depreciation), money(totals.net), ''
     ]],
     styles: { font: 'helvetica', fontSize: 6.3, cellPadding: 1.3, valign: 'middle' },
+    rowPageBreak: 'avoid',
     headStyles: { fillColor: [31, 78, 121], textColor: 255, fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [231, 238, 245], textColor: [20, 20, 20], fontStyle: 'bold' },
     showFoot: 'lastPage',
