@@ -634,10 +634,16 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
             new Paragraph({
               alignment: AlignmentType.RIGHT,
               children: [
-                new TextRun({ text: `Generado por Sistema Contable · ${meta.cutoff} · Página `, size: 12, color: '777777' }),
-                PageNumber.CURRENT,
-                new TextRun({ text: ' de ', size: 12, color: '777777' }),
-                PageNumber.TOTAL_PAGES,
+                new TextRun({
+                  size: 12,
+                  color: '777777',
+                  children: [
+                    `Generado por Sistema Contable · ${meta.cutoff} · Página `,
+                    PageNumber.CURRENT,
+                    ' de ',
+                    PageNumber.TOTAL_PAGES,
+                  ],
+                }),
               ],
             }),
           ],
