@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Plus, Download, Edit2, Trash2, Archive, Search, CalendarPlus, Upload, Lock, FileText, FileSpreadsheet, Printer } from 'lucide-react';
+import { Plus, Download, Edit2, Trash2, Archive, Search, CalendarPlus, Upload, Lock, FileText, FileSpreadsheet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
-import { exportFixedAssetsExcel, exportFixedAssetsPdf, exportFixedAssetsWord } from '@/lib/fixedAssetExports';
+import { exportToExcel } from '@/lib/excel';
 import * as XLSX from 'xlsx';
 import { usePermission } from '@/hooks/usePermission';
+
+// IMPORTACIÓN DE LA LIBRERÍA PARA WORD
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, PageOrientation } from 'docx';
 
 const FixedAssets = () => {
     const { canEdit, canDelete, canAdd, canImport, isReadOnly } = usePermission();
@@ -283,46 +286,209 @@ const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDep
         setSelectedAssetForRetire(null);
     };
     
-    // --- EXPORTACIONES PROFESIONALES: MISMA BASE PARA EXCEL / PDF / WORD ---
-    const ensureAssetsForExport = () => {
-        if (filteredAssets.length > 0) return true;
-        toast({ variant: 'destructive', title: 'No hay datos para exportar', description: `No existen activos para la vigencia ${yearFilter} y el filtro actual.` });
-        return false;
-    };
-
+    // --- EXPORTAR EXCEL ---
     const handleExportExcel = () => {
-        if (!ensureAssetsForExport()) return;
-        try {
-            exportFixedAssetsExcel({ assets: filteredAssets, company: activeCompany, year: yearFilter });
-            toast({ title: 'Excel profesional generado', description: 'Inventario exportado con resumen, categorías, bajas y hoja de control.' });
-        } catch (error) {
-            console.error('Error exportando Activos Fijos a Excel:', error);
-            toast({ variant: 'destructive', title: 'Error al exportar Excel', description: 'No se pudo generar el inventario de Activos Fijos.' });
+        if(filteredAssets.length === 0) {
+            toast({ variant: 'destructive', title: "No hay datos para exportar"});
+            return;
         }
+
+        let totalValue = 0;
+        const excelData = filteredAssets.map(a => {
+            const val = a.status === 'Dado de Baja' ? 0 : (parseFloat(a.value) || 0);
+            totalValue += val;
+            return {
+                'CANT.': a.quantity || 1, 
+                'NOMBRE DEL ACTIVO': a.name, 
+                'MARCA / MODELO / SERIE': a.model || '', 
+                'CATEGORIA DEL ACTIVO': a.category || '',
+                'USO/DESUSO/ PRESTAMO': a.usage || '', 
+                'ESTADO Bueno/Malo/Regular': a.status, 
+                'LUGAR A INVENTARIAR': a.location || '', 
+                'VALOR NETO': val, 
+                'OBSERVACIONES': a.notes || ''
+            };
+        });
+
+        excelData.push({
+            'CANT.': '', 'NOMBRE DEL ACTIVO': '', 'MARCA / MODELO / SERIE': '', 'CATEGORIA DEL ACTIVO': '',
+            'USO/DESUSO/ PRESTAMO': '', 'ESTADO Bueno/Malo/Regular': 'TOTAL', 
+            'LUGAR A INVENTARIAR': '', 
+            'VALOR NETO': totalValue, 'OBSERVACIONES': ''
+        });
+
+        exportToExcel(excelData, `Inventario_Activos_Fijos_${yearFilter}`);
     };
 
-    const handleExportPdf = () => {
-        if (!ensureAssetsForExport()) return;
-        try {
-            exportFixedAssetsPdf({ assets: filteredAssets, company: activeCompany, year: yearFilter });
-            toast({ title: 'PDF profesional generado', description: 'Inventario PDF generado con totales, depreciación, valor en libros y firmas.' });
-        } catch (error) {
-            console.error('Error exportando Activos Fijos a PDF:', error);
-            toast({ variant: 'destructive', title: 'Error al exportar PDF', description: 'No se pudo generar el inventario de Activos Fijos.' });
-        }
-    };
-
+    // --- NUEVO: EXPORTAR A WORD (EDITABLE) ---
     const handleExportWord = async () => {
-        if (!ensureAssetsForExport()) return;
+        if(filteredAssets.length === 0) {
+            toast({ variant: 'destructive', title: "No hay datos para exportar"});
+            return;
+        }
+
         try {
-            await exportFixedAssetsWord({ assets: filteredAssets, company: activeCompany, year: yearFilter });
-            toast({ title: 'Word profesional generado', description: 'Inventario editable generado con resumen financiero, tabla y firmas.' });
+            const parroquia = activeCompany?.name || '___________________________';
+            const direccion = activeCompany?.address || '___________________________';
+            const telefono = activeCompany?.phone || '___________________________';
+            const fecha = new Date().toLocaleDateString();
+
+            const noBorders = {
+                top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
+                left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
+                insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE },
+            };
+
+            const headerTable = new Table({
+                borders: noBorders,
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph(`Parroquia: ${parroquia}`)] }),
+                        new TableCell({ children: [new Paragraph(`Párroco Actual: ___________________________`)] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph(`Dirección: ${direccion}`)] }),
+                        new TableCell({ children: [new Paragraph(`Barrio: ___________________________`)] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph(`Sección a Inventariar: ___________________________`)] }),
+                        new TableCell({ children: [new Paragraph(`Teléfono: ${telefono}`)] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph("")] }),
+                        new TableCell({ children: [new Paragraph(`Fecha: ${fecha}`)] }),
+                    ]})
+                ]
+            });
+
+            const tableRows = [];
+
+            // Fila de Títulos
+            tableRows.push(
+                new TableRow({
+                    children: [
+                        new TableCell({ children: [new Paragraph({ text: "CANT.", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "NOMBRE DEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "MARCA/MODELO /\nSERIE", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "CATEGORIA\nDEL ACTIVO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "USO/DESUSO/\nPRESTAMO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "ESTADO\nBueno/Malo/Regular", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "LUGAR", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }), 
+                        new TableCell({ children: [new Paragraph({ text: "VALOR NETO", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                        new TableCell({ children: [new Paragraph({ text: "OBSERVACIONES", alignment: AlignmentType.CENTER })], shading: { fill: "E0E0E0" } }),
+                    ]
+                })
+            );
+
+            let totalValue = 0;
+            filteredAssets.forEach(asset => {
+                const val = asset.status === 'Dado de Baja' ? 0 : (parseFloat(asset.value) || 0);
+                totalValue += val;
+                tableRows.push(
+                    new TableRow({
+                        children: [
+                            new TableCell({ children: [new Paragraph({ text: (asset.quantity || 1).toString(), alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.name || '' })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.model || '' })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.category || '' })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.usage || '', alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.status || '', alignment: AlignmentType.CENTER })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.location || '' })] }), 
+                            new TableCell({ children: [new Paragraph({ text: `$${val.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, alignment: AlignmentType.RIGHT })] }),
+                            new TableCell({ children: [new Paragraph({ text: asset.notes || '' })] }),
+                        ]
+                    })
+                );
+            });
+
+            // Fila de Totales
+            tableRows.push(
+                new TableRow({
+                    children: [
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "TOTAL", bold: true })], alignment: AlignmentType.CENTER })], shading: { fill: "F5F5F5" } }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `$${totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })}`, bold: true })], alignment: AlignmentType.RIGHT })], shading: { fill: "F5F5F5" } }), 
+                        new TableCell({ children: [new Paragraph("")] }), 
+                    ]
+                })
+            );
+
+            const inventoryTable = new Table({
+                rows: tableRows,
+                width: { size: 100, type: WidthType.PERCENTAGE },
+            });
+
+            const signaturesTable = new Table({
+                borders: noBorders,
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Reviso:", bold: true })] })] }),
+                        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Ecónomo:", bold: true })] })] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph({ text: "_________________________________", spacing: { before: 600 } })] }),
+                        new TableCell({ children: [new Paragraph({ text: "_________________________________", spacing: { before: 600 } })] }),
+                    ]}),
+                    new TableRow({ children: [
+                        new TableCell({ children: [new Paragraph("Nombre y Firma")] }),
+                        new TableCell({ children: [new Paragraph("Nombre y Firma")] }),
+                    ]}),
+                ]
+            });
+
+            const doc = new Document({
+                sections: [{
+                    properties: {
+                        page: {
+                            size: { orientation: PageOrientation.LANDSCAPE }, 
+                            margin: { top: 720, right: 720, bottom: 720, left: 720 }, 
+                        },
+                    },
+                    children: [
+                        new Paragraph({ children: [new TextRun({ text: "Arquidiócesis de Barranquilla", bold: true, size: 24 })] }),
+                        new Paragraph({
+                            children: [new TextRun({ text: "INVENTARIO", bold: true, size: 32 })],
+                            alignment: AlignmentType.CENTER,
+                            spacing: { after: 400 },
+                        }),
+                        headerTable,
+                        new Paragraph({ text: "", spacing: { after: 200 } }),
+                        inventoryTable,
+                        new Paragraph({ text: "", spacing: { before: 600 } }),
+                        signaturesTable,
+                        new Paragraph({
+                            children: [new TextRun({ text: "Versión 001-Creado 31/05/2018", size: 16 })],
+                            spacing: { before: 400 }
+                        })
+                    ]
+                }]
+            });
+
+            const blob = await Packer.toBlob(doc);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `CONTROL_INVENTARIOS_${activeCompany?.name || 'Parroquia'}_${yearFilter}.docx`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            toast({ title: "Word Generado con éxito", description: "Descarga iniciada" });
+
         } catch (error) {
-            console.error('Error exportando Activos Fijos a Word:', error);
-            toast({ variant: 'destructive', title: 'Error al exportar Word', description: 'No se pudo generar el inventario de Activos Fijos.' });
+            console.error("Error crítico generando el Word:", error);
+            toast({ variant: 'destructive', title: 'Error al generar', description: 'No se pudo crear el archivo Word. Revisa la consola.' });
         }
     };
-
+    
     const handleImport = (importedAssets) => {
         if (!canImport) return;
         const newAssets = importedAssets.map(asset => ({
@@ -380,7 +546,6 @@ const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDep
                     
                     {/* BOTONES DE EXPORTACIÓN */}
                     <Button onClick={handleExportExcel} variant="outline" className="border-green-200 text-green-700 hover:bg-green-50"><FileSpreadsheet className="w-4 h-4 mr-2" /> Excel</Button>
-                    <Button onClick={handleExportPdf} variant="outline" className="border-red-200 text-red-700 hover:bg-red-50"><Printer className="w-4 h-4 mr-2" /> PDF</Button>
                     <Button onClick={handleExportWord} variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50"><FileText className="w-4 h-4 mr-2" /> Word</Button>
                     
                     {canAdd && <Button onClick={handleCloneYear} variant="outline">Clonar a Año Actual</Button>}
@@ -485,15 +650,11 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
     const fileInputRef = useRef(null);
 
     const handleFileChange = (e) => {
-        const selectedFile = e.target.files?.[0];
-        const fileName = String(selectedFile?.name || '').toLowerCase();
-        const validExtension = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
-
-        if (selectedFile && validExtension) {
+        const selectedFile = e.target.files[0];
+        if (selectedFile && (selectedFile.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || selectedFile.type === 'application/vnd.ms-excel')) {
             setFile(selectedFile);
         } else {
-            setFile(null);
-            toast({ variant: 'destructive', title: 'Archivo no válido', description: 'Por favor, selecciona un archivo Excel .xlsx o .xls.' });
+            toast({ variant: 'destructive', title: 'Archivo no válido', description: 'Por favor, selecciona un archivo Excel (.xlsx).' });
         }
     };
 
@@ -507,126 +668,70 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
         reader.onload = (e) => {
             try {
                 const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array', cellDates: false });
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet);
 
-                const normalize = (value) => String(value ?? '')
-                    .trim()
-                    .toUpperCase()
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '')
-                    .replace(/\s+/g, ' ');
+                if (!json || json.length === 0) {
+                    toast({ variant: 'destructive', title: 'Archivo vacío', description: 'El archivo Excel no contiene datos.' });
+                    return;
+                }
 
-                const nameHeaders = ['NOMBRE DEL ACTIVO', 'ACTIVO', 'NOMBRE'];
-                const valueHeaders = ['VALOR ORIGINAL', 'VALOR TOTAL', 'VALOR', 'VALOR NETO', 'VALOR EN LIBROS'];
+                const headers = Object.keys(json[0] || {}).map(h => h.trim().toUpperCase());
+                
+                // Validación flexible
+                const hasName = headers.some(h => h.includes('NOMBRE') || h.includes('ACTIVO'));
+                const hasValue = headers.some(h => h.includes('VALOR'));
+                
+                if (!hasName || !hasValue) {
+                    toast({ variant: 'destructive', title: 'Formato incorrecto', description: `El archivo debe contener al menos las columnas de 'Nombre del Activo' y 'Valor Neto'.` });
+                    return;
+                }
 
-                let detected = null;
-                for (const sheetName of workbook.SheetNames) {
-                    const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', raw: false, blankrows: false });
-                    for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 40); rowIndex += 1) {
-                        const row = matrix[rowIndex] || [];
-                        const headers = row.map(normalize);
-                        const hasName = headers.some(h => nameHeaders.includes(h));
-                        const hasValue = headers.some(h => valueHeaders.includes(h));
-                        if (hasName && hasValue) {
-                            detected = { sheetName, matrix, headerRow: rowIndex, headers };
-                            break;
+                // NUEVO: Mapeo inteligente y flexible. Lee tanto la plantilla exportada como nombres simplificados.
+                const assets = json.map(row => {
+                    const getVal = (possibleKeys) => {
+                        const rowKeys = Object.keys(row);
+                        for (let k of possibleKeys) {
+                            const foundKey = rowKeys.find(rk => rk.trim().toUpperCase() === k.toUpperCase());
+                            if (foundKey && row[foundKey] !== undefined) return row[foundKey];
                         }
-                    }
-                    if (detected) break;
-                }
+                        return null;
+                    };
 
-                if (!detected) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Formato incorrecto',
-                        description: 'No se encontró la tabla de inventario. El archivo debe contener Nombre del Activo y Valor Original/Valor.'
-                    });
-                    return;
-                }
+                    const name = getVal(['NOMBRE DEL ACTIVO', 'Nombre del Activo', 'Activo', 'Nombre']) || 'Activo sin nombre';
+                    const val = getVal(['VALOR NETO', 'Valor Total', 'Valor Original', 'Valor']) || 0;
+                    const histDepr = getVal(['DEPRECIACION ACUMULADA', 'Deprec.', 'Depreciación Histórica', 'Depreciacion']) || 0;
+                    const qty = getVal(['CANT.', 'CANT', 'CANTIDAD', 'Cantidad']) || 1;
+                    const model = getVal(['MARCA / MODELO / SERIE', 'MARCA/MODELO/SERIE', 'Marca/Modelo/Serie', 'Marca', 'Modelo']) || '';
+                    const cat = getVal(['CATEGORIA DEL ACTIVO', 'CATEGORIA', 'Categoría', 'Categoria']) || '';
+                    const usage = getVal(['USO/DESUSO/ PRESTAMO', 'USO/DESUSO/PRESTAMO', 'Uso']) || 'Uso';
+                    const status = getVal(['ESTADO Bueno/Malo/Regular', 'ESTADO BUENO/MALO/REGULAR', 'ESTADO', 'Estado']) || 'Bueno';
+                    const location = getVal(['LUGAR A INVENTARIAR', 'LUGAR', 'Lugar a inventariar', 'Lugar']) || '';
+                    const notes = getVal(['OBSERVACIONES', 'Observaciones']) || '';
 
-                const indexOf = (aliases) => detected.headers.findIndex(h => aliases.map(normalize).includes(h));
-                const indexes = {
-                    name: indexOf(nameHeaders),
-                    qty: indexOf(['CANT.', 'CANT', 'CANTIDAD']),
-                    model: indexOf(['MARCA / MODELO / SERIE', 'MARCA/MODELO/SERIE', 'MARCA', 'MODELO']),
-                    category: indexOf(['CATEGORIA', 'CATEGORIA DEL ACTIVO']),
-                    usage: indexOf(['USO', 'USO/DESUSO/PRESTAMO', 'USO/DESUSO/ PRESTAMO']),
-                    status: indexOf(['ESTADO', 'ESTADO BUENO/MALO/REGULAR']),
-                    location: indexOf(['LUGAR', 'LUGAR A INVENTARIAR']),
-                    original: indexOf(['VALOR ORIGINAL', 'VALOR TOTAL', 'VALOR']),
-                    legacyNet: indexOf(['VALOR NETO']),
-                    depreciation: indexOf(['DEPRECIACION ACUMULADA', 'DEPRECIACION ACUM.', 'DEPREC. ACUM.', 'DEPREC.']),
-                    net: indexOf(['VALOR EN LIBROS', 'VALOR NETO']),
-                    notes: indexOf(['OBSERVACIONES']),
-                };
-
-                const read = (row, index) => index >= 0 ? row[index] : '';
-
-                const parseNumber = (value) => {
-                    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-                    let raw = String(value ?? '').trim().replace(/\$/g, '').replace(/\s/g, '');
-                    if (!raw) return 0;
-                    if (raw.includes('.') && raw.includes(',') && raw.lastIndexOf(',') > raw.lastIndexOf('.')) {
-                        raw = raw.replace(/\./g, '').replace(',', '.');
-                    } else if (raw.includes(',') && !raw.includes('.')) {
-                        raw = raw.replace(',', '.');
-                    } else {
-                        raw = raw.replace(/,/g, '');
-                    }
-                    const parsed = Number(raw);
-                    return Number.isFinite(parsed) ? parsed : 0;
-                };
-
-                const importedAssets = [];
-                let skipped = 0;
-
-                for (let rowIndex = detected.headerRow + 1; rowIndex < detected.matrix.length; rowIndex += 1) {
-                    const row = detected.matrix[rowIndex] || [];
-                    const name = String(read(row, indexes.name) || '').trim();
-                    if (!name || normalize(name) === 'TOTALES' || normalize(name) === 'TOTAL') continue;
-
-                    const originalRaw = indexes.original >= 0 ? read(row, indexes.original) : read(row, indexes.legacyNet);
-                    const originalValue = Math.max(0, parseNumber(originalRaw));
-                    const accumulated = Math.max(0, parseNumber(read(row, indexes.depreciation)));
-                    const netValue = indexes.net >= 0
-                        ? Math.max(0, parseNumber(read(row, indexes.net)))
-                        : Math.max(0, originalValue - accumulated);
-
-                    if (!name) {
-                        skipped += 1;
-                        continue;
-                    }
-
-                    importedAssets.push({
-                        name,
-                        value: originalValue,
-                        accumulatedDepreciation: accumulated,
-                        netBookValue: netValue,
-                        quantity: Math.max(1, parseInt(read(row, indexes.qty), 10) || 1),
-                        model: String(read(row, indexes.model) || '').trim(),
-                        category: String(read(row, indexes.category) || '').trim(),
-                        usage: String(read(row, indexes.usage) || 'Uso').trim(),
-                        status: String(read(row, indexes.status) || 'Bueno').trim(),
-                        location: String(read(row, indexes.location) || '').trim(),
-                        notes: String(read(row, indexes.notes) || '').trim(),
-                    });
-                }
-
-                if (importedAssets.length === 0) {
-                    toast({ variant: 'destructive', title: 'Sin activos válidos', description: 'No se encontraron filas de activos para importar.' });
-                    return;
-                }
-
-                onImport(importedAssets);
-                toast({
-                    title: 'Inventario importado',
-                    description: `${importedAssets.length} activos importados desde "${detected.sheetName}". ${skipped ? `${skipped} filas omitidas.` : ''}`
+                    return {
+                        name: name,
+                        value: parseFloat(val) || 0,
+                        accumulatedDepreciation: parseFloat(histDepr) || 0,
+                        quantity: parseInt(qty) || 1,
+                        model: model,
+                        category: cat,
+                        usage: usage,
+                        status: status,
+                        location: location,
+                        notes: notes,
+                    };
                 });
+
+                onImport(assets);
                 setFile(null);
-                if (fileInputRef.current) fileInputRef.current.value = '';
+                if(fileInputRef.current) fileInputRef.current.value = '';
+
             } catch (error) {
                 console.error(error);
-                toast({ variant: 'destructive', title: 'Error al procesar', description: 'No se pudo leer el archivo Excel. Verifique la estructura y los valores del inventario.' });
+                toast({ variant: 'destructive', title: 'Error al procesar', description: 'No se pudo leer el archivo Excel. Asegúrate de que el formato sea correcto.' });
             }
         };
         reader.readAsArrayBuffer(file);

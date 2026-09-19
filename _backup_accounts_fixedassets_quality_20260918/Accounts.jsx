@@ -203,147 +203,90 @@ const Accounts = () => {
   
   const handleImport = (event) => {
     if (!canImport) return;
-    const selectedFile = event.target.files?.[0];
-    if (!selectedFile) return;
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array', cellDates: false });
-
-        const normalize = (value) => String(value ?? '')
-          .trim()
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/\s+/g, ' ');
-
-        const isCodeHeader = (value) => {
-          const h = normalize(value);
-          return h === 'codigo' || h === 'codigo puc' || h === 'code' || h === 'numero' || h === 'n° cuenta' || h === 'no cuenta';
-        };
-
-        const isNameHeader = (value) => {
-          const h = normalize(value);
-          return h === 'nombre' || h === 'nombre de la cuenta' || h === 'cuenta' || h === 'name' || h === 'descripcion';
-        };
-
-        let detected = null;
-
-        for (const sheetName of workbook.SheetNames) {
-          const worksheet = workbook.Sheets[sheetName];
-          const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false, blankrows: false });
-
-          for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 40); rowIndex += 1) {
-            const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
-            const codeIndex = row.findIndex(isCodeHeader);
-            const nameIndex = row.findIndex(isNameHeader);
-
-            if (codeIndex >= 0 && nameIndex >= 0 && codeIndex !== nameIndex) {
-              detected = { sheetName, matrix, headerRow: rowIndex, codeIndex, nameIndex };
-              break;
-            }
+          if (jsonData.length === 0) {
+             toast({ variant: 'destructive', title: "Error", description: "El archivo Excel está vacío." });
+             return;
           }
 
-          if (detected) break;
-        }
+          // Normalize keys helper
+          const normalize = (key) => key ? key.toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+          
+          const headers = Object.keys(jsonData[0]);
+          const normalizedHeaders = headers.map(normalize);
+          
+          const hasCode = normalizedHeaders.some(h => h.includes('codigo') || h === 'code' || h === 'numero');
+          const hasName = normalizedHeaders.some(h => h.includes('nombre') || h === 'name' || h === 'descripcion');
+          
+          if (!hasCode || !hasName) {
+               toast({ variant: 'destructive', title: "Estructura Inválida", description: "El archivo debe contener columnas 'Código' y 'Nombre'." });
+               return;
+          }
 
-        if (!detected) {
-          toast({
-            variant: 'destructive',
-            title: 'Estructura inválida',
-            description: 'No se encontró una tabla con encabezados Código PUC y Nombre de la Cuenta. Puede importar el Excel profesional exportado por este mismo módulo.'
+          // Optional validation for 'Tipo' and 'Saldo' - we warn but don't block to maintain backward compatibility with the app's own exports
+          const hasType = normalizedHeaders.some(h => h.includes('tipo') || h === 'type' || h.includes('nivel') || h === 'class');
+          const hasBalance = normalizedHeaders.some(h => h.includes('saldo') || h === 'balance');
+          
+          if (!hasType || !hasBalance) {
+               // We won't block, but we can log it. The primary requirement is Code/Name for the structure.
+               // toast({ title: "Nota de Importación", description: "Algunos campos opcionales (Tipo, Saldo) no se encontraron, pero se importará la estructura." });
+          }
+
+          const newAccounts = [];
+          const existingNumbers = new Set(accounts.map(a => a.number));
+          let skipped = 0;
+          let importedCount = 0;
+
+          jsonData.forEach(row => {
+              let code, name;
+              // Extract values based on loose matching of headers
+              Object.keys(row).forEach(key => {
+                  const normKey = normalize(key);
+                  if (normKey.includes('codigo') || normKey === 'code' || normKey === 'numero') code = row[key];
+                  if (normKey.includes('nombre') || normKey === 'name' || normKey === 'descripcion') name = row[key];
+              });
+
+              if (code && name) {
+                  const numStr = String(code).trim();
+                  const nameStr = String(name).trim();
+
+                  if (numStr && nameStr) {
+                      if (!existingNumbers.has(numStr)) {
+                          newAccounts.push({ id: crypto.randomUUID(), number: numStr, name: nameStr });
+                          existingNumbers.add(numStr);
+                          importedCount++;
+                      } else {
+                          skipped++;
+                      }
+                  }
+              }
           });
-          return;
-        }
 
-        const cleanCode = (value) => String(value ?? '')
-          .trim()
-          .replace(/^'+/, '')
-          .replace(/\s+/g, '')
-          .replace(/\.0+$/, '');
-
-        const cleanName = (value) => String(value ?? '').trim().replace(/\s+/g, ' ');
-        const validCode = (code) => /^\d{1,14}$/.test(code);
-
-        const existingByCode = new Map((accounts || []).map(account => [String(account.number).trim(), account]));
-        const importedByCode = new Map();
-        const newAccounts = [];
-        const conflicts = [];
-        let exactDuplicates = 0;
-        let invalidRows = 0;
-        let nonStandardHierarchy = 0;
-
-        for (let rowIndex = detected.headerRow + 1; rowIndex < detected.matrix.length; rowIndex += 1) {
-          const row = detected.matrix[rowIndex] || [];
-          const code = cleanCode(row[detected.codeIndex]);
-          const name = cleanName(row[detected.nameIndex]);
-
-          if (!code && !name) continue;
-          if (!code || !name || !validCode(code)) {
-            invalidRows += 1;
-            continue;
+          if (newAccounts.length > 0) {
+              saveAccounts([...accounts, ...newAccounts]);
+              toast({ title: "Importación Exitosa", description: `Se agregaron ${importedCount} cuentas. ${skipped} ya existían.` });
+          } else {
+              toast({ title: "Sin Cambios", description: "No se encontraron cuentas nuevas válidas." });
           }
 
-          if (!HIERARCHY_LEVELS.includes(code.length)) nonStandardHierarchy += 1;
-
-          const previousInFile = importedByCode.get(code);
-          if (previousInFile) {
-            if (normalize(previousInFile) === normalize(name)) exactDuplicates += 1;
-            else conflicts.push(`${code}: "${previousInFile}" / "${name}"`);
-            continue;
-          }
-          importedByCode.set(code, name);
-
-          const existing = existingByCode.get(code);
-          if (existing) {
-            if (normalize(existing.name) === normalize(name)) exactDuplicates += 1;
-            else conflicts.push(`${code}: existe "${existing.name}", archivo "${name}"`);
-            continue;
-          }
-
-          newAccounts.push({ id: crypto.randomUUID(), number: code, name });
-          existingByCode.set(code, { number: code, name });
+        } catch (error) {
+          console.error(error);
+          toast({ variant: 'destructive', title: "Error de Lectura", description: "No se pudo procesar el archivo Excel. Verifique el formato." });
         }
-
-        if (newAccounts.length > 0) {
-          const merged = [...(accounts || []), ...newAccounts].sort((a, b) =>
-            String(a.number).localeCompare(String(b.number), 'es', { numeric: false, sensitivity: 'base' })
-          );
-          saveAccounts(merged);
-        }
-
-        const details = [
-          `${newAccounts.length} nuevas`,
-          `${exactDuplicates} duplicadas exactas`,
-          `${invalidRows} filas inválidas`,
-          `${conflicts.length} conflictos no sobrescritos`
-        ];
-
-        if (nonStandardHierarchy > 0) details.push(`${nonStandardHierarchy} códigos con longitud no estándar`);
-
-        toast({
-          title: newAccounts.length > 0 ? 'Importación del PUC completada' : 'Importación revisada sin cuentas nuevas',
-          description: `${details.join(' · ')}. Hoja: ${detected.sheetName}.`
-        });
-
-        if (conflicts.length > 0) {
-          console.warn('Conflictos detectados al importar Plan de Cuentas:', conflicts);
-        }
-      } catch (error) {
-        console.error(error);
-        toast({
-          variant: 'destructive',
-          title: 'Error de importación',
-          description: 'No se pudo procesar el Plan de Cuentas. Verifique que sea un archivo Excel válido y que contenga Código PUC y Nombre de la Cuenta.'
-        });
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
-    };
-
-    reader.readAsArrayBuffer(selectedFile);
+      };
+      reader.readAsArrayBuffer(file);
+      fileInputRef.current.value = "";
+    }
   };
 
   return (
@@ -360,7 +303,7 @@ const Accounts = () => {
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <Button onClick={handleExport} variant="outline" size="sm"><Download className="w-4 h-4 mr-2" />Exportar</Button>
-            {canImport && <Button asChild variant="outline" size="sm"><label className="cursor-pointer"><Upload className="w-4 h-4 mr-2" />Cargar Excel<input type="file" ref={fileInputRef} accept=".xlsx,.xls" onChange={handleImport} className="hidden" /></label></Button>}
+            {canImport && <Button asChild variant="outline" size="sm"><label className="cursor-pointer"><Upload className="w-4 h-4 mr-2" />Cargar Excel<input type="file" ref={fileInputRef} accept=".xlsx" onChange={handleImport} className="hidden" /></label></Button>}
             {canAdd && <Button onClick={() => { setEditingAccount(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700" size="sm"><Plus className="w-4 h-4 mr-2" />Nueva Cuenta</Button>}
             {isReadOnly && <div className="flex items-center text-slate-400 text-xs ml-2 bg-slate-100 px-2 py-1 rounded"><Lock className="w-3 h-3 mr-1"/> Lectura</div>}
           </div>
