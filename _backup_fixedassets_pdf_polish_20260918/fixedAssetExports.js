@@ -354,9 +354,8 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
     styles: { font: 'helvetica', fontSize: 6.3, cellPadding: 1.3, valign: 'middle' },
     headStyles: { fillColor: [31, 78, 121], textColor: 255, fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [231, 238, 245], textColor: [20, 20, 20], fontStyle: 'bold' },
-    showFoot: 'lastPage',
     columnStyles: {
-      0: { cellWidth: 11, halign: 'center' },
+      0: { cellWidth: 8, halign: 'center' },
       1: { cellWidth: 10, halign: 'center' },
       2: { cellWidth: 32 },
       3: { cellWidth: 28 },
@@ -370,81 +369,25 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
     },
   });
   let y = (doc.lastAutoTable?.finalY || 45) + 8;
-  let dedicatedClosingPage = false;
-  if (y > 165) {
+  if (y > 175) {
     doc.addPage();
-    dedicatedClosingPage = true;
-    y = 24;
-
-    doc.setTextColor(31, 78, 121);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('ARQUIDIÓCESIS DE BARRANQUILLA', 14, 12);
-
-    doc.setTextColor(25, 25, 25);
-    doc.setFontSize(13);
-    doc.text(meta.name.toUpperCase(), 14, 20);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text(meta.nit ? `NIT: ${meta.nit}` : '', 14, 25);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.text('CIERRE Y RESPONSABILIDAD DEL INVENTARIO', 283, 18, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text(`Vigencia ${meta.year} · Corte ${meta.cutoff}`, 283, 24, { align: 'right' });
-
-    doc.setDrawColor(31, 78, 121);
-    doc.setLineWidth(0.5);
-    doc.line(14, 30, 283, 30);
-    y = 42;
+    y = 25;
   }
 
-  doc.setTextColor(31, 78, 121);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(dedicatedClosingPage ? 11 : 8);
-  doc.text('NOTAS DE CONTROL', 14, y);
+  doc.setFontSize(7.5);
+  doc.setTextColor(80, 80, 80);
+  doc.text('Notas de control:', 14, y);
+  doc.text('• Orden: Templo, Sacristía, demás lugares, Sin ubicación y Ajuste contable al final.', 14, y + 5);
+  doc.text('• Los ajustes contables no son unidades físicas; su efecto se incorpora al valor neto.', 14, y + 10);
+  doc.text('• Valores en COP. Conservar soportes de adquisición, depreciación, traslado y baja.', 14, y + 15);
 
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(70, 70, 70);
-  doc.setFontSize(8);
-  doc.text('• Orden: Templo, Sacristía, demás lugares, Sin ubicación y Ajuste contable al final.', 14, y + 7);
-  doc.text('• Los ajustes contables no son unidades físicas; su efecto se incorpora al valor neto.', 14, y + 13);
-  doc.text('• Valores expresados en COP. Conservar soportes de adquisición, depreciación, traslado y baja.', 14, y + 19);
-
-  if (dedicatedClosingPage) {
-    doc.setDrawColor(210, 218, 226);
-    doc.setFillColor(247, 249, 251);
-    doc.roundedRect(14, y + 27, 269, 30, 2, 2, 'FD');
-
-    doc.setTextColor(35, 35, 35);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('Resumen de cierre', 19, y + 35);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text(`Activos vigentes: ${totals.active}   |   Ajustes contables: ${totals.adjustments}   |   Unidades físicas: ${totals.quantity}`, 19, y + 42);
-    doc.text(`Valor original: ${money(totals.original)}   |   Depreciación acumulada: ${money(totals.depreciation)}`, 19, y + 48);
-    doc.text(`Valor en libros: ${money(totals.net)}`, 19, y + 54);
-    y += 75;
-  } else {
-    y += 31;
-  }
-
+  y += 26;
   doc.setTextColor(30, 30, 30);
-  doc.setDrawColor(90, 90, 90);
   doc.line(25, y, 105, y);
   doc.line(185, y, 265, y);
   doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Responsable del Inventario', 65, y + 6, { align: 'center' });
-  doc.text('Párroco / Responsable', 225, y + 6, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.text('Nombre, firma y fecha', 65, y + 11, { align: 'center' });
-  doc.text('Nombre, firma y fecha', 225, y + 11, { align: 'center' });
+  doc.text('Responsable del Inventario', 65, y + 5, { align: 'center' });
+  doc.text('Párroco / Responsable', 225, y + 5, { align: 'center' });
 
   const pageCount = doc.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {
