@@ -23,12 +23,8 @@ end
 $$;
 
 update public.companies
-set password = null
-where password_hash is not null;
-
-update public.companies
-set partial_password = null
-where partial_password_hash is not null;
+set password = null,
+    partial_password = null;
 
 alter table public.companies enable row level security;
 alter table public.app_data_sync enable row level security;

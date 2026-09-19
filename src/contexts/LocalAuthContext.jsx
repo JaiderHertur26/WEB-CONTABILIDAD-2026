@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { storage } from '@/lib/storage';
-import { listLoginCompanies, sessionLogout } from '@/lib/secureApi';
+import { listLoginCompanies, sessionCompanies, sessionLogout } from '@/lib/secureApi';
 
 const LocalAuthContext = createContext();
 
@@ -60,14 +60,27 @@ export const LocalAuthProvider = ({ children }) => {
         const token = await storage.getItem('app_session_token');
 
         if (session && token) {
-          setIsAuthenticated(true);
-          setActiveSessionId(session);
-          setSessionToken(token);
-          setAccessLevel(level);
-          setIsGeneralAdmin(session === 'general_admin');
-        } else if (session) {
+          try {
+            const scope = await sessionCompanies(token);
+            const isAdminSession = session === 'general_admin';
+            const validCompanySession = isAdminSession || (Array.isArray(scope) && scope.some(company => String(company.id) === String(session)));
+            if (!validCompanySession) throw new Error('La sesión ya no tiene acceso a la entidad');
+
+            setIsAuthenticated(true);
+            setActiveSessionId(session);
+            setSessionToken(token);
+            setAccessLevel(level);
+            setIsGeneralAdmin(isAdminSession);
+          } catch (sessionError) {
+            console.warn('Sesión local vencida o inválida; se solicitará un nuevo acceso.', sessionError);
+            await storage.removeItem('auth_session');
+            await storage.removeItem('auth_access_level');
+            await storage.removeItem('app_session_token');
+          }
+        } else if (session || token) {
           await storage.removeItem('auth_session');
           await storage.removeItem('auth_access_level');
+          await storage.removeItem('app_session_token');
         }
       } catch (error) {
         console.error("Auth init error:", error);
