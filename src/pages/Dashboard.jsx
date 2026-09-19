@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
+import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { parseAccountingDate, getAccountingYear } from '@/lib/accountingDate';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -235,10 +236,12 @@ const Dashboard = () => {
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
     
-    const accountsReceivableValue = fAccountsReceivable.filter(r => {
-        const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
-        return r.status === 'Pendiente' && rYear <= parseInt(selectedYear);
-    }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
+    const accountsReceivableValue = fAccountsReceivable.reduce((sum, r) => {
+        const rDate = getOpenItemDate(r);
+        const rYear = rDate ? getSafeYear(rDate) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
+        if (rYear > parseInt(selectedYear)) return sum;
+        return sum + getOutstandingBalance(r);
+    }, 0);
     
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, intangiblesValue = 0, depreciacionAcumuladaValue = 0;
 

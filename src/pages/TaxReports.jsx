@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
+import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import ContractTaxAlert from '@/components/contracts/ContractTaxAlert';
 import { getRetentionDueDate } from '@/lib/contractTaxEngine';
 
@@ -227,6 +228,9 @@ const TaxReports = () => {
         });
         const allAccounts = Array.from(uniqueAccountsMap.values());
         const currentYear = selectedYear;
+        const now = new Date();
+        const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const taxCutoffDate = currentYear === String(now.getFullYear()) ? todayKey : `${currentYear}-12-31`;
 
         const baseValidTransactions = fTransactions.filter(t => 
             !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
@@ -448,15 +452,19 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
         
         const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
-        const accountsReceivableValue = fAccountsReceivable.filter(r => {
-            const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
-            return r.status === 'Pendiente' && rYear <= parseInt(selectedYear);
-        }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
+        const accountsReceivableValue = fAccountsReceivable.reduce((sum, r) => {
+            const rDate = getOpenItemDate(r);
+            const rYear = rDate ? getSafeYear(rDate) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
+            if (rYear > parseInt(selectedYear)) return sum;
+            return sum + getOutstandingBalance(r, taxCutoffDate);
+        }, 0);
 
-        const accountsPayableValue = fAccountsPayable.filter(p => {
-            const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : parseInt(selectedYear));
-            return p.status === 'Pendiente' && pYear <= parseInt(selectedYear);
-        }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
+        const accountsPayableValue = fAccountsPayable.reduce((sum, p) => {
+            const pDate = getOpenItemDate(p);
+            const pYear = pDate ? getSafeYear(pDate) : (p.year ? parseInt(p.year) : parseInt(selectedYear));
+            if (pYear > parseInt(selectedYear)) return sum;
+            return sum + getOutstandingBalance(p, taxCutoffDate);
+        }, 0);
 
         const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;

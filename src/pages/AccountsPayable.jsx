@@ -20,6 +20,8 @@ import { useAuth } from '@/contexts/LocalAuthContext';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import { resolveLiquidityAccount, liquidityEndpointOptions } from '@/lib/liquidityAccounts';
 
 const Highlight = ({ text, highlight }) => {
     if (!highlight || !text) return <>{text}</>;
@@ -115,6 +117,9 @@ const AccountsPayable = () => {
     const [contracts, saveContracts] = useCompanyData('contracts');
     const [accounts] = useCompanyData('accounts');
     const [bankAccounts] = useCompanyData('bankAccounts');
+    const [cashAccounts] = useCompanyData('cash_accounts');
+    const [fiscalYears] = useCompanyData('fiscal_years');
+    const [monthlyClosings] = useCompanyData('monthly_closings');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
     const [trackingDialogOpen, setTrackingDialogOpen] = useState(false);
@@ -152,45 +157,127 @@ const AccountsPayable = () => {
         return maxNum + 1;
     };
 
+    const payableAccount = () => {
+        const account = (accounts || []).find(a => String(a.number) === '23050101')
+            || (accounts || []).find(a => String(a.number).startsWith('2305'))
+            || (accounts || []).find(a => String(a.number).startsWith('23'));
+        return account
+            ? { code: String(account.number), name: account.name }
+            : { code: '23050101', name: 'CUENTAS POR PAGAR' };
+    };
+
+    const periodLockReason = date =>
+        getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
+
     const handleSavePayable = (payableData) => {
         if (!canAdd && !editingPayable) return;
         if (!canEdit && editingPayable) return;
 
         const { isNew, ...data } = payableData;
+        const amount = Number(data.amount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            toast({ variant:'destructive', title:'Monto inválido', description:'La cuenta por pagar debe ser mayor a cero.' });
+            return;
+        }
+        const expense = (accounts || []).find(a => a.name === data.linkedAccount);
+        if (!expense) {
+            toast({ variant:'destructive', title:'Cuenta inválida', description:'No se pudo resolver la cuenta de gasto seleccionada.' });
+            return;
+        }
+        const lockReason = periodLockReason(data.issueDate);
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
+
         let updatedPayables;
         let updatedTransactions = [...(transactions || [])];
 
         if (isNew) {
             const newPayableId = Date.now().toString();
-            const voucherNumber = getNextVoucherNumber('expense', data.issueDate); // Usar la fecha de emisión
+            const voucherNumber = getNextVoucherNumber('adjustment', data.issueDate);
+            const ap = payableAccount();
 
-            updatedPayables = [...(payables || []), { ...data, id: newPayableId, status: 'Pendiente', internalPayments: [] }];
+            updatedPayables = [...(payables || []), {
+                ...data,
+                amount,
+                id: newPayableId,
+                status: 'Pendiente',
+                paidAmount: 0,
+                balance: amount,
+                payments: [],
+                internalPayments: []
+            }];
 
-            const newExpenseTransaction = {
-                id: `txn-exp-${newPayableId}`,
-                type: 'expense',
+            updatedTransactions.push({
+                id: `txn-ap-accrual-${newPayableId}`,
+                type: 'adjustment',
+                voucherPrefix: 'A',
                 date: data.issueDate,
-                description: `Gasto por compra a crédito: ${data.description}`,
-                amount: data.amount,
+                description: `Causación CxP: ${data.description}`,
+                amount,
                 category: data.linkedAccount,
-                destination: 'pending_payable',
+                debitAccount: { code: String(expense.number), name: expense.name },
+                creditAccount: ap,
+                isPayableAccrual: true,
                 isReceivablePayable: true,
-                voucherNumber: voucherNumber
-            };
-            updatedTransactions.push(newExpenseTransaction);
+                payableId: newPayableId,
+                voucherNumber,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
+            });
 
-            toast({ title: "Cuenta por pagar creada", description: `Se ha generado el comprobante E-${String(voucherNumber).padStart(4, '0')} (Pendiente).` });
+            toast({ title: "Cuenta por pagar creada", description: `Causación registrada en A-${String(voucherNumber).padStart(4, '0')} sin mover Caja/Banco.` });
         } else {
-            updatedPayables = payables.map(p => p.id === editingPayable.id ? { ...p, ...data } : p);
-            const transactionIndex = updatedTransactions.findIndex(t => t.id === `txn-exp-${editingPayable.id}`);
-            if (transactionIndex > -1) {
-                updatedTransactions[transactionIndex] = {
-                    ...updatedTransactions[transactionIndex],
+            const current = editingPayable;
+            if (current?.contractManaged) {
+                toast({ variant:'destructive', title:'Cuenta protegida', description:'Las CxP contractuales se gestionan desde el expediente del contrato.' });
+                return;
+            }
+            const officialPayments = (current.payments || []).filter(p => !p.reversedAt);
+            const accrual = updatedTransactions.find(t =>
+                t.payableId === current.id && t.isPayableAccrual
+            ) || updatedTransactions.find(t => t.id === `txn-exp-${current.id}`);
+
+            if (officialPayments.length > 0 || current.status === 'Parcial' || current.status === 'Pagado') {
+                toast({ variant:'destructive', title:'CxP con pagos', description:'No puede editarse la causación después de registrar pagos oficiales.' });
+                return;
+            }
+            const sourceLockReason = accrual
+                ? periodLockReason(accrual.date)
+                : periodLockReason(current.issueDate);
+            if (accrual?.isLocked || sourceLockReason) {
+                toast({
+                    variant:'destructive',
+                    title:'Causación oficializada',
+                    description: accrual?.isLocked
+                        ? 'El asiento de esta CxP pertenece a un período oficializado.'
+                        : sourceLockReason
+                });
+                return;
+            }
+
+            updatedPayables = payables.map(p =>
+                p.id === current.id ? { ...p, ...data, amount, balance: amount } : p
+            );
+
+            if (accrual) {
+                const ap = payableAccount();
+                updatedTransactions = updatedTransactions.map(t => t.id === accrual.id ? {
+                    ...t,
+                    type: 'adjustment',
+                    voucherPrefix: 'A',
                     date: data.issueDate,
-                    description: `Gasto por compra a crédito: ${data.description}`,
-                    amount: data.amount,
+                    description: `Causación CxP: ${data.description}`,
+                    amount,
                     category: data.linkedAccount,
-                };
+                    debitAccount: { code: String(expense.number), name: expense.name },
+                    creditAccount: ap,
+                    destination: undefined,
+                    isPayableAccrual: true,
+                    isReceivablePayable: true,
+                    payableId: current.id,
+                } : t);
             }
             toast({ title: "Cuenta por pagar actualizada" });
         }
@@ -207,15 +294,43 @@ const AccountsPayable = () => {
             toast({ variant: 'destructive', title: "Cuenta protegida", description: "Esta cuenta fue generada por Contratos. Debe corregirse desde el expediente contractual para preservar la trazabilidad." });
             return;
         }
-        saveTransactions(transactions.filter(t => t.id !== `txn-exp-${id}`));
-        savePayables(payables.filter(p => p.id !== id));
-        toast({ title: "Cuenta por pagar eliminada", description: "La transacción asociada también fue eliminada." });
+        const accrual = (transactions || []).find(t =>
+            (t.payableId === id && t.isPayableAccrual) ||
+            t.id === `txn-exp-${id}`
+        );
+        const hasPayments = (target?.payments || []).some(p => !p.reversedAt) ||
+            (transactions || []).some(t => t.payableId === id && t.isPayablePayment);
+        if (hasPayments) {
+            toast({ variant:'destructive', title:'CxP con pagos', description:'No puede eliminarse una cuenta por pagar que ya tiene pagos oficiales.' });
+            return;
+        }
+        const sourceLockReason = accrual
+            ? periodLockReason(accrual.date)
+            : periodLockReason(target?.issueDate);
+        if (accrual?.isLocked || sourceLockReason) {
+            toast({
+                variant:'destructive',
+                title:'CxP oficializada',
+                description: accrual?.isLocked
+                    ? 'La causación pertenece a un período oficializado y es inalterable.'
+                    : sourceLockReason
+            });
+            return;
+        }
+        saveTransactions((transactions || []).filter(t => t.id !== accrual?.id));
+        savePayables((payables || []).filter(p => p.id !== id));
+        toast({ title: "Cuenta por pagar eliminada", description: "Se retiró también su causación contable." });
     };
 
     const handleMarkAsPaid = (paymentData) => {
         if (!canAdd) return;
         const { payable, origin, amount: requestedAmount, paymentDate } = paymentData;
         const currentDate = paymentDate || format(new Date(), 'yyyy-MM-dd');
+        const lockReason = periodLockReason(currentDate);
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
 
         if (payable?.contractManaged) {
             if (payable.requiresSocialSecurity && !payable.socialSecurityVerified) {
@@ -229,11 +344,12 @@ const AccountsPayable = () => {
                 toast({ variant: 'destructive', title: 'Monto inválido', description: 'El pago debe ser mayor a cero y no puede superar el saldo pendiente.' });
                 return;
             }
-            const [originId, originName] = String(origin || '').split('|');
-            const bank = (bankAccounts || []).find(b => String(b.id) === originId);
-            const creditAccount = originId === 'caja_principal'
-                ? { code: '11050501', name: 'CAJA PRINCIPAL' }
-                : { code: bank?.accountingCode || '1110', name: bank?.accountingConcept || bank?.bankName || originName || 'BANCO' };
+            const liquidity = resolveLiquidityAccount(origin, { bankAccounts, cashAccounts });
+            if (!liquidity?.code) {
+                toast({ variant:'destructive', title:'Origen inválido', description:'No se pudo resolver la cuenta de Caja/Banco seleccionada.' });
+                return;
+            }
+            const creditAccount = { code: liquidity.code, name: liquidity.name };
             const paymentVoucher = getNextVoucherNumber('transfer', currentDate);
             const paymentTransaction = {
                 id: `contract-payment-${payable.id}-${Date.now()}`,
@@ -270,13 +386,58 @@ const AccountsPayable = () => {
             return;
         }
 
-        const newVoucherNumber = getNextVoucherNumber('expense', currentDate);
-        const updatedTransactions = transactions.map(t => t.id === `txn-exp-${payable.id}`
-            ? { ...t, destination: origin, date: currentDate, description: `${t.description} (Pagado)`, voucherNumber: newVoucherNumber }
-            : t);
-        saveTransactions(updatedTransactions);
-        savePayables(payables.map(p => p.id === payable.id ? { ...p, status: 'Pagado' } : p));
-        toast({ title: "¡Cuenta Pagada!", description: `Se ha generado el comprobante de pago E-${String(newVoucherNumber).padStart(4, '0')}.` });
+        const previousPaid = payable?.paidAmount != null
+            ? Number(payable.paidAmount || 0)
+            : (payable?.payments || []).filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
+        const remainingBefore = Math.max(0, Number(payable?.amount || 0) - previousPaid);
+        const paymentAmount = Number(requestedAmount == null || requestedAmount === '' ? remainingBefore : requestedAmount);
+        if (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > remainingBefore + 0.01) {
+            toast({ variant:'destructive', title:'Monto inválido', description:'El pago debe ser mayor a cero y no puede superar el saldo pendiente.' });
+            return;
+        }
+
+        const liquidity = resolveLiquidityAccount(origin, { bankAccounts, cashAccounts });
+        if (!liquidity?.code) {
+            toast({ variant:'destructive', title:'Origen inválido', description:'No se pudo resolver la cuenta de Caja/Banco seleccionada.' });
+            return;
+        }
+
+        const ap = payableAccount();
+        const voucherNumber = getNextVoucherNumber('expense', currentDate);
+        const paymentId = `txn-ap-payment-${payable.id}-${Date.now()}`;
+        const paymentTransaction = {
+            id: paymentId,
+            type: 'expense',
+            voucherPrefix: 'E',
+            date: currentDate,
+            description: `Pago CxP: ${payable.description}`,
+            amount: paymentAmount,
+            category: ap.name,
+            destination: origin,
+            debitAccount: ap,
+            creditAccount: { code: liquidity.code, name: liquidity.name },
+            isPayablePayment: true,
+            payableId: payable.id,
+            voucherNumber,
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id
+        };
+        const newPaid = previousPaid + paymentAmount;
+        const balance = Math.max(0, Number(payable.amount || 0) - newPaid);
+        const newStatus = balance <= 0.01 ? 'Pagado' : 'Parcial';
+        const paymentRecord = { id: paymentId, date: currentDate, amount: paymentAmount, origin, voucherNumber };
+
+        saveTransactions([...(transactions || []), paymentTransaction]);
+        savePayables((payables || []).map(p => p.id === payable.id ? {
+            ...p,
+            status: newStatus,
+            paidAmount: newPaid,
+            balance,
+            payments: [...(p.payments || []), paymentRecord],
+            paidAt: newStatus === 'Pagado' ? currentDate : p.paidAt,
+            paymentOrigin: origin
+        } : p));
+        toast({ title: newStatus === 'Pagado' ? "Cuenta pagada" : "Abono oficial registrado", description: `Comprobante E-${String(voucherNumber).padStart(4, '0')} · Saldo $${balance.toLocaleString('es-CO')}.` });
         setPaymentDialogOpen(false);
     };
 
@@ -294,6 +455,12 @@ const AccountsPayable = () => {
             return;
         }
         const date = format(new Date(), 'yyyy-MM-dd');
+        const reversalLockReason = periodLockReason(date);
+        if (reversalLockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: reversalLockReason });
+            return;
+        }
+
         const voucherNumber = getNextVoucherNumber('transfer', date);
         const reversal = {
             ...original,
@@ -305,15 +472,19 @@ const AccountsPayable = () => {
             voucherNumber,
             voucherPrefix: 'T',
             reversesTransactionId: original.id,
+            isReversal: true,
+            isLocked: false,
+            lockedPeriod: undefined,
+            lockedAt: undefined,
             reversedById: undefined,
             reversedAt: undefined,
         };
-        const updatedTransactions = (transactions || []).map(t => t.id === original.id ? { ...t, reversedById: reversal.id, reversedAt: new Date().toISOString() } : t);
         const oldPaid = payable.paidAmount != null ? Number(payable.paidAmount || 0) : payments.filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
         const newPaid = Math.max(0, oldPaid - Number(lastPayment.amount || 0));
         const balance = Math.max(0, Number(payable.amount || 0) - newPaid);
         const newStatus = newPaid <= 0.01 ? 'Pendiente' : 'Parcial';
-        saveTransactions([...updatedTransactions, reversal]);
+        // El comprobante original permanece inmutable; la reversión se registra sólo como asiento nuevo.
+        saveTransactions([...(transactions || []), reversal]);
         savePayables((payables || []).map(p => p.id === payable.id ? {
             ...p,
             status: newStatus,
@@ -452,7 +623,7 @@ const AccountsPayable = () => {
                                 {['Pendiente','Parcial'].includes(p.status) && (
                                     <>
                                         {!p.contractManaged&&<Button size="icon" variant="ghost" className="hover:text-blue-600" onClick={() => { setPayableForTracking(p); setTrackingDialogOpen(true); }} title="Hoja de Apuntes"><ClipboardList className="w-4 h-4" /></Button>}
-                                        {canAdd && <Button size="icon" variant="ghost" className="hover:text-green-600" onClick={() => { setPayableToPay(p); setPaymentDialogOpen(true); }} title="Marcar como Pagado"><CheckCircle className="w-4 h-4" /></Button>}
+                                        {canAdd && <Button size="icon" variant="ghost" className="hover:text-green-600" onClick={() => { setPayableToPay(p); setPaymentDialogOpen(true); }} title="Registrar pago / abono oficial"><CheckCircle className="w-4 h-4" /></Button>}
                                     </>
                                 )}
                                 {p.contractManaged&&canEdit&&(p.payments||[]).some(pay=>!pay.reversedAt)&&<Button size="icon" variant="ghost" className="hover:text-amber-600" onClick={()=>handleReverseLastContractPayment(p)} title="Reversar último pago contractual"><RotateCcw className="w-4 h-4"/></Button>}
@@ -464,7 +635,7 @@ const AccountsPayable = () => {
                 )}
             </div>
             <PayableDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSavePayable} payable={editingPayable} accounts={accounts} />
-            <PaymentDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen} onSave={handleMarkAsPaid} payable={payableToPay} bankAccounts={bankAccounts} />
+            <PaymentDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen} onSave={handleMarkAsPaid} payable={payableToPay} bankAccounts={bankAccounts} cashAccounts={cashAccounts} />
             <TrackingSheetDialog open={trackingDialogOpen} onOpenChange={setTrackingDialogOpen} onSave={handleSaveTracking} payable={payableForTracking} type="payable" onPrint={openPrintPreview} canAdd={canAdd} />
 
             <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
@@ -655,51 +826,60 @@ const PayableDialog = ({ open, onOpenChange, onSave, payable, accounts }) => {
     </form></DialogContent></Dialog>);
 };
 
-const PaymentDialog = ({ open, onOpenChange, onSave, payable, bankAccounts }) => {
+const PaymentDialog = ({ open, onOpenChange, onSave, payable, bankAccounts, cashAccounts }) => {
     const [origin, setOrigin] = useState('caja_principal|CAJA PRINCIPAL');
     const [amount, setAmount] = useState('');
     const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-    const previousPaid = payable?.paidAmount != null ? Number(payable.paidAmount || 0) : (payable?.payments || []).filter(p=>!p.reversedAt).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const previousPaid = payable?.paidAmount != null
+        ? Number(payable.paidAmount || 0)
+        : (payable?.payments || []).filter(p=>!p.reversedAt).reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const remaining = Math.max(0, Number(payable?.amount || 0) - previousPaid);
 
     useEffect(() => {
         if (open) {
             setOrigin('caja_principal|CAJA PRINCIPAL');
             setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
-            const paid = payable?.paidAmount != null ? Number(payable.paidAmount || 0) : (payable?.payments || []).filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
-            setAmount(payable?.contractManaged ? String(Math.max(0, Number(payable?.amount || 0) - paid)) : String(payable?.amount || ''));
+            const paid = payable?.paidAmount != null
+                ? Number(payable.paidAmount || 0)
+                : (payable?.payments || []).filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
+            setAmount(String(Math.max(0, Number(payable?.amount || 0) - paid)));
         }
     }, [open, payable]);
 
     const handleSave = () => {
-        onSave({ payable, origin, amount: payable?.contractManaged ? Number(amount) : Number(payable?.amount || 0), paymentDate });
+        onSave({ payable, origin, amount: Number(amount), paymentDate });
     };
+
+    const options = liquidityEndpointOptions({ bankAccounts, cashAccounts });
+    const paymentBlocked = Number(amount) <= 0 || Number(amount) > remaining ||
+        Boolean(payable?.contractManaged && payable?.requiresSocialSecurity && !payable?.socialSecurityVerified);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
-                <DialogHeader><DialogTitle>{payable?.contractManaged ? 'Registrar Pago Contractual' : 'Registrar Pago'}</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>{payable?.contractManaged ? 'Registrar Pago Contractual' : 'Registrar Pago de Cuenta por Pagar'}</DialogTitle></DialogHeader>
                 <div className="py-4 space-y-4">
                     <div className="bg-slate-50 border rounded-lg p-3 text-sm">
                         <div className="flex justify-between"><span>Proveedor</span><strong>{payable?.supplier}</strong></div>
                         <div className="flex justify-between mt-1"><span>Valor original</span><strong>${Number(payable?.amount || 0).toLocaleString('es-CO')}</strong></div>
-                        {payable?.contractManaged&&<><div className="flex justify-between mt-1"><span>Pagado</span><strong className="text-green-700">${previousPaid.toLocaleString('es-CO')}</strong></div><div className="flex justify-between mt-1"><span>Saldo pendiente</span><strong className="text-amber-700">${remaining.toLocaleString('es-CO')}</strong></div></>}
+                        <div className="flex justify-between mt-1"><span>Pagado</span><strong className="text-green-700">${previousPaid.toLocaleString('es-CO')}</strong></div>
+                        <div className="flex justify-between mt-1"><span>Saldo pendiente</span><strong className="text-amber-700">${remaining.toLocaleString('es-CO')}</strong></div>
                     </div>
-                    {payable?.contractManaged&&<div className="grid grid-cols-2 gap-3"><div className="space-y-1"><Label>Fecha del pago</Label><input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} className="w-full p-2 border rounded-lg"/></div><div className="space-y-1"><Label>Monto a pagar</Label><input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-2 border rounded-lg"/></div></div>}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label>Fecha del pago</Label><input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} className="w-full p-2 border rounded-lg"/></div>
+                        <div className="space-y-1"><Label>Monto a pagar</Label><input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-2 border rounded-lg"/></div>
+                    </div>
                     {payable?.requiresSocialSecurity&&<div className={`text-xs rounded-lg border p-3 ${payable.socialSecurityVerified?'bg-green-50 border-green-200 text-green-800':'bg-red-50 border-red-200 text-red-800'}`}>{payable.socialSecurityVerified?'PILA / seguridad social verificada'+(payable.socialSecurityReference?' · '+payable.socialSecurityReference:''):'Pago bloqueado: falta verificar PILA / seguridad social en el acta contractual.'}</div>}
                     <div className="space-y-2">
                         <Label htmlFor="origin">¿Desde dónde se realizó el pago?</Label>
                         <select id="origin" value={origin} onChange={e => setOrigin(e.target.value)} className="w-full p-2 border rounded-lg">
-                            <option value="caja_principal|CAJA PRINCIPAL">Caja Principal (Efectivo)</option>
-                            {(bankAccounts || []).map(b_acc => (
-                                <option key={b_acc.id} value={`${b_acc.id}|${b_acc.bankName}`}>{b_acc.bankName}</option>
-                            ))}
+                            {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                     </div>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
-                    <Button onClick={handleSave} disabled={payable?.contractManaged&&(Number(amount)<=0||Number(amount)>remaining||Boolean(payable?.requiresSocialSecurity&&!payable?.socialSecurityVerified))} className="bg-red-600 hover:bg-red-700">{payable?.contractManaged&&Number(amount)<remaining?'Registrar Abono':'Confirmar Pago'}</Button>
+                    <Button onClick={handleSave} disabled={paymentBlocked} className="bg-red-600 hover:bg-red-700">{Number(amount)<remaining?'Registrar Abono':'Confirmar Pago'}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

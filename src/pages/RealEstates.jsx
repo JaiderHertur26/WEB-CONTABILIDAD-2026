@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 
 const RealEstates = () => {
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
@@ -19,6 +20,8 @@ const RealEstates = () => {
     // Importamos transacciones y cuentas para asegurar la Partida Doble
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
+    const [fiscalYears] = useCompanyData('fiscal_years');
+    const [monthlyClosings] = useCompanyData('monthly_closings');
     
     const [dialogOpen, setDialogOpen] = useState(false);
     const [depreciationDialogOpen, setDepreciationDialogOpen] = useState(false);
@@ -54,84 +57,161 @@ const RealEstates = () => {
         }
     }, [transactions, realEstates]);
 
-    // Calculador automático de consecutivo
+    // Calculador automático de consecutivo por clase de comprobante.
     const getNextVoucherNumber = (type, dateStr) => {
         if (!transactions) return 1;
         const year = getAccountingYear(dateStr).toString();
-        
+
         const typeTransactions = transactions.filter(t => {
-            let tType = t.type;
-            if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
             const tYear = getAccountingYear(t.date).toString();
-            return tType === type && tYear === year;
+            if (tYear !== year) return false;
+
+            if (type === 'adjustment') {
+                return t.type === 'adjustment' || t.voucherPrefix === 'A';
+            }
+            if (type === 'transfer') {
+                return t.type === 'transfer' || t.voucherPrefix === 'T' ||
+                    (t.isInternalTransfer && t.type !== 'adjustment');
+            }
+            return t.type === type;
         });
 
         const maxNum = typeTransactions.reduce((max, t) => {
-            return (t.voucherNumber && t.voucherNumber > max) ? t.voucherNumber : max;
+            const value = Number(t.voucherNumber) || 0;
+            return value > max ? value : max;
         }, 0);
 
         return maxNum + 1;
     };
 
+    const periodLockReason = date =>
+        getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
+
     const handleSaveEstate = (estateData) => {
         if (!canAdd && !editingEstate) return;
         if (!canEdit && editingEstate) return;
 
+        const newValue = Number(estateData.value || 0);
+        if (!Number.isFinite(newValue) || newValue < 0) {
+            toast({ variant:'destructive', title:'Valor inválido', description:'El valor de la propiedad no puede ser negativo.' });
+            return;
+        }
+
+        const newAccumulatedDepreciation = Number(estateData.accumulatedDepreciation || 0);
+        if (
+            !Number.isFinite(newAccumulatedDepreciation) ||
+            newAccumulatedDepreciation < 0 ||
+            newAccumulatedDepreciation > newValue
+        ) {
+            toast({ variant:'destructive', title:'Depreciación inválida', description:'La depreciación acumulada debe estar entre $0 y el valor original de la propiedad.' });
+            return;
+        }
+
+        const depreciationRate = estateData.depreciationRate === '' || estateData.depreciationRate == null
+            ? 2.22
+            : Number(estateData.depreciationRate);
+        if (!Number.isFinite(depreciationRate) || depreciationRate <= 0 || depreciationRate > 100) {
+            toast({ variant:'destructive', title:'Tasa inválida', description:'La tasa anual de depreciación debe ser mayor que 0% y no superar 100%.' });
+            return;
+        }
+
+        const normalizedEstateData = {
+            ...estateData,
+            value: newValue,
+            accumulatedDepreciation: newAccumulatedDepreciation,
+            depreciationRate
+        };
+
         let updatedEstates;
         if (editingEstate) {
-            updatedEstates = realEstates.map(estate => estate.id === editingEstate.id ? { ...estate, ...estateData } : estate);
-            
-            // Si editan el valor o fecha, actualizamos también el comprobante interno
-            if (transactions) {
-                const txnIndex = transactions.findIndex(t => t.estateId === editingEstate.id);
-                if (txnIndex !== -1) {
-                    const updatedTxns = [...transactions];
-                    updatedTxns[txnIndex] = {
-                        ...updatedTxns[txnIndex],
-                        amount: parseFloat(estateData.value) || 0,
-                        date: estateData.date,
-                        description: `Registro Inicial de Propiedad: ${estateData.name}`
-                    };
+            const linkedTransaction = (transactions || []).find(t => t.estateId === editingEstate.id);
+            const sensitiveChanged =
+                Number(editingEstate.value || 0) !== newValue ||
+                String(editingEstate.date || '') !== String(estateData.date || '');
+            const historicalDepreciation = Number(editingEstate.accumulatedDepreciation || 0);
+            const depreciationChanged = historicalDepreciation !== newAccumulatedDepreciation;
+
+            if (depreciationChanged) {
+                toast({ variant:'destructive', title:'Depreciación protegida', description:'La depreciación acumulada de una propiedad existente no se edita manualmente. Registre un ajuste contable o use el proceso anual para conservar la trazabilidad.' });
+                return;
+            }
+
+            if (sensitiveChanged && historicalDepreciation > 0) {
+                toast({ variant:'destructive', title:'Valor histórico protegido', description:'No puede cambiarse valor o fecha porque la propiedad ya tiene depreciación acumulada.' });
+                return;
+            }
+            const originalTransactionLock = linkedTransaction ? periodLockReason(linkedTransaction.date) : periodLockReason(editingEstate.date);
+            if (sensitiveChanged && (linkedTransaction?.isLocked || originalTransactionLock)) {
+                toast({ variant:'destructive', title:'Comprobante protegido', description: linkedTransaction?.isLocked ? 'El registro inicial está oficializado y es inalterable.' : originalTransactionLock });
+                return;
+            }
+            const lockReason = periodLockReason(estateData.date);
+            if (sensitiveChanged && lockReason) {
+                toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+                return;
+            }
+
+            updatedEstates = (realEstates || []).map(estate =>
+                estate.id === editingEstate.id ? { ...estate, ...normalizedEstateData } : estate
+            );
+
+            if (linkedTransaction && !linkedTransaction.isLocked) {
+                const transactionPeriodLocked = periodLockReason(linkedTransaction.date);
+                const mayUpdateAccounting = !transactionPeriodLocked;
+                if (mayUpdateAccounting) {
+                    const updatedTxns = (transactions || []).map(t => t.id === linkedTransaction.id ? {
+                        ...t,
+                        ...(sensitiveChanged ? { amount: newValue, date: normalizedEstateData.date } : {}),
+                        ...(transactionPeriodLocked ? {} : { description: `Registro Inicial de Propiedad: ${normalizedEstateData.name}` })
+                    } : t);
                     saveTransactions(updatedTxns);
                 }
             }
             toast({ title: "Propiedad actualizada" });
         } else {
             const newId = Date.now().toString();
-            const newValue = parseFloat(estateData.value) || 0;
-            
-            updatedEstates = [...(realEstates || []), { ...estateData, id: newId, status: estateData.status || 'Activo' }];
-            
-            // LÓGICA DE PARTIDA DOBLE: Para que el Balance no se descuadre
             if (newValue > 0) {
-                const propertyAccount = accounts?.find(a => a.number.startsWith('1516')) || accounts?.find(a => a.number.startsWith('15')) || { id: 'default-prop', name: 'Construcciones y Edificaciones', number: '151601' };
-                const equityAccount = accounts?.find(a => a.number.startsWith('3')) || { id: 'default-equity', name: 'PATRIMONIO', number: '3' };
+                const lockReason = periodLockReason(estateData.date);
+                if (lockReason) {
+                    toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+                    return;
+                }
+            }
 
-                const nextVoucher = getNextVoucherNumber('transfer', estateData.date);
+            updatedEstates = [...(realEstates || []), {
+                ...normalizedEstateData,
+                id: newId,
+                status: normalizedEstateData.status || 'Activo'
+            }];
 
-                const transaction = {
+            if (newValue > 0) {
+                const propertyAccount = accounts?.find(a => String(a.number).startsWith('1516')) || accounts?.find(a => String(a.number).startsWith('15')) || { id: 'default-prop', name: 'Construcciones y Edificaciones', number: '151601' };
+                const equityAccount = accounts?.find(a => String(a.number).startsWith('3')) || { id: 'default-equity', name: 'PATRIMONIO', number: '3' };
+                const nextVoucher = getNextVoucherNumber('transfer', normalizedEstateData.date);
+
+                saveTransactions([...(transactions || []), {
                     id: `txn-estate-${newId}`,
-                    date: estateData.date,
-                    type: 'transfer', // Nota de Contabilidad (T)
-                    description: `Registro Inicial de Propiedad: ${estateData.name}`,
+                    date: normalizedEstateData.date,
+                    type: 'transfer',
+                    voucherPrefix: 'T',
+                    description: `Registro Inicial de Propiedad: ${normalizedEstateData.name}`,
                     amount: newValue,
                     category: equityAccount.name,
                     destination: 'propiedad|PROPIEDAD PLANTA Y EQUIPO',
-                    voucherNumber: nextVoucher, 
-                    
-                    debitAccount: { code: propertyAccount.number, name: propertyAccount.name }, // Activo Fijo (Aumenta)
-                    creditAccount: { code: equityAccount.number, name: equityAccount.name },    // Patrimonio (Aumenta)
-                    
-                    isPurchase: false, 
-                    isInternalTransfer: true, 
+                    voucherNumber: nextVoucher,
+                    debitAccount: { code: propertyAccount.number, name: propertyAccount.name },
+                    creditAccount: { code: equityAccount.number, name: equityAccount.name },
+                    isPurchase: false,
+                    isInternalTransfer: true,
                     isInitialStock: true,
-                    estateId: newId // Para poder borrarlo si borran la propiedad
-                };
-
-                saveTransactions([...(transactions || []), transaction]);
+                    isEstateInitialEntry: true,
+                    estateId: newId,
+                    company_id: activeCompany?.id,
+                    companyId: activeCompany?.id
+                }]);
             }
 
-            toast({ title: "Propiedad creada", description: "El activo se integró al Patrimonio correctamente." });
+            toast({ title: "Propiedad creada", description: "El activo se integró a la contabilidad con trazabilidad." });
         }
         saveRealEstates(updatedEstates);
         setDialogOpen(false);
@@ -140,92 +220,153 @@ const RealEstates = () => {
     const handleDeleteEstate = (id) => {
         if (!canDelete) return;
         const target = (realEstates || []).find(estate => estate.id === id);
-        if (target?.contractManaged) {
+        if (!target) return;
+        if (target.contractManaged) {
             toast({ variant: 'destructive', title: 'Propiedad protegida', description: 'Este activo fue generado por Contratos. Su eliminación debe resolverse desde el expediente contractual para conservar la trazabilidad contable.' });
             return;
         }
-        saveRealEstates(realEstates.filter(estate => estate.id !== id));
-        
-        // Si borran la propiedad, borramos el comprobante de Patrimonio para evitar saldos falsos
-        if (transactions) {
-            const updatedTransactions = transactions.filter(t => t.estateId !== id);
-            if (updatedTransactions.length !== transactions.length) {
-                saveTransactions(updatedTransactions);
-            }
+        if (Number(target.accumulatedDepreciation || 0) > 0) {
+            toast({ variant:'destructive', title:'Propiedad con depreciación', description:'No puede eliminarse un activo que ya tiene depreciación acumulada. Debe conservarse su historia y, si corresponde, darse de baja mediante un movimiento contable.' });
+            return;
         }
-        
-        toast({ title: "Propiedad eliminada" });
+        const linkedTransactions = (transactions || []).filter(t => t.estateId === id);
+        if (linkedTransactions.some(t => t.isLocked || periodLockReason(t.date))) {
+            toast({ variant:'destructive', title:'Historia contable protegida', description:'La propiedad tiene comprobantes pertenecientes a períodos cerrados u oficializados.' });
+            return;
+        }
+
+        saveRealEstates((realEstates || []).filter(estate => estate.id !== id));
+        if (linkedTransactions.length > 0) {
+            saveTransactions((transactions || []).filter(t => t.estateId !== id));
+        }
+        toast({ title: "Propiedad eliminada", description:'Sólo se permitió porque no tenía depreciación ni historia oficializada.' });
     };
 
-    // --- DEPRECIACIÓN AUTOMÁTICA (IGUAL A FIXED ASSETS) ---
-    const handleRunDepreciation = () => {
+    // --- DEPRECIACIÓN ANUAL DE EDIFICACIONES ---
+    const handleRunDepreciation = async () => {
         if (!canEdit && !canAdd) return;
-        
-        const edificationRate = 0.0222; // 2.22% anual (~45 años)
-        const dateStr = `${depreciationYear}-12-31`;
-        
-        const existingDeprTransaction = (transactions || []).find(t => 
-            t.description === `Depreciación Edificaciones - Vigencia ${depreciationYear}` &&
-            t.category === 'Depreciación Acumulada Activos Fijos'
+
+        const year = String(depreciationYear || '').trim();
+        if (!/^\d{4}$/.test(year)) {
+            toast({ variant: 'destructive', title: 'Vigencia inválida', description: 'Indique un año válido de cuatro dígitos.' });
+            return;
+        }
+
+        const dateStr = `${year}-12-31`;
+        const now = new Date();
+        const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        if (dateStr >= todayKey) {
+            toast({ variant: 'destructive', title: 'Vigencia no terminada', description: 'La depreciación anual sólo puede registrarse después de finalizar la vigencia seleccionada.' });
+            return;
+        }
+
+        const lockReason = periodLockReason(dateStr);
+        if (lockReason) {
+            toast({ variant: 'destructive', title: 'Período contable cerrado', description: lockReason });
+            return;
+        }
+
+        const existingDeprTransaction = (transactions || []).find(t =>
+            (t.isPropertyDepreciation && String(t.depreciationYear) === year) ||
+            (
+                t.description === `Depreciación Edificaciones - Vigencia ${year}` &&
+                t.category === 'Depreciación Acumulada Activos Fijos'
+            )
         );
 
-        let totalDepreciationGenerated = 0;
-        
-        const updatedEstates = (realEstates || []).map(estate => {
-            if (estate.status === 'Dado de Baja') return estate;
-            
-            const originalValue = parseFloat(estate.value) || 0;
-            const historicalDepr = parseFloat(estate.accumulatedDepreciation) || 0;
-            const yearlyDepr = originalValue * edificationRate;
-            const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDepr + yearlyDepr) : historicalDepr; 
-            
-            totalDepreciationGenerated += yearlyDepr;
-
-            return {
-                ...estate,
-                accumulatedDepreciation: newAccumulated
-            };
-        });
-
-        if (totalDepreciationGenerated === 0) {
-            toast({ variant: 'destructive', title: "Sin propiedades", description: "No hay propiedades válidas para depreciar." });
+        if (existingDeprTransaction) {
+            toast({
+                title: 'Vigencia ya depreciada',
+                description: `Ya existe el comprobante ${existingDeprTransaction.voucherPrefix || 'A'}-${String(existingDeprTransaction.voucherNumber || '').padStart(4, '0')} para ${year}. No se duplicó la depreciación.`
+            });
             setDepreciationDialogOpen(false);
             return;
         }
 
-        saveRealEstates(updatedEstates);
+        const defaultAnnualRate = 0.0222;
+        let totalDepreciationGenerated = 0;
+        const breakdown = [];
 
-        // Manejo del comprobante contable (Crear o actualizar)
-        if (existingDeprTransaction) {
-            const updatedTransactions = transactions.map(t => 
-                t.id === existingDeprTransaction.id 
-                    ? { ...t, amount: totalDepreciationGenerated } 
-                    : t
-            );
-            saveTransactions(updatedTransactions);
-            toast({ title: "Depreciación Actualizada", description: `El comprobante T-${String(existingDeprTransaction.voucherNumber).padStart(4,'0')} fue actualizado.` });
-        } else {
-            const nextVoucher = getNextVoucherNumber('transfer', dateStr);
+        const updatedEstates = (realEstates || []).map(estate => {
+            if (estate.status === 'Dado de Baja') return estate;
+            if (estate.date && String(estate.date).slice(0, 10) > dateStr) return estate;
 
-            const deprTransaction = {
-                id: `${Date.now()}-depr-estate`,
-                type: 'expense',
-                description: `Depreciación Edificaciones - Vigencia ${depreciationYear}`,
-                amount: totalDepreciationGenerated,
-                category: 'Depreciación Acumulada Activos Fijos',
-                date: dateStr,
-                isInternalTransfer: true,
-                voucherNumber: nextVoucher,
-                debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
-                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
-                company_id: activeCompany?.id,
-                companyId: activeCompany?.id
+            const depreciatedYears = Array.isArray(estate.depreciatedYears)
+                ? estate.depreciatedYears.map(String)
+                : [];
+            if (depreciatedYears.includes(year)) return estate;
+
+            const originalValue = Math.max(0, Number(estate.value) || 0);
+            const historicalDepreciation = Math.max(0, Number(estate.accumulatedDepreciation) || 0);
+            const remainingDepreciable = Math.max(0, originalValue - historicalDepreciation);
+            if (originalValue <= 0 || remainingDepreciable <= 0) return estate;
+
+            const configuredRate = Number(estate.depreciationRate);
+            const annualRate = Number.isFinite(configuredRate) && configuredRate > 0
+                ? configuredRate / 100
+                : defaultAnnualRate;
+            const depreciationAmount = Math.min(remainingDepreciable, originalValue * annualRate);
+            if (depreciationAmount <= 0) return estate;
+
+            totalDepreciationGenerated += depreciationAmount;
+            breakdown.push({
+                estateId: estate.id,
+                estateName: estate.name,
+                rate: annualRate,
+                amount: depreciationAmount
+            });
+
+            return {
+                ...estate,
+                accumulatedDepreciation: historicalDepreciation + depreciationAmount,
+                depreciatedYears: [...depreciatedYears, year]
             };
-            saveTransactions([...(transactions || []), deprTransaction]);
-            toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación fiscal y se asignó el comprobante T-${String(nextVoucher).padStart(4,'0')}` });
+        });
+
+        if (totalDepreciationGenerated <= 0) {
+            toast({
+                title: 'Sin depreciación pendiente',
+                description: 'No hay propiedades activas con valor pendiente de depreciar para esta vigencia.'
+            });
+            setDepreciationDialogOpen(false);
+            return;
         }
 
-        setDepreciationDialogOpen(false);
+        const nextVoucher = getNextVoucherNumber('adjustment', dateStr);
+        const deprTransaction = {
+            id: `${Date.now()}-depr-estate-${year}`,
+            type: 'adjustment',
+            voucherPrefix: 'A',
+            description: `Depreciación Edificaciones - Vigencia ${year}`,
+            amount: totalDepreciationGenerated,
+            category: 'Depreciación Acumulada Activos Fijos',
+            date: dateStr,
+            isInternalTransfer: true,
+            isPropertyDepreciation: true,
+            depreciationYear: year,
+            estateDepreciationBreakdown: breakdown,
+            voucherNumber: nextVoucher,
+            debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
+            creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id
+        };
+
+        try {
+            await saveRealEstates(updatedEstates);
+            await saveTransactions([...(transactions || []), deprTransaction]);
+            toast({
+                title: 'Depreciación registrada',
+                description: `Comprobante A-${String(nextVoucher).padStart(4, '0')} por ${totalDepreciationGenerated.toLocaleString('es-CO', { style: 'currency', currency: 'COP' })}. La ejecución es idempotente por vigencia.`
+            });
+            setDepreciationDialogOpen(false);
+        } catch (error) {
+            toast({
+                variant: 'destructive',
+                title: 'No fue posible registrar la depreciación',
+                description: error?.message || 'Revise el período contable y vuelva a intentarlo.'
+            });
+        }
     };
 
     const filteredEstates = (realEstates || []).filter(estate => 
@@ -298,14 +439,14 @@ const RealEstates = () => {
 }
 
 const EstateDialog = ({ open, onOpenChange, onSave, estate }) => {
-    const [data, setData] = useState({ name: '', address: '', value: '', date: '', accumulatedDepreciation: 0, status: 'Activo' });
+    const [data, setData] = useState({ name: '', address: '', value: '', date: '', accumulatedDepreciation: 0, depreciationRate: 2.22, status: 'Activo' });
     
     useEffect(() => { 
         if(open) { 
             if(estate) {
-                setData(estate);
+                setData({ ...estate, depreciationRate: estate.depreciationRate ?? 2.22 });
             } else {
-                setData({ name: '', address: '', value: '', date: new Date().toISOString().split('T')[0], accumulatedDepreciation: 0, status: 'Activo' });
+                setData({ name: '', address: '', value: '', date: new Date().toISOString().split('T')[0], accumulatedDepreciation: 0, depreciationRate: 2.22, status: 'Activo' });
             }
         } 
     }, [estate, open]);
@@ -324,7 +465,16 @@ const EstateDialog = ({ open, onOpenChange, onSave, estate }) => {
                     <div className="space-y-1"><Label>Dirección</Label><input required value={data.address} onChange={e => setData({...data, address: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
                     <div className="space-y-1"><Label>Fecha de Adquisición</Label><input type="date" required value={data.date} onChange={e => setData({...data, date: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
                     <div className="space-y-1"><Label>Valor Original</Label><input type="number" step="0.01" required value={data.value} onChange={e => setData({...data, value: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div className="space-y-1"><Label>Deprec. Acumulada Histórica</Label><input type="number" step="0.01" value={data.accumulatedDepreciation || 0} onChange={e => setData({...data, accumulatedDepreciation: e.target.value})} className="w-full p-2 border rounded-lg text-red-600" /></div>
+                    <div className="space-y-1">
+                        <Label>Deprec. acumulada histórica {estate ? '(protegida)' : '(si aplica)'}</Label>
+                        <input type="number" min="0" step="0.01" disabled={Boolean(estate)} value={data.accumulatedDepreciation || 0} onChange={e => setData({...data, accumulatedDepreciation: e.target.value})} className="w-full p-2 border rounded-lg text-red-600 disabled:bg-slate-100 disabled:text-slate-500" />
+                        {estate && <p className="text-xs text-slate-500">En una propiedad existente este valor sólo cambia mediante depreciación o ajuste contable trazable.</p>}
+                    </div>
+                    <div className="space-y-1">
+                        <Label>Tasa anual de depreciación (%)</Label>
+                        <input type="number" min="0.01" max="100" step="0.01" required value={data.depreciationRate ?? 2.22} onChange={e => setData({...data, depreciationRate: e.target.value})} className="w-full p-2 border rounded-lg" />
+                        <p className="text-xs text-slate-500">2,22% es sólo el valor operativo inicial. Ajuste esta tasa a la política contable aplicable al inmueble.</p>
+                    </div>
                     <div className="flex justify-end gap-2 pt-4">
                         <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
                         <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Guardar</Button>
@@ -338,9 +488,9 @@ const EstateDialog = ({ open, onOpenChange, onSave, estate }) => {
 const DepreciationDialog = ({ open, onOpenChange, year, setYear, onRun }) => (
     <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-md">
-            <DialogHeader><DialogTitle>Depreciación Edificaciones (Normas COLGAAP / DIAN)</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Depreciación anual de edificaciones</DialogTitle></DialogHeader>
             <DialogDescription>
-                Este proceso calculará la depreciación anual en línea recta (2.22% anual) para todas las propiedades. Se generará un comprobante de ajuste para el P&L y el Balance.
+                El sistema usa 2,22% anual como parámetro operativo por defecto cuando la propiedad no tiene una tasa propia. La depreciación nunca superará el valor pendiente del activo y una vigencia ya registrada no se duplicará. La tasa y vida útil deben corresponder a la política contable aplicable a cada inmueble.
             </DialogDescription>
             <div className="space-y-4 pt-4">
                 <div className="space-y-1">

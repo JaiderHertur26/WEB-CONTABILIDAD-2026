@@ -11,12 +11,18 @@ import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { format } from 'date-fns';
 import { usePermission } from '@/hooks/usePermission';
+import { calculateLiquidityBalances } from '@/lib/financialMovements';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 
 const BankAccounts = () => {
     const { activeCompany } = useCompany();
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const [accounts, saveAccounts] = useCompanyData('bankAccounts');
     const [chartOfAccounts, saveChartOfAccounts] = useCompanyData('accounts');
+    const [initialBalances] = useCompanyData('initialBalance');
+    const [cashAccounts] = useCompanyData('cash_accounts');
+    const [fiscalYears] = useCompanyData('fiscal_years');
+    const [monthlyClosings] = useCompanyData('monthly_closings');
 
     // Dialog States
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -29,48 +35,83 @@ const BankAccounts = () => {
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const { toast } = useToast();
 
+    const liquidityBalances = useMemo(() => calculateLiquidityBalances({
+        transactions: transactions || [],
+        initialBalances: initialBalances || [],
+        bankAccounts: accounts || [],
+        cashAccounts: cashAccounts || [],
+        accounts: chartOfAccounts || [],
+    }), [transactions, initialBalances, accounts, cashAccounts, chartOfAccounts]);
+
     const accountsWithCalculatedBalances = useMemo(() => {
-        if (!accounts || !transactions) return [];
-        return accounts.map(acc => {
-            const initialBalance = parseFloat(acc.initialBalance || 0);
-            const initialInvestmentBalance = parseFloat(acc.initialInvestmentBalance || 0);
-            
+        return (accounts || []).map(acc => {
             const openingDate = acc.date ? String(acc.date).slice(0, 10) : '';
-
-            const movements = transactions.reduce((accBalances, t) => {
+            const investmentMovements = (transactions || []).reduce((sum, t) => {
                 const txDate = t?.date ? String(t.date).slice(0, 10) : '';
-                if (openingDate && txDate && txDate <= openingDate) return accBalances;
-                if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t?.status || '').toLowerCase())) return accBalances;
+                if (openingDate && txDate && txDate <= openingDate) return sum;
+                if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t?.status || '').toLowerCase())) return sum;
+                const destinationId = String(t.destination || '').split('|')[0];
+                const isContribution =
+                    destinationId === String(acc.id) &&
+                    (String(t.debitAccount?.code || '').startsWith('1295') || String(t.description || '').includes('Aporte Ordinario'));
+                return isContribution ? sum + (parseFloat(t.amount) || 0) : sum;
+            }, 0);
 
-                const amount = parseFloat(t.amount);
-                
-                if (t.destination && t.destination.startsWith(acc.id)) {
-                    if (t.type === 'income' || t.type === 'transfer') {
-                        if (t.description && t.description.includes('Aporte Ordinario')) accBalances.investmentBalance += amount;
-                        else accBalances.balance += amount;
-                    } else if (t.type === 'expense') { 
-                        accBalances.balance -= amount; 
-                    }
-                }
-                
-                if (t.fromAccount && t.fromAccount.startsWith(acc.id) && t.type === 'transfer') {
-                    accBalances.balance -= amount;
-                }
-                
-                return accBalances;
-            }, { balance: 0, investmentBalance: 0 });
-            
-            return { ...acc, balance: initialBalance + movements.balance, investmentBalance: initialInvestmentBalance + movements.investmentBalance };
+            return {
+                ...acc,
+                balance: Number(liquidityBalances.banks?.[String(acc.id)] || 0),
+                investmentBalance: (parseFloat(acc.initialInvestmentBalance) || 0) + investmentMovements,
+            };
         });
-    }, [accounts, transactions]);
+    }, [accounts, transactions, liquidityBalances]);
+
+    const bankHasHistory = (account) => (transactions || []).some(t => {
+        const id = String(account?.id || '');
+        const code = String(account?.accountingCode || '');
+        const name = String(account?.accountingConcept || account?.bankName || '').trim().toLowerCase();
+        const endpointIds = [t.destination, t.fromAccount, t.toAccount]
+            .map(value => String(value || '').split('|')[0]);
+        const accountMatch = side => side && (
+            (code && String(side.code || '') === code) ||
+            (name && String(side.name || '').trim().toLowerCase() === name)
+        );
+        return endpointIds.includes(id) || accountMatch(t.debitAccount) || accountMatch(t.creditAccount);
+    });
 
     const handleSaveAccount = (accountData) => {
         if (isReadOnly) return;
         if (!canAdd && !editingAccount) return;
         if (!canEdit && editingAccount) return;
+        const periodOptions = { fiscalYears, monthlyClosings };
+        const financialFieldsChanged = editingAccount && (
+            String(accountData.date || '') !== String(editingAccount.date || '') ||
+            Number(accountData.initialBalance || 0) !== Number(editingAccount.initialBalance || 0) ||
+            Number(accountData.initialInvestmentBalance || 0) !== Number(editingAccount.initialInvestmentBalance || 0) ||
+            String(accountData.accountingCode || '') !== String(editingAccount.accountingCode || '')
+        );
+        const openingHasFinancialValue = !editingAccount && (
+            Number(accountData.initialBalance || 0) !== 0 ||
+            Number(accountData.initialInvestmentBalance || 0) !== 0
+        );
+        const targetLockReason = getAccountingPeriodLockReason(accountData.date, periodOptions);
+        const sourceLockReason = editingAccount
+            ? getAccountingPeriodLockReason(editingAccount.date, periodOptions)
+            : null;
+        const lockReason = financialFieldsChanged
+            ? (sourceLockReason || targetLockReason)
+            : (openingHasFinancialValue ? targetLockReason : null);
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
+
         let updated;
         if (editingAccount) {
-            // NUEVO: Se guarda la fecha
+            const changingAccountingCode = String(accountData.accountingCode || '') !== String(editingAccount.accountingCode || '');
+            if (changingAccountingCode && bankHasHistory(editingAccount)) {
+                toast({ variant:'destructive', title:'Cuenta contable protegida', description:'Esta cuenta bancaria ya tiene movimientos. No puede cambiarse su código PUC porque rompería la trazabilidad histórica.' });
+                return;
+            }
             updated = accounts.map(acc => acc.id === editingAccount.id ? { ...acc, ...accountData, initialBalance: parseFloat(accountData.initialBalance || 0), initialInvestmentBalance: parseFloat(accountData.initialInvestmentBalance || 0) } : acc);
             toast({ title: "Cuenta actualizada" });
             if (accountData.accountingCode && accountData.accountingConcept) {
@@ -103,8 +144,25 @@ const BankAccounts = () => {
 
     const handleDeleteAccount = (id) => {
         if (!canDelete) return;
-        saveAccounts(accounts.filter(acc => acc.id !== id));
-        toast({ title: "Cuenta eliminada" });
+        const target = (accounts || []).find(acc => acc.id === id);
+        if (!target) return;
+
+        if (bankHasHistory(target)) {
+            toast({ variant:'destructive', title:'Cuenta con historial', description:'No puede eliminarse una cuenta bancaria que ya participa en movimientos contables.' });
+            return;
+        }
+        if (Math.abs(Number(target.initialBalance || 0)) > 0.0001 || Math.abs(Number(target.initialInvestmentBalance || 0)) > 0.0001) {
+            toast({ variant:'destructive', title:'Saldo inicial protegido', description:'No puede eliminarse una cuenta bancaria que conserva saldos iniciales. Corrija el asiento de apertura por el procedimiento contable correspondiente.' });
+            return;
+        }
+        const lockReason = getAccountingPeriodLockReason(target.date, { fiscalYears, monthlyClosings });
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
+
+        saveAccounts((accounts || []).filter(acc => acc.id !== id));
+        toast({ title: "Cuenta eliminada", description:'Sólo se eliminó porque no tenía saldos iniciales, movimientos ni período protegido.' });
     };
 
     const getNextVoucherNumber = (type, date) => {
@@ -125,7 +183,16 @@ const BankAccounts = () => {
 
     const handleSaveMovement = (movementData) => {
         if (!canAdd) return;
+        const lockReason = getAccountingPeriodLockReason(movementData.date, { fiscalYears, monthlyClosings });
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
         const amount = parseFloat(movementData.amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            toast({ variant:'destructive', title:'Monto inválido', description:'El aporte debe ser mayor a cero.' });
+            return;
+        }
         const [year, month, day] = movementData.date.split('-').map(Number);
         const movementDate = new Date(year, month - 1, day);
         const now = Date.now();
@@ -182,7 +249,16 @@ const BankAccounts = () => {
 
     const handleSaveInterest = (interestData) => {
         if (!canAdd) return;
+        const lockReason = getAccountingPeriodLockReason(interestData.date, { fiscalYears, monthlyClosings });
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
         const amount = parseFloat(interestData.amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            toast({ variant:'destructive', title:'Monto inválido', description:'El rendimiento debe ser mayor a cero.' });
+            return;
+        }
         const [year, month, day] = interestData.date.split('-').map(Number);
         const movementDate = new Date(year, month - 1, day);
         const now = Date.now();

@@ -94,15 +94,27 @@ const addDelta = (deltas, target, amount, context) => {
 };
 
 const classifyCodeTarget = (code, context) => {
-  const kind = getLiquidityKindFromCode(code);
+  const normalizedCode = String(code || '').trim();
+
+  // Una caja menor también pertenece a 1105, pero no debe confundirse con
+  // Caja Principal. Primero se resuelve por el código PUC explícito de cada
+  // caja registrada y sólo después se aplica la clasificación genérica.
+  const customCash = context.cashAccounts.find(c =>
+    String(c.accounting_account || c.accountingCode || '').trim() === normalizedCode
+  );
+  if (customCash) {
+    return { kind: 'customCash', id: String(customCash.id) };
+  }
+
+  const kind = getLiquidityKindFromCode(normalizedCode);
   if (!kind) return null;
   if (kind === 'cash') return { kind: 'cash', id: 'caja_principal' };
   if (kind === 'investment') return { kind: 'investment', id: '12950501' };
 
   const bank = context.bankAccounts.find(b =>
-    String(b.accountingCode || '') === String(code || '')
+    String(b.accountingCode || '').trim() === normalizedCode
   );
-  return { kind: 'bank', id: String(bank?.id || code || 'bank') };
+  return { kind: 'bank', id: String(bank?.id || normalizedCode || 'bank') };
 };
 
 export const getTransactionLiquidityDeltas = (transaction, options = {}) => {

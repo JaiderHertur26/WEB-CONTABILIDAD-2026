@@ -1,4 +1,5 @@
 import { parseAccountingDate, getAccountingYear, accountingDateValue, toAccountingDateInput } from '@/lib/accountingDate';
+import { canOfficializePeriod, getAccountingPeriodLockReason, getMonthBounds, getMonthlyClosing, isFiscalYearClosed } from '@/lib/accountingPeriod';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -138,6 +139,7 @@ const Transactions = () => {
 
     // 🚀 HOOKS Y ESTADOS PARA EL CIERRE ANUAL AUTOMATIZADO
     const [fiscalYears, saveFiscalYears] = useCompanyData('fiscal_years');
+    const [monthlyClosings, saveMonthlyClosings] = useCompanyData('monthly_closings');
     const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
     const [closeConfirmationText, setCloseConfirmationText] = useState('');
     const [auditReport, setAuditReport] = useState(null);
@@ -793,6 +795,21 @@ const Transactions = () => {
             return;
         }
 
+        const sourcePeriodLock = editingTransaction
+            ? getAccountingPeriodLockReason(editingTransaction.date, { fiscalYears, monthlyClosings })
+            : null;
+        const targetPeriodLock = getAccountingPeriodLockReason(transactionData.date, { fiscalYears, monthlyClosings });
+        if (editingTransaction?.isLocked || sourcePeriodLock || targetPeriodLock) {
+            toast({
+                variant: 'destructive',
+                title: 'Período contable protegido',
+                description: editingTransaction?.isLocked
+                    ? 'La transacción está oficializada y es inalterable.'
+                    : (sourcePeriodLock || targetPeriodLock)
+            });
+            return;
+        }
+
         // 🚀 REGLA LÓGICA 2: Middleware de restricción para evitar saldo negativo en Caja Principal
         const isExpense = transactionData.type === 'expense' && !transactionData.isInternalTransfer;
         
@@ -953,6 +970,14 @@ const Transactions = () => {
         const transactionToDelete = transactions.find(t => t.id === id);
         if (!transactionToDelete) return;
 
+        const deleteLockReason = transactionToDelete.isLocked
+            ? 'La transacción está oficializada y es inalterable.'
+            : getAccountingPeriodLockReason(transactionToDelete.date, { fiscalYears, monthlyClosings });
+        if (deleteLockReason) {
+            toast({ variant:'destructive', title:'Período contable protegido', description: deleteLockReason });
+            return;
+        }
+
         const linkedInvoice = [...(invoices || []), ...(purchaseInvoices || [])].find(inv =>
             (inv.sourceTransactionIds || []).includes(id) || (inv.items || []).some(item => item.id === id)
         );
@@ -962,15 +987,6 @@ const Transactions = () => {
         }
 
         let transactionsToDeleteIds = [id];
-        const assetToDelete = (fixedAssets || []).find(a => a.transactionId === id);
-        if (assetToDelete) saveFixedAssets(fixedAssets.filter(a => a.id !== assetToDelete.id));
-
-        if (billingDocuments) {
-            const docsToKeep = billingDocuments.filter(b => b.transactionId !== id);
-            if (docsToKeep.length !== billingDocuments.length) {
-                saveBillingDocuments(docsToKeep);
-            }
-        }
 
         let relatedId = null;
         if (transactionToDelete.isInternalTransfer) {
@@ -995,6 +1011,30 @@ const Transactions = () => {
         if (relatedInvoice) {
             toast({ variant:'destructive', title:'Movimiento vinculado a factura', description:`No puede eliminarse porque el conjunto contable pertenece a ${relatedInvoice.invoiceNumber || 'un documento emitido'}.` });
             return;
+        }
+
+        const protectedMovement = transactionsToDeleteIds
+            .map(txId => transactions.find(t => t.id === txId))
+            .find(tx => tx && (tx.isLocked || getAccountingPeriodLockReason(tx.date, { fiscalYears, monthlyClosings })));
+        if (protectedMovement) {
+            toast({
+                variant:'destructive',
+                title:'Conjunto contable protegido',
+                description: protectedMovement.isLocked
+                    ? 'Uno de los movimientos relacionados está oficializado y no puede eliminarse.'
+                    : getAccountingPeriodLockReason(protectedMovement.date, { fiscalYears, monthlyClosings })
+            });
+            return;
+        }
+
+        const assetToDelete = (fixedAssets || []).find(a => a.transactionId === id);
+        if (assetToDelete) saveFixedAssets(fixedAssets.filter(a => a.id !== assetToDelete.id));
+
+        if (billingDocuments) {
+            const docsToKeep = billingDocuments.filter(b => b.transactionId !== id);
+            if (docsToKeep.length !== billingDocuments.length) {
+                saveBillingDocuments(docsToKeep);
+            }
         }
 
         const stockChanging = tx => Boolean(tx?.isStoreSale || tx?.isStorePurchase || tx?.isInitialStock);
@@ -1063,6 +1103,13 @@ const Transactions = () => {
 
     const handleSaveTransfer = (transferData) => {
         if (!canAdd) return;
+
+        const transferLockReason = getAccountingPeriodLockReason(transferData.date, { fiscalYears, monthlyClosings });
+        if (transferLockReason) {
+            toast({ variant:'destructive', title:'Período contable protegido', description: transferLockReason });
+            return;
+        }
+
         const now = Date.now();
         
         let voucherNumber = 1;
@@ -1271,48 +1318,61 @@ const Transactions = () => {
         toast({ title: "Excel profesional generado", description: "Informe de Control exportado con saldos y cuentas PUC conciliadas." });
     };
 
-    const handleExportAccounting = () => {
-        if (filteredTransactions.length === 0) { 
-            toast({ variant: 'destructive', title: "No hay datos para exportar" }); 
-            return; 
-        }
-        
-        const dataToExport = [];
+    const buildAccountingJournalData = (sourceTransactions = []) => {
+        const rows = [];
         const processedIds = new Set();
-        
-        filteredTransactions.forEach(t => {
-            if (processedIds.has(t.id)) return;
-            
-            if (t.isInternalTransfer && !t.debitAccount) {
+
+        sourceTransactions.forEach(t => {
+            if (!t || processedIds.has(t.id)) return;
+
+            if (t.isInternalTransfer && !t.debitAccount && typeof t.id === 'string') {
                 const baseId = t.id.replace(/-exp$|-inc$/, '');
                 const isExp = t.id.endsWith('-exp');
                 const siblingId = baseId + (isExp ? '-inc' : '-exp');
-                const sibling = filteredTransactions.find(x => x.id === siblingId);
-                
+                const sibling = sourceTransactions.find(x => x.id === siblingId);
+
                 if (sibling) {
                     processedIds.add(t.id);
                     processedIds.add(sibling.id);
-                    
+
                     const expensePart = isExp ? t : sibling;
                     const incomePart = isExp ? sibling : t;
-                    
                     const sourceAsset = getAssetDetails(expensePart.destination, expensePart.category);
                     const destAsset = getAssetDetails(incomePart.destination, incomePart.category);
-                    
-                    let vId = expensePart.voucherNumber ? `${expensePart.voucherPrefix || 'A'}-${String(expensePart.voucherNumber).padStart(4, '0')}` : '-';
+                    const vId = expensePart.voucherNumber
+                        ? `${expensePart.voucherPrefix || 'A'}-${String(expensePart.voucherNumber).padStart(4, '0')}`
+                        : '-';
                     const displayDate = formatSafeDate(expensePart.date);
-                    const monto = parseFloat(expensePart.amount) || 0;
-                    
-                    dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': destAsset.code, 'Cuenta': destAsset.name, 'Descripción': expensePart.description.replace('Cruce: ', ''), 'Débito': monto, 'Crédito': 0 });
-                    dataToExport.push({ 'Fecha': displayDate, 'Comprobante': vId, 'Código PUC': sourceAsset.code, 'Cuenta': sourceAsset.name, 'Descripción': incomePart.description.replace('Cruce: ', ''), 'Débito': 0, 'Crédito': monto });
+                    const amount = Number(expensePart.amount) || 0;
+
+                    rows.push({
+                        'Fecha': displayDate,
+                        'Comprobante': vId,
+                        'Código PUC': destAsset.code,
+                        'Cuenta': destAsset.name,
+                        'Descripción': String(expensePart.description || '').replace('Cruce: ', ''),
+                        'Débito': amount,
+                        'Crédito': 0
+                    });
+                    rows.push({
+                        'Fecha': displayDate,
+                        'Comprobante': vId,
+                        'Código PUC': sourceAsset.code,
+                        'Cuenta': sourceAsset.name,
+                        'Descripción': String(incomePart.description || '').replace('Cruce: ', ''),
+                        'Débito': 0,
+                        'Crédito': amount
+                    });
                     return;
                 }
             }
 
-            let vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+            const vId = t.voucherNumber
+                ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}`
+                : '-';
             const displayDate = formatSafeDate(t.date);
             resolveAccountingRows(t).forEach(row => {
-                dataToExport.push({
+                rows.push({
                     'Fecha': displayDate,
                     'Comprobante': vId,
                     'Código PUC': row.account?.code || 'N/A',
@@ -1323,16 +1383,32 @@ const Transactions = () => {
                 });
             });
         });
-        
-        const totalDebit = dataToExport.reduce((sum, row) => sum + (Number(row['Débito']) || 0), 0);
-        const totalCredit = dataToExport.reduce((sum, row) => sum + (Number(row['Crédito']) || 0), 0);
 
+        return {
+            rows,
+            totalDebit: rows.reduce((sum, row) => sum + (Number(row['Débito']) || 0), 0),
+            totalCredit: rows.reduce((sum, row) => sum + (Number(row['Crédito']) || 0), 0)
+        };
+    };
+
+    const exportAccountingTransactions = ({
+        sourceTransactions,
+        periodStart,
+        periodEnd,
+        officialSeal = ''
+    }) => {
+        if (!Array.isArray(sourceTransactions) || sourceTransactions.length === 0) {
+            toast({ variant: 'destructive', title: 'No hay datos para exportar' });
+            return false;
+        }
+
+        const journal = buildAccountingJournalData(sourceTransactions);
         exportProfessionalTable({
-            fileName: `Libro_Diario_${startDate}_al_${effectiveEndDate}`,
+            fileName: `Libro_Diario_${periodStart}_al_${periodEnd}`,
             companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
             nit: activeCompany?.doc || '',
             title: 'LIBRO DIARIO OFICIAL',
-            period: `DEL ${startDate} AL ${effectiveEndDate}`,
+            period: `DEL ${periodStart} AL ${periodEnd}`,
             sheetName: 'Libro Diario',
             orientation: 'landscape',
             columns: [
@@ -1344,24 +1420,177 @@ const Transactions = () => {
                 { key: 'Débito', label: 'DÉBITO (COP)', width: 18, type: 'currency' },
                 { key: 'Crédito', label: 'CRÉDITO (COP)', width: 18, type: 'currency' }
             ],
-            rows: dataToExport,
+            rows: journal.rows,
             summaryRows: [{
                 Fecha: 'SUMAS IGUALES',
-                'Débito': totalDebit,
-                'Crédito': totalCredit,
-                __style: Math.abs(totalDebit - totalCredit) < 0.01 ? 'total' : 'subtotal'
+                'Débito': journal.totalDebit,
+                'Crédito': journal.totalCredit,
+                __style: Math.abs(journal.totalDebit - journal.totalCredit) < 0.01 ? 'total' : 'subtotal'
             }],
             notes: [
-                Math.abs(totalDebit - totalCredit) < 0.01
+                Math.abs(journal.totalDebit - journal.totalCredit) < 0.01
                     ? 'Control de partida doble: DÉBITOS = CRÉDITOS.'
                     : 'ADVERTENCIA: los débitos y créditos no están conciliados.',
-                'Libro generado conforme al período seleccionado; conservar junto con comprobantes y soportes.'
+                officialSeal ? `Sello de oficialización: ${officialSeal}` : 'Libro generado conforme al período seleccionado; conservar junto con comprobantes y soportes.'
             ]
         });
-        toast({ title: "Excel profesional generado", description: "Libro Diario exportado con formato contable y control de partida doble." });
+        return true;
+    };
+
+    const handleExportAccounting = () => {
+        const exported = exportAccountingTransactions({
+            sourceTransactions: filteredTransactions,
+            periodStart: startDate,
+            periodEnd: effectiveEndDate
+        });
+        if (exported) {
+            toast({ title: 'Excel profesional generado', description: 'Libro Diario exportado con formato contable y control de partida doble.' });
+        }
     };
 
    
+    const createOfficializationSeal = async (payload) => {
+        const serialized = JSON.stringify(payload);
+        if (globalThis.crypto?.subtle && typeof TextEncoder !== 'undefined') {
+            const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(serialized));
+            const hash = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+            return { algorithm: 'SHA-256', hash };
+        }
+        let hash = 2166136261;
+        for (let index = 0; index < serialized.length; index += 1) {
+            hash ^= serialized.charCodeAt(index);
+            hash = Math.imul(hash, 16777619);
+        }
+        return { algorithm: 'FNV-1A-32', hash: (hash >>> 0).toString(16).padStart(8, '0') };
+    };
+
+    const handleOfficializeMonth = async () => {
+        if (isConsolidated) {
+            toast({ variant: 'destructive', title: 'Seleccione una entidad', description: 'El cierre mensual debe ejecutarse dentro de una entidad individual, no desde la vista consolidada.' });
+            return;
+        }
+
+        const startPeriod = String(startDate || '').slice(0, 7);
+        const endPeriod = String(effectiveEndDate || '').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(startPeriod) || startPeriod !== endPeriod) {
+            toast({ variant: 'destructive', title: 'Seleccione un solo mes', description: 'Las fechas visibles deben pertenecer al mismo mes. El sistema cerrará siempre ese mes completo.' });
+            return;
+        }
+
+        const bounds = getMonthBounds(startPeriod);
+        const eligibility = canOfficializePeriod(startPeriod, new Date());
+        if (!eligibility.ok) {
+            toast({ variant: 'destructive', title: 'Mes no oficializable', description: eligibility.reason });
+            return;
+        }
+        if (isFiscalYearClosed(bounds.endDate, fiscalYears)) {
+            toast({ variant: 'destructive', title: 'Vigencia ya cerrada', description: `La vigencia ${startPeriod.slice(0, 4)} ya está cerrada y no admite una nueva oficialización mensual.` });
+            return;
+        }
+
+        const previousClosing = getMonthlyClosing(bounds.startDate, monthlyClosings);
+        if (previousClosing) {
+            toast({ title: 'Mes ya oficializado', description: `El período ${startPeriod} ya tiene sello ${previousClosing.seal || previousClosing.hash || 'registrado'}.` });
+            return;
+        }
+
+        const inPeriod = transaction => {
+            const dateKey = toAccountingDateInput(transaction?.date);
+            return dateKey >= bounds.startDate && dateKey <= bounds.endDate;
+        };
+        const fullMonthTransactions = (processedTransactions || []).filter(inPeriod);
+        const rawMonthTransactions = (transactions || []).filter(isRelevant).filter(inPeriod);
+
+        if (fullMonthTransactions.length === 0) {
+            toast({ variant: 'destructive', title: 'Mes sin movimientos', description: `No existen comprobantes contables para ${startPeriod}; no se generó un Libro Diario vacío.` });
+            return;
+        }
+        if (rawMonthTransactions.some(transaction => transaction?.id == null)) {
+            toast({ variant: 'destructive', title: 'Trazabilidad incompleta', description: 'Hay movimientos del mes sin identificador estable. Corríjalos antes de oficializar.' });
+            return;
+        }
+
+        const invalidEntries = fullMonthTransactions.filter(transaction => {
+            const rows = resolveAccountingRows(transaction);
+            const debit = rows.reduce((sum, row) => sum + (Number(row.debit) || 0), 0);
+            const credit = rows.reduce((sum, row) => sum + (Number(row.credit) || 0), 0);
+            const invalidAccount = rows.some(row => {
+                const code = String(row.account?.code || '').trim();
+                return !code || code === 'N/A';
+            });
+            return rows.length < 2 || debit <= 0 || credit <= 0 || Math.abs(debit - credit) >= 0.01 || invalidAccount;
+        });
+        if (invalidEntries.length > 0) {
+            const sample = invalidEntries.slice(0, 3).map(item => `${toAccountingDateInput(item.date)} · ${item.id}`).join(', ');
+            toast({ variant: 'destructive', title: 'Partida doble inválida', description: `Se detectaron ${invalidEntries.length} movimientos incompletos o descuadrados. Ejemplos: ${sample}.` });
+            return;
+        }
+
+        const journal = buildAccountingJournalData(fullMonthTransactions);
+        if (Math.abs(journal.totalDebit - journal.totalCredit) >= 0.01) {
+            toast({ variant: 'destructive', title: 'Libro Diario descuadrado', description: `Débitos: ${journal.totalDebit.toLocaleString('es-CO')} · Créditos: ${journal.totalCredit.toLocaleString('es-CO')}.` });
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `OFICIALIZAR MES ${startPeriod}\n\n` +
+            `Se tomará el mes COMPLETO: ${bounds.startDate} a ${bounds.endDate}, sin importar los filtros visibles.\n` +
+            `Comprobantes contables: ${fullMonthTransactions.length}.\n` +
+            `Débitos = Créditos: ${journal.totalDebit.toLocaleString('es-CO', { style: 'currency', currency: 'COP' })}.\n\n` +
+            'Los movimientos del período quedarán inalterables y se registrará un sello de cierre. ¿Desea continuar?'
+        );
+        if (!confirmed) return;
+
+        const sealPayload = {
+            version: 1,
+            companyId: String(activeCompany?.id || ''),
+            period: startPeriod,
+            startDate: bounds.startDate,
+            endDate: bounds.endDate,
+            totalDebit: Number(journal.totalDebit.toFixed(2)),
+            totalCredit: Number(journal.totalCredit.toFixed(2)),
+            rows: journal.rows
+        };
+        const sealData = await createOfficializationSeal(sealPayload);
+        const seal = `${sealData.algorithm}:${sealData.hash}`;
+        const officializedAt = new Date().toISOString();
+        const rawIds = new Set(rawMonthTransactions.map(transaction => String(transaction.id)));
+
+        const lockedTransactions = (transactions || []).map(transaction =>
+            rawIds.has(String(transaction.id)) && !transaction.isLocked
+                ? { ...transaction, isLocked: true, lockedPeriod: startPeriod, lockedAt: officializedAt }
+                : transaction
+        );
+        const closingRecord = {
+            id: startPeriod,
+            period: startPeriod,
+            status: 'OFICIAL',
+            startDate: bounds.startDate,
+            endDate: bounds.endDate,
+            officializedAt,
+            companyId: activeCompany?.id,
+            companyName: activeCompany?.name,
+            transactionCount: fullMonthTransactions.length,
+            storedTransactionCount: rawMonthTransactions.length,
+            journalRowCount: journal.rows.length,
+            totalDebit: journal.totalDebit,
+            totalCredit: journal.totalCredit,
+            sealAlgorithm: sealData.algorithm,
+            hash: sealData.hash,
+            seal,
+            bookFileName: `Libro_Diario_${bounds.startDate}_al_${bounds.endDate}.xlsx`
+        };
+
+        try {
+            await saveTransactions(lockedTransactions);
+            await saveMonthlyClosings([...(monthlyClosings || []), closingRecord]);
+            exportAccountingTransactions({ sourceTransactions: fullMonthTransactions, periodStart: bounds.startDate, periodEnd: bounds.endDate, officialSeal: seal });
+            toast({ title: 'Mes oficializado correctamente', description: `${startPeriod} quedó bloqueado con ${sealData.algorithm}. Se generó el Libro Diario completo del mes.` });
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'No fue posible oficializar el mes', description: error?.message || 'No se aplicaron cambios adicionales.' });
+        }
+    };
+
     const buildAuxiliaryExcelData = () => {
         const flatRows = [];
 
@@ -2636,17 +2865,7 @@ const Transactions = () => {
                                 </Button>
                                 {viewMode === 'accounting' ? (
                                     <>
-                                        <Button variant="outline" size="sm" onClick={() => {
-                                            if (!window.confirm("ADVERTENCIA LEGAL: Al oficializar el Libro Diario, todos los registros de este mes quedarán INALTERABLES y no podrán ser modificados ni eliminados. ¿Deseas proceder?")) return;
-                                            
-                                            // 1. Bloquear Inalterabilidad
-                                            const idsToLock = new Set(displayTransactions.map(t => t.id));
-                                            saveTransactions(transactions.map(t => idsToLock.has(t.id) ? { ...t, isLocked: true } : t));
-                                            
-                                            // 2. Exportar
-                                            handleExportAccounting();
-                                            toast({ title: "Libro Oficializado", description: "Los registros fueron bloqueados permanentemente por auditoría." });
-                                        }} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
+                                        <Button variant="outline" size="sm" onClick={handleOfficializeMonth} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
                                             <Lock className="w-4 h-4 mr-2" /> Oficializar Mes
                                         </Button>
                                         <Button variant="outline" size="sm" onClick={handlePrintDiarioPdf} className="bg-white shadow-sm"><Printer className="w-4 h-4 mr-2" /> Imprimir Libro Diario</Button>

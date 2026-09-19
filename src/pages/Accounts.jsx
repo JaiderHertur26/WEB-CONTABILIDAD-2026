@@ -45,6 +45,10 @@ const Accounts = () => {
   const { canEdit, canDelete, canAdd, canImport, isReadOnly } = usePermission();
   const { activeCompany } = useCompany();
   const [accounts, saveAccounts] = useCompanyData('accounts');
+  const [transactions] = useCompanyData('transactions');
+  const [bankAccounts] = useCompanyData('bankAccounts');
+  const [cashAccounts] = useCompanyData('cash_accounts');
+  const [initialBalance] = useCompanyData('initialBalance');
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
@@ -109,6 +113,24 @@ const Accounts = () => {
 
   const displayRows = getVisibleRows();
 
+  const accountHasHistory = (account) => {
+    const code = String(account?.number || '').trim();
+    if (!code) return false;
+
+    const transactionUsage = (transactions || []).some(t =>
+      String(t?.debitAccount?.code || '').trim() === code ||
+      String(t?.creditAccount?.code || '').trim() === code ||
+      (Array.isArray(t?.allocations) && t.allocations.some(line =>
+        String(line?.accountNumber || line?.accountCode || line?.account?.code || '').trim() === code
+      ))
+    );
+    const bankUsage = (bankAccounts || []).some(bank => String(bank?.accountingCode || '').trim() === code);
+    const cashUsage = (cashAccounts || []).some(cash => String(cash?.accounting_account || cash?.accountingCode || '').trim() === code);
+    const openingUsage = (initialBalance || []).some(item => String(item?.accountingCode || '').trim() === code);
+
+    return transactionUsage || bankUsage || cashUsage || openingUsage;
+  };
+
   const handleSaveAccount = (accountData) => {
     if (!canAdd && !editingAccount) return;
     if (!canEdit && editingAccount) return;
@@ -123,6 +145,19 @@ const Accounts = () => {
     if (isDuplicate) {
         toast({ variant: "destructive", title: "Código duplicado", description: "Ya existe una cuenta con este código." });
         return;
+    }
+
+    if (
+      editingAccount &&
+      String(editingAccount.number || '').trim() !== String(accountData.number || '').trim() &&
+      accountHasHistory(editingAccount)
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Código PUC protegido",
+        description: "Esta cuenta ya tiene historia contable o está vinculada a una cuenta financiera. Puedes cambiar el nombre, pero no el código."
+      });
+      return;
     }
 
     let updatedAccounts;
@@ -156,6 +191,14 @@ const Accounts = () => {
     const hasChildren = accounts.some(a => a.number.startsWith(accToDelete.number) && a.id !== id);
     if (hasChildren) {
         toast({ variant: "destructive", title: "Error", description: "Elimine las subcuentas primero." });
+        return;
+    }
+    if (accountHasHistory(accToDelete)) {
+        toast({
+          variant: "destructive",
+          title: "Cuenta PUC con historia",
+          description: "No puede eliminarse porque ya fue utilizada en movimientos, saldos iniciales, bancos o cajas. Consérvala para mantener la trazabilidad."
+        });
         return;
     }
     saveAccounts(accounts.filter(a => a.id !== id));

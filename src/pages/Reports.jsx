@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances, buildCashFlowFromLiquidity } from '@/lib/financialMovements';
+import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { isValid, parseISO } from 'date-fns';
 
 const Reports = () => {
@@ -431,15 +432,19 @@ const Reports = () => {
     
     const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(currentYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
 
-    const accountsReceivableValue = fAccountsReceivable.filter(r => {
-        const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : parseInt(currentYear));
-        return r.status === 'Pendiente' && rYear <= parseInt(currentYear);
-    }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
+    const accountsReceivableValue = fAccountsReceivable.reduce((sum, r) => {
+        const rDate = getOpenItemDate(r);
+        const rYear = rDate ? getSafeYear(rDate) : (r.year ? parseInt(r.year) : parseInt(currentYear));
+        if (rYear > parseInt(currentYear)) return sum;
+        return sum + getOutstandingBalance(r, effectiveEndDate);
+    }, 0);
 
-    const accountsPayableValue = fAccountsPayable.filter(p => {
-        const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : parseInt(currentYear));
-        return p.status === 'Pendiente' && pYear <= parseInt(currentYear);
-    }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
+    const accountsPayableValue = fAccountsPayable.reduce((sum, p) => {
+        const pDate = getOpenItemDate(p);
+        const pYear = pDate ? getSafeYear(pDate) : (p.year ? parseInt(p.year) : parseInt(currentYear));
+        if (pYear > parseInt(currentYear)) return sum;
+        return sum + getOutstandingBalance(p, effectiveEndDate);
+    }, 0);
 
     const totalActivoCorriente = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue;
     const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;

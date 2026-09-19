@@ -3,6 +3,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { storage } from '@/lib/storage';
 import { syncRead, syncWrite } from '@/lib/secureApi';
 import { useAuth } from '@/contexts/LocalAuthContext';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 
 const SYNC_META_VERSION = 3;
 const syncMetaKey = (storageKey) => `${storageKey}.__sync_meta_v3`;
@@ -39,6 +40,56 @@ const hasStableIds = (value) =>
 const dedupeById = (value = []) => {
   if (!hasStableIds(value)) return value;
   return Array.from(new Map(value.map(item => [String(item.id), item])).values());
+};
+
+const hasLockedTransactionMutation = (previous = [], next = []) => {
+  if (!Array.isArray(previous) || !Array.isArray(next)) return false;
+  const nextMap = new Map(next.filter(item => item?.id != null).map(item => [String(item.id), item]));
+  return previous.some(item => {
+    if (!item?.isLocked || item?.id == null) return false;
+    const current = nextMap.get(String(item.id));
+    return !current || !isSameData(item, current);
+  });
+};
+
+const getClosedPeriodTransactionMutationReason = (
+  previous = [],
+  next = [],
+  { fiscalYears = [], monthlyClosings = [] } = {}
+) => {
+  if (!Array.isArray(previous) || !Array.isArray(next)) return null;
+
+  const previousMap = new Map(
+    previous.filter(item => item?.id != null).map(item => [String(item.id), item])
+  );
+  const nextMap = new Map(
+    next.filter(item => item?.id != null).map(item => [String(item.id), item])
+  );
+
+  for (const [id, current] of nextMap.entries()) {
+    const prior = previousMap.get(id);
+    if (prior && isSameData(prior, current)) continue;
+
+    const sourceReason = prior
+      ? getAccountingPeriodLockReason(prior.date, { fiscalYears, monthlyClosings })
+      : null;
+    const targetReason = getAccountingPeriodLockReason(
+      current?.date,
+      { fiscalYears, monthlyClosings }
+    );
+    if (sourceReason || targetReason) return sourceReason || targetReason;
+  }
+
+  for (const [id, prior] of previousMap.entries()) {
+    if (nextMap.has(id)) continue;
+    const deleteReason = getAccountingPeriodLockReason(
+      prior?.date,
+      { fiscalYears, monthlyClosings }
+    );
+    if (deleteReason) return deleteReason;
+  }
+
+  return null;
 };
 
 const diffById = (previous = [], next = []) => {
@@ -604,10 +655,52 @@ export function useCompanyData(key) {
     sessionToken,
   ]);
 
-  const saveData = useCallback((newData) => {
-    if (!activeCompany) return Promise.resolve();
+  const saveData = useCallback(async (newData) => {
+    if (!activeCompany) return;
 
     const previousData = dataRef.current;
+    if (key === 'transactions') {
+      if (hasLockedTransactionMutation(previousData, newData)) {
+        const error = new Error('Un movimiento oficializado es inalterable y no puede modificarse ni eliminarse.');
+        console.error('[Accounting Lock]', error.message);
+        throw error;
+      }
+
+      const companyId = String(activeCompany.id);
+      const readPeriodData = async periodKey => {
+        const rawLocal = await storage.getItem(`${companyId}-${periodKey}`);
+        const localValue = parseStoredValue(rawLocal);
+        const localList = Array.isArray(localValue) ? localValue : [];
+
+        // Para un candado contable no basta con una copia local potencialmente
+        // desactualizada. Si hay sesión, se contrasta también con Supabase.
+        // Se conserva la unión de ambos estados: ante discrepancias, prima la
+        // opción más restrictiva y nunca se abre un período por accidente.
+        if (!sessionToken) return localList;
+        try {
+          const rows = await syncRead(sessionToken, companyId, periodKey);
+          const cloudList = Array.isArray(rows?.[0]?.data) ? rows[0].data : [];
+          return [...localList, ...cloudList];
+        } catch {
+          return localList;
+        }
+      };
+
+      const [fiscalYears, monthlyClosings] = await Promise.all([
+        readPeriodData('fiscal_years'),
+        readPeriodData('monthly_closings'),
+      ]);
+      const periodReason = getClosedPeriodTransactionMutationReason(
+        previousData,
+        newData,
+        { fiscalYears, monthlyClosings }
+      );
+      if (periodReason) {
+        const error = new Error(periodReason);
+        console.error('[Accounting Period Lock]', error.message);
+        throw error;
+      }
+    }
 
     if (!isConsolidated && mounted.current) {
       setData(newData);
@@ -619,7 +712,7 @@ export function useCompanyData(key) {
       .then(() => persistData(newData, previousData));
 
     return saveQueueRef.current;
-  }, [activeCompany, isConsolidated, persistData]);
+  }, [activeCompany, isConsolidated, key, persistData, sessionToken]);
 
   return [data, saveData, isLoaded];
 }

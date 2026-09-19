@@ -12,6 +12,9 @@ import { usePermission } from '@/hooks/usePermission';
 import { cn } from '@/lib/utils';
 import { useCompany } from '@/contexts/CompanyContext';
 import { format } from 'date-fns';
+import { calculateLiquidityBalances } from '@/lib/financialMovements';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import { resolveLiquidityAccount } from '@/lib/liquidityAccounts';
 
 const CashAccounts = () => {
   const { isConsolidated, activeCompany } = useCompany();
@@ -20,6 +23,8 @@ const CashAccounts = () => {
   const [accounts, saveAccounts] = useCompanyData('accounts');
   const [transactions, saveTransactions] = useCompanyData('transactions');
   const [bankAccounts] = useCompanyData('bankAccounts');
+  const [fiscalYears] = useCompanyData('fiscal_years');
+  const [monthlyClosings] = useCompanyData('monthly_closings');
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
@@ -132,6 +137,28 @@ const CashAccounts = () => {
 
     const existingAcc = (accounts || []).find(a => a.number === formData.accounting_account);
     const isNumberChanged = editingAccount && editingAccount.accounting_account !== formData.accounting_account;
+    const financialFieldsChanged = editingAccount && (
+      isNumberChanged ||
+      String(formData.date || '') !== String(editingAccount.date || '') ||
+      Number(formData.initial_balance || 0) !== Number(editingAccount.initial_balance || 0)
+    );
+    const newFinancialOpening = !editingAccount && Number(formData.initial_balance || 0) !== 0;
+    const periodOptions = { fiscalYears, monthlyClosings };
+    const targetLockReason = getAccountingPeriodLockReason(formData.date, periodOptions);
+    const sourceLockReason = editingAccount
+      ? getAccountingPeriodLockReason(editingAccount.date, periodOptions)
+      : null;
+    const lockReason = financialFieldsChanged
+      ? (sourceLockReason || targetLockReason)
+      : (newFinancialOpening ? targetLockReason : null);
+    if (lockReason) {
+      toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+      return;
+    }
+    if (editingAccount && isNumberChanged && cashHasHistory(editingAccount)) {
+      toast({ variant:'destructive', title:'Cuenta contable protegida', description:'Esta caja ya tiene movimientos y no puede cambiarse su código PUC.' });
+      return;
+    }
 
     if (existingAcc && (!editingAccount || (isNumberChanged && !editingAccount.isMain))) { toast({ variant: 'destructive', title: 'Cuenta existente', description: `El código ${formData.accounting_account} ya existe.` }); return; }
 
@@ -169,31 +196,37 @@ const CashAccounts = () => {
         toast({ variant: 'destructive', title: 'Error', description: 'Debes seleccionar la fuente de los fondos.' });
         return;
       }
+      const fundingAmount = Number(formData.initial_balance || 0);
+      if (!Number.isFinite(fundingAmount) || fundingAmount <= 0) {
+        toast({ variant:'destructive', title:'Monto inválido', description:'El fondeo desde otra cuenta debe ser mayor a cero.' });
+        return;
+      }
+      const source = resolveLiquidityAccount(fundingSource, { bankAccounts, cashAccounts });
+      if (!source?.code) {
+        toast({ variant:'destructive', title:'Fuente inválida', description:'No se pudo resolver la cuenta contable de origen.' });
+        return;
+      }
       finalInitialBalance = 0;
       const transferVoucherNumber = getNextVoucherNumber('transfer', formData.date);
       newTransactions.push({
-        id: `txn-init-inc-${newId}`,
+        id: `txn-cash-funding-${newId}`,
         date: formData.date,
-        description: `Fondeo Inicial - Caja ${formData.name}`,
-        amount: formData.initial_balance,
-        type: 'income',
+        description: `Fondeo inicial de caja: ${formData.name}`,
+        amount: fundingAmount,
+        type: 'transfer',
+        voucherPrefix: 'T',
+        voucherNumber: transferVoucherNumber,
         category: 'FONDEO CAJA',
-        destination: `${newId}|${formData.name}`,
-        voucherNumber: transferVoucherNumber,
-        isInternalTransfer: true
+        fromAccount: fundingSource,
+        toAccount: `${newId}|${formData.name}`,
+        debitAccount: { code: formData.accounting_account, name: formData.accounting_concept },
+        creditAccount: { code: source.code, name: source.name },
+        isInternalTransfer: true,
+        isCashFunding: true,
+        company_id: activeCompany?.id,
+        companyId: activeCompany?.id
       });
-      newTransactions.push({
-        id: `txn-init-exp-${newId}`,
-        date: formData.date,
-        description: `Apertura Caja ${formData.name}`,
-        amount: formData.initial_balance,
-        type: 'expense',
-        category: 'TRANSFERENCIA SALIENTE',
-        destination: fundingSource,
-        voucherNumber: transferVoucherNumber,
-        isInternalTransfer: true
-      });
-      toast({ title: 'Transferencia generada', description: `Se descontaron $${formData.initial_balance} de ${fundingSource.split('|')[1]}` });
+      toast({ title: 'Transferencia generada', description: `Se trasladaron $${fundingAmount.toLocaleString('es-CO')} desde ${source.label || source.name}.` });
     }
 
     if (editingAccount) {
@@ -225,7 +258,20 @@ const CashAccounts = () => {
   const handleDelete = (account) => {
     if (!canDelete) return;
     if (account.isMain) { toast({ variant: 'destructive', title: 'Acción no permitida', description: 'No se puede eliminar la Caja Principal.' }); return; }
-    if (window.confirm('¿Estás seguro de eliminar esta caja?')) {
+    if (cashHasHistory(account)) {
+      toast({ variant:'destructive', title:'Caja con historial', description:'No puede eliminarse una caja que ya participa en movimientos contables.' });
+      return;
+    }
+    if (Math.abs(Number(account.initial_balance || 0)) > 0.0001) {
+      toast({ variant:'destructive', title:'Saldo inicial protegido', description:'No puede eliminarse una caja que conserva saldo inicial. Debe conservarse la trazabilidad de apertura.' });
+      return;
+    }
+    const lockReason = getAccountingPeriodLockReason(account.date, { fiscalYears, monthlyClosings });
+    if (lockReason) {
+      toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+      return;
+    }
+    if (window.confirm('¿Estás seguro de eliminar esta caja sin movimientos ni saldo inicial?')) {
       saveCashAccounts(cashAccounts.filter(acc => acc.id !== account.id));
       if (account.accounting_account) {
         const accToDelete = (accounts || []).find(a => a.number === account.accounting_account);
@@ -235,56 +281,31 @@ const CashAccounts = () => {
     }
   };
 
-  // 🚀 CORRECCIÓN: Cálculo perfecto para las tarjetas que incluye doble partida y transferencias
-  const calculateCurrentBalance = (account) => {
-    let balance = parseFloat(account.initial_balance) || 0;
-    if (!transactions) return balance;
+  const liquidityBalances = useMemo(() => calculateLiquidityBalances({
+    transactions: transactions || [],
+    initialBalances: initialBalance || [],
+    bankAccounts: bankAccounts || [],
+    cashAccounts: cashAccounts || [],
+    accounts: accounts || [],
+  }), [transactions, initialBalance, bankAccounts, cashAccounts, accounts]);
 
-    const openingDate = account.date ? String(account.date).slice(0, 10) : '';
-    
-    transactions.forEach(t => {
-      const txDate = t?.date ? String(t.date).slice(0, 10) : '';
-      if (openingDate && txDate && txDate <= openingDate) return;
-      if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t?.status || '').toLowerCase())) return;
+  const calculateCurrentBalance = (account) =>
+    account.id === 'caja_principal'
+      ? Number(liquidityBalances.mainCash || 0)
+      : Number(liquidityBalances.customCash?.[String(account.id)] || 0);
 
-      const amount = parseFloat(t.amount) || 0;
-      
-      const isMatch = (idStr) => idStr && (idStr.startsWith(account.id) || (account.id === 'caja_principal' && idStr.includes('caja_principal')));
-
-      // Caso Asiento Avanzado
-      if (t.debitAccount && t.creditAccount) {
-          const drCode = String(t.debitAccount.code || '');
-          const crCode = String(t.creditAccount.code || '');
-          const drName = (t.debitAccount.name || '').toUpperCase();
-          const crName = (t.creditAccount.name || '').toUpperCase();
-          
-          if (account.id === 'caja_principal') {
-              if (drCode === '11050501' || drName.includes('CAJA PRINCIPAL')) balance += amount;
-              if (crCode === '11050501' || crName.includes('CAJA PRINCIPAL')) balance -= amount;
-          } else {
-              if (account.accounting_account) {
-                  if (drCode === String(account.accounting_account)) balance += amount;
-                  if (crCode === String(account.accounting_account)) balance -= amount;
-              }
-          }
-          return;
-      }
-
-      // Ingresos / Egresos
-      if (t.type === 'income' || t.type === 'expense') {
-          if (isMatch(t.destination)) {
-              if (t.type === 'income') balance += amount; else balance -= amount;
-          }
-      }
-
-      // Transferencias
-      if (t.type === 'transfer') {
-          if (isMatch(t.fromAccount)) balance -= amount;
-          if (isMatch(t.toAccount)) balance += amount;
-      }
-    });
-    return balance;
-  };
+  const cashHasHistory = (account) => (transactions || []).some(t => {
+    const id = String(account?.id || '');
+    const code = String(account?.accounting_account || '');
+    const name = String(account?.accounting_concept || account?.name || '').trim().toLowerCase();
+    const endpointIds = [t.destination, t.fromAccount, t.toAccount]
+      .map(value => String(value || '').split('|')[0]);
+    const sideMatch = side => side && (
+      (code && String(side.code || '') === code) ||
+      (name && String(side.name || '').trim().toLowerCase() === name)
+    );
+    return endpointIds.includes(id) || sideMatch(t.debitAccount) || sideMatch(t.creditAccount);
+  });
 
   return (
     <>

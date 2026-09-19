@@ -1,4 +1,5 @@
 import { parseAccountingDate, getAccountingYear, accountingDateValue } from '@/lib/accountingDate';
+import { getMonthlyClosing, isFiscalYearClosed } from '@/lib/accountingPeriod';
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
@@ -23,6 +24,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { exportToExcel, exportProfessionalTable, exportProfessionalWorkbook } from '@/lib/excel';
 import { expandTransactionsByAllocation, getTransactionCategoryLabel } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
+import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import {
@@ -72,6 +74,8 @@ const BookClosings = () => {
     const [accountsReceivable] = useCompanyData('accountsReceivable');
     const [accountsPayable] = useCompanyData('accountsPayable');
     const [inventory] = useCompanyData('inventory');
+    const [monthlyClosings] = useCompanyData('monthly_closings');
+    const [fiscalYears, saveFiscalYears] = useCompanyData('fiscal_years');
     const { toast } = useToast();
     const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
     const [signatures, setSignatures] = useState({ elaborado: '', revisado: '' });
@@ -1075,14 +1079,18 @@ const BookClosings = () => {
         depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
 
         const realEstatesValue = (realEstates || []).filter(estate => getSafeYear(estate.date) <= currentYear).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
-        const accountsReceivableValue = (accountsReceivable || []).filter(r => {
-            const rYear = r.date ? getSafeYear(r.date) : (r.year ? parseInt(r.year) : currentYear);
-            return r.status === 'Pendiente' && rYear <= currentYear;
-        }).reduce((sum, r) => sum + safeParseFloat(r.amount), 0);
-        const accountsPayableValue = (accountsPayable || []).filter(p => {
-            const pYear = p.date ? getSafeYear(p.date) : (p.year ? parseInt(p.year) : currentYear);
-            return p.status === 'Pendiente' && pYear <= currentYear;
-        }).reduce((sum, p) => sum + safeParseFloat(p.amount), 0);
+        const accountsReceivableValue = (accountsReceivable || []).reduce((sum, r) => {
+            const rDate = getOpenItemDate(r);
+            const rYear = rDate ? getSafeYear(rDate) : (r.year ? parseInt(r.year) : currentYear);
+            if (rYear > currentYear) return sum;
+            return sum + getOutstandingBalance(r, endStr);
+        }, 0);
+        const accountsPayableValue = (accountsPayable || []).reduce((sum, p) => {
+            const pDate = getOpenItemDate(p);
+            const pYear = pDate ? getSafeYear(pDate) : (p.year ? parseInt(p.year) : currentYear);
+            if (pYear > currentYear) return sum;
+            return sum + getOutstandingBalance(p, endStr);
+        }, 0);
 
         const balanceNetProfit = report.balance;
         const totalActivoCorriente = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue;
@@ -1316,6 +1324,120 @@ const months = [
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
     ];
 
+    const getOfficialStatus = () => {
+        if (!report) return null;
+        if (activeTab === 'month') {
+            const periodEnd = format(report.period.end, 'yyyy-MM-dd');
+            const monthly = getMonthlyClosing(periodEnd, monthlyClosings);
+            return monthly
+                ? { official: true, label: `MES OFICIALIZADO · ${monthly.period}`, seal: monthly.seal || monthly.hash || '' }
+                : { official: false, label: 'ACTA INFORMATIVA · MES NO OFICIALIZADO', seal: '' };
+        }
+        if (activeTab === 'year') {
+            const year = String(report.period.end.getFullYear());
+            const closed = isFiscalYearClosed(`${year}-12-31`, fiscalYears);
+            return closed
+                ? { official: true, label: `VIGENCIA ${year} CERRADA`, seal: '' }
+                : { official: false, label: `ACTA INFORMATIVA · VIGENCIA ${year} ABIERTA`, seal: '' };
+        }
+        return { official: false, label: 'ACTA INFORMATIVA · NO BLOQUEA MOVIMIENTOS', seal: '' };
+    };
+
+    const handleCloseFiscalYear = async () => {
+        if (isConsolidated) {
+            toast({ variant: 'destructive', title: 'Seleccione una entidad', description: 'El cierre anual debe ejecutarse dentro de una entidad individual.' });
+            return;
+        }
+
+        const year = Number(selectedYear);
+        const currentYear = new Date().getFullYear();
+        if (!Number.isInteger(year) || year >= currentYear) {
+            toast({ variant: 'destructive', title: 'Vigencia no terminada', description: 'Sólo puede cerrarse una vigencia anual que ya haya terminado.' });
+            return;
+        }
+
+        if (isFiscalYearClosed(`${year}-12-31`, fiscalYears)) {
+            toast({ title: 'Vigencia ya cerrada', description: `La vigencia ${year} ya está protegida contra modificaciones.` });
+            return;
+        }
+
+        const validYearTransactions = (transactions || []).filter(t => {
+            if (!isRelevantCompany(t)) return false;
+            const status = String(t?.status || '').toLowerCase();
+            if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(status)) return false;
+            return getAccountingYear(t?.date) === year;
+        });
+
+        if (validYearTransactions.length === 0) {
+            toast({ variant: 'destructive', title: 'Vigencia sin movimientos', description: `No hay comprobantes contables en ${year}; no se generó un cierre anual vacío.` });
+            return;
+        }
+
+        const movementPeriods = [...new Set(
+            validYearTransactions
+                .map(t => String(t?.date || '').slice(0, 7))
+                .filter(period => /^\d{4}-\d{2}$/.test(period))
+        )].sort();
+
+        const officialPeriods = new Set(
+            (monthlyClosings || [])
+                .filter(item =>
+                    String(item?.period || '').startsWith(`${year}-`) &&
+                    String(item?.status || 'OFICIAL').toUpperCase() !== 'ANULADO'
+                )
+                .map(item => String(item.period))
+        );
+
+        const missingPeriods = movementPeriods.filter(period => !officialPeriods.has(period));
+        if (missingPeriods.length > 0) {
+            toast({
+                variant: 'destructive',
+                title: 'Faltan cierres mensuales',
+                description: `Antes de cerrar ${year}, oficializa en Transacciones los meses con movimiento: ${missingPeriods.join(', ')}.`
+            });
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `CERRAR VIGENCIA ${year}\n\n` +
+            `Meses con movimiento oficializados: ${movementPeriods.length}.\n` +
+            `Comprobantes protegidos por la vigencia: ${validYearTransactions.length}.\n\n` +
+            'Después del cierre anual no podrán crearse, editarse ni eliminarse movimientos de esa vigencia. ¿Desea continuar?'
+        );
+        if (!confirmed) return;
+
+        const monthlySealRefs = (monthlyClosings || [])
+            .filter(item => movementPeriods.includes(String(item?.period || '')))
+            .map(item => ({
+                period: item.period,
+                seal: item.seal || item.hash || '',
+                algorithm: item.sealAlgorithm || ''
+            }));
+
+        const record = {
+            id: String(year),
+            year: String(year),
+            status: 'CERRADO',
+            closedAt: new Date().toISOString(),
+            transactionCount: validYearTransactions.length,
+            officializedPeriods: movementPeriods,
+            monthlySealRefs,
+            companyId: activeCompany?.id,
+            company_id: activeCompany?.id
+        };
+
+        await saveFiscalYears([
+            ...(fiscalYears || []).filter(item => String(item?.year) !== String(year)),
+            record
+        ]);
+
+        toast({
+            title: `Vigencia ${year} cerrada`,
+            description: 'El año fiscal quedó bloqueado. Las actas y reportes históricos conservarán sus saldos a la fecha de corte.'
+        });
+    };
+
+    const officialStatus = getOfficialStatus();
     return (
         <>
             <Helmet>
@@ -1332,7 +1454,7 @@ const months = [
             <div className="space-y-6 max-w-7xl mx-auto">
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="print:hidden">
                     <h1 className="text-4xl font-bold text-slate-900">Cierres Contables</h1>
-                    <p className="text-slate-600">Genera el Acta de Cierre detallando el Estado de Resultados y el Flujo de Efectivo.</p>
+                    <p className="text-slate-600">Genera actas y reportes de cierre. El acta por sí sola no bloquea movimientos: los meses se oficializan en Transacciones y la vigencia anual se cierra aquí cuando todos los meses con movimiento ya están oficializados.</p>
                 </motion.div>
 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg border overflow-hidden print:hidden">
@@ -1423,8 +1545,13 @@ const months = [
                         )}
 
                         <Button onClick={generateReport} className="bg-blue-600 hover:bg-blue-700 min-w-[140px]">
-                            <PieChart className="w-4 h-4 mr-2" /> Calcular Cierre
+                            <PieChart className="w-4 h-4 mr-2" /> Generar Acta
                         </Button>
+                        {activeTab === 'year' && (
+                            <Button onClick={handleCloseFiscalYear} variant="outline" className="border-amber-300 text-amber-800 hover:bg-amber-50 min-w-[140px]">
+                                <BookOpen className="w-4 h-4 mr-2" /> Cerrar Vigencia
+                            </Button>
+                        )}
                     </div>
                 </motion.div>
 
@@ -1438,6 +1565,11 @@ const months = [
                                     Periodo: {format(report.period.start, "d 'de' MMMM, yyyy", { locale: es })} al {format(report.period.end, "d 'de' MMMM, yyyy", { locale: es })}
                                 </h2>
                                 <p className="text-slate-500 text-sm mt-1">Transacciones procesadas: {report.transactions.length}</p>
+                                {officialStatus && (
+                                    <div className={`mt-2 inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${officialStatus.official ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                        {officialStatus.label}{officialStatus.seal ? ` · sello ${String(officialStatus.seal).slice(0, 12)}…` : ''}
+                                    </div>
+                                )}
                             </div>
                                                             <div className="flex flex-wrap items-center justify-end gap-2 print:hidden">
                                 <Button variant="outline" onClick={handlePrint} className="text-slate-700 border-slate-300 hover:bg-slate-100">

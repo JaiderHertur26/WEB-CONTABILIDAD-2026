@@ -11,6 +11,7 @@ export const COMPANY_DATA_KEYS = [
   { key: 'initialBalance', label: 'Saldo Inicial' },
   { key: 'inventory', label: 'Inventario' },
   { key: 'fiscal_years', label: 'Años Fiscales' },
+  { key: 'monthly_closings', label: 'Meses Oficializados' },
   { key: 'billing_documents', label: 'Documentos de Facturación' },
   { key: 'auto_billing_categories', label: 'Categorías de Facturación' },
   { key: 'invoices', label: 'Facturas' },

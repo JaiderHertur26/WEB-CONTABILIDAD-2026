@@ -11,12 +11,16 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { exportFixedAssetsExcel, exportFixedAssetsPdf, exportFixedAssetsWord } from '@/lib/fixedAssetExports';
 import * as XLSX from 'xlsx';
 import { usePermission } from '@/hooks/usePermission';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import { toAccountingDateInput } from '@/lib/accountingDate';
 
 const FixedAssets = () => {
     const { canEdit, canDelete, canAdd, canImport, isReadOnly } = usePermission();
     const { activeCompany } = useCompany();
     const [assets, saveAssets] = useCompanyData('fixedAssets');
     const [transactions, saveTransactions] = useCompanyData('transactions');
+    const [fiscalYears] = useCompanyData('fiscal_years');
+    const [monthlyClosings] = useCompanyData('monthly_closings');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [newYearDialogOpen, setNewYearDialogOpen] = useState(false);
     const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -29,16 +33,32 @@ const FixedAssets = () => {
     const [selectedAssetForRetire, setSelectedAssetForRetire] = useState(null);
     const [retireReason, setRetireReason] = useState('Obsolescencia / Daño');
 
+    const periodLockReason = date =>
+        getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
+
+    const getNextAdjustmentVoucherNumber = (date) => {
+        const year = String(date || '').slice(0, 4);
+        return (transactions || [])
+            .filter(t =>
+                String(t?.date || '').slice(0, 4) === year &&
+                (t?.type === 'adjustment' || t?.voucherPrefix === 'A')
+            )
+            .reduce((max, t) => Math.max(max, Number.parseInt(t?.voucherNumber, 10) || 0), 0) + 1;
+    };
+
     // --- AUTO-REINTEGRAR ACTIVO SI SE ELIMINA EL COMPROBANTE ---
     useEffect(() => {
         if (!transactions || !assets) return;
         
         // Buscamos activos dados de baja cuyo comprobante ya no exista en contabilidad
-        const assetsToRestore = assets.filter(a => 
-            a.status === 'Dado de Baja' && 
-            a.retireTransactionId && 
-            !transactions.some(t => String(t.id) === String(a.retireTransactionId))
-        );
+        const assetsToRestore = assets.filter(a => {
+            if (a.status !== 'Dado de Baja') return false;
+            const retirementIds = Array.isArray(a.retireTransactionIds) && a.retireTransactionIds.length > 0
+                ? a.retireTransactionIds
+                : (a.retireTransactionId ? [a.retireTransactionId] : []);
+            return retirementIds.length > 0 &&
+                retirementIds.every(id => !transactions.some(t => String(t.id) === String(id)));
+        });
 
         if (assetsToRestore.length > 0) {
             const updatedAssets = assets.map(a => {
@@ -64,6 +84,26 @@ const FixedAssets = () => {
 
         let updatedAssets;
         if (editingAsset) {
+            const protectedHistory =
+                Number(editingAsset.accumulatedDepreciation || 0) > 0 ||
+                Boolean(editingAsset.transactionId) ||
+                Boolean(editingAsset.retireTransactionId) ||
+                (Array.isArray(editingAsset.retireTransactionIds) && editingAsset.retireTransactionIds.length > 0);
+
+            if (
+                protectedHistory &&
+                (
+                    Number(assetData.value || 0) !== Number(editingAsset.value || 0) ||
+                    Number(assetData.accumulatedDepreciation || 0) !== Number(editingAsset.accumulatedDepreciation || 0)
+                )
+            ) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Historia contable protegida',
+                    description: 'El costo y la depreciación acumulada no se editan directamente cuando el activo ya tiene historia. Registra el ajuste mediante un comprobante trazable.'
+                });
+                return;
+            }
             updatedAssets = assets.map(asset => asset.id === editingAsset.id ? { ...asset, ...assetData } : asset);
             toast({ title: "Activo actualizado" });
         } else {
@@ -77,23 +117,29 @@ const FixedAssets = () => {
     const handleDeleteAsset = (id) => {
         if (!canDelete) return;
 
-        const assetToDelete = assets.find(asset => asset.id === id);
-        
-        if (assetToDelete && assetToDelete.transactionId) {
-             const transactionToUpdate = transactions.find(t => t.id === assetToDelete.transactionId);
-             if (transactionToUpdate) {
-                 const updatedTransactions = transactions.map(t => 
-                    t.id === assetToDelete.transactionId 
-                        ? { ...t, isFixedAsset: false } 
-                        : t
-                 );
-                 saveTransactions(updatedTransactions);
-                 toast({ title: "Contabilidad Ajustada", description: "El gasto de compra se ha reclasificado como gasto corriente para cuadrar el balance." });
-             }
+        const assetToDelete = (assets || []).find(asset => asset.id === id);
+        if (!assetToDelete) return;
+
+        const linkedIds = [
+            assetToDelete.transactionId,
+            assetToDelete.retireTransactionId,
+            ...(Array.isArray(assetToDelete.retireTransactionIds) ? assetToDelete.retireTransactionIds : [])
+        ].filter(Boolean);
+        const hasLinkedTransactions = (transactions || []).some(t =>
+            linkedIds.some(linkedId => String(linkedId) === String(t.id))
+        );
+
+        if (hasLinkedTransactions || Number(assetToDelete.accumulatedDepreciation || 0) > 0) {
+            toast({
+                variant: 'destructive',
+                title: 'Activo con historia contable',
+                description: 'No puede eliminarse un activo con compra, depreciación o baja contabilizada. Debe conservarse para auditoría y corregirse mediante un ajuste.'
+            });
+            return;
         }
 
-        saveAssets(assets.filter(asset => asset.id !== id));
-        toast({ title: "Activo eliminado", description: "El activo ha sido retirado del inventario." });
+        saveAssets((assets || []).filter(asset => asset.id !== id));
+        toast({ title: 'Activo eliminado', description: 'Se eliminó únicamente el registro sin historia contable.' });
     };
 
     const handleCloneYear = () => {
@@ -104,8 +150,17 @@ const FixedAssets = () => {
             return;
         }
 
-        const assetsToClone = assets.filter(asset => asset.year === yearFilter);
-        const clonedAssets = assetsToClone.map(asset => ({ ...asset, id: `cloned-${Date.now()}-${Math.random()}`, year: currentYear.toString(), transactionId: null }));
+        const assetsToClone = assets.filter(asset => asset.year === yearFilter && asset.status !== 'Dado de Baja');
+        const clonedAssets = assetsToClone.map(asset => ({
+            ...asset,
+            id: `cloned-${Date.now()}-${Math.random()}`,
+            year: currentYear.toString(),
+            transactionId: null,
+            retireTransactionId: null,
+            retireTransactionIds: [],
+            depreciatedYear: null,
+            depreciatedYears: []
+        }));
         
         saveAssets([...assets, ...clonedAssets]);
         setYearFilter(currentYear.toString());
@@ -120,8 +175,21 @@ const FixedAssets = () => {
 
     
     // --- DEPRECIACIÓN AUTOMÁTICA CON CONSECUTIVO DE TRANSFERENCIA ---
-    const handleRunDepreciation = () => {
+    const handleRunDepreciation = async () => {
         if (!canEdit && !canAdd) return;
+
+        const currentYear = new Date().getFullYear();
+        if (Number(yearFilter) >= currentYear) {
+            toast({ variant: 'destructive', title: 'Vigencia no terminada', description: 'La depreciación anual sólo puede registrarse cuando la vigencia ya terminó.' });
+            return;
+        }
+
+        const dateStr = `${yearFilter}-12-31`;
+        const lockReason = periodLockReason(dateStr);
+        if (lockReason) {
+            toast({ variant: 'destructive', title: 'Período contable cerrado', description: lockReason });
+            return;
+        }
         
         const taxRates = {
             'edificaciones': 0.0222, // 2.22% (~45 años)
@@ -132,12 +200,16 @@ const FixedAssets = () => {
             'general': 0.10          
         };
 
-        // 1. Verificamos si ya existe una depreciación para este año
-        const dateStr = `${yearFilter}-12-31`;
+        // 1. Nunca reescribimos un comprobante anual existente.
         const existingDeprTransaction = (transactions || []).find(t => 
-            t.description === `Depreciación anual acumulada - Vigencia ${yearFilter}` &&
-            t.category === 'Depreciación Acumulada Activos Fijos'
+            (String(t.depreciationYear || '') === String(yearFilter) || t.description === `Depreciación anual acumulada - Vigencia ${yearFilter}`) &&
+            (t.isFixedAssetDepreciation || t.category === 'Depreciación Acumulada Activos Fijos')
         );
+        if (existingDeprTransaction) {
+            toast({ variant: 'destructive', title: 'Depreciación ya contabilizada', description: `Ya existe un comprobante para ${yearFilter}. Cualquier diferencia debe registrarse mediante un ajuste separado.` });
+            setDepreciationDialogOpen(false);
+            return;
+        }
 
         let totalDepreciationGenerated = 0;
         
@@ -160,19 +232,21 @@ const FixedAssets = () => {
             const originalValue = parseFloat(asset.value) || 0;
             const historicalDepr = parseFloat(asset.accumulatedDepreciation) || 0;
             
-            // La depreciación anual SIEMPRE se calcula sobre el valor original.
-            const yearlyDepr = originalValue * rate;
+            const yearlyReference = Math.max(0, originalValue * rate);
+            const remainingDepreciable = Math.max(0, originalValue - historicalDepr);
+            const actualDepreciation = Math.min(remainingDepreciable, yearlyReference);
+            if (actualDepreciation <= 0) return asset;
 
-            // Sumamos la histórica + la del año. Si el valor original es 0 (Activo Control), respetamos la histórica.
-const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDepr + yearlyDepr) : historicalDepr; 
-            
-            totalDepreciationGenerated += yearlyDepr;
+            const newAccumulated = historicalDepr + actualDepreciation;
+            totalDepreciationGenerated += actualDepreciation;
+            const priorYears = Array.isArray(asset.depreciatedYears) ? asset.depreciatedYears.map(String) : [];
 
             return {
                 ...asset,
                 accumulatedDepreciation: newAccumulated,
-                netBookValue: originalValue - newAccumulated,
-                depreciatedYear: yearFilter // 🚀 MARCADOR DE SEGURIDAD
+                netBookValue: Math.max(0, originalValue - newAccumulated),
+                depreciatedYear: yearFilter,
+                depreciatedYears: [...new Set([...priorYears, String(yearFilter)])]
             };
         });
 
@@ -182,103 +256,122 @@ const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDep
             return;
         }
 
-        saveAssets(updatedAssets);
+        const now = Date.now();
+        const voucherNumber = getNextAdjustmentVoucherNumber(dateStr);
+        const deprTransaction = {
+            id: `${now}-depr`,
+            type: 'adjustment',
+            voucherPrefix: 'A',
+            description: `Depreciación anual acumulada - Vigencia ${yearFilter}`,
+            amount: totalDepreciationGenerated,
+            category: 'Depreciación Acumulada Activos Fijos',
+            date: dateStr,
+            voucherNumber,
+            isFixedAssetDepreciation: true,
+            depreciationYear: yearFilter,
+            debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
+            creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id
+        };
 
-        // 3. Manejo del Comprobante (Actualizar sumando si existe, crear si no)
-        if (existingDeprTransaction) {
-            const updatedTransactions = transactions.map(t => 
-                t.id === existingDeprTransaction.id 
-                    ? { ...t, amount: parseFloat(t.amount || 0) + totalDepreciationGenerated } // 🚀 SUMA AL COMPROBANTE EXISTENTE
-                    : t
-            );
-            saveTransactions(updatedTransactions);
-            toast({ title: "Depreciación Actualizada", description: `El comprobante T-${String(existingDeprTransaction.voucherNumber).padStart(4,'0')} fue actualizado.` });
-        } else {
-            const now = Date.now();
-            const yearTransactions = (transactions || []).filter(t => {
-                let tType = t.type;
-                if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
-                const tYear = (typeof t.date === 'string' && t.date.includes('-')) ? t.date.split('-')[0] : new Date(t.date).getFullYear().toString();
-                return tType === 'transfer' && tYear === yearFilter;
-            });
-            
-            const maxNum = yearTransactions.reduce((max, t) => {
-                const currentVnum = parseInt(t.voucherNumber, 10) || 0;
-                return currentVnum > max ? currentVnum : max;
-            }, 0);
-            
-            const voucherNumber = maxNum + 1;
-
-            const deprTransaction = {
-                id: `${now}-depr`,
-                type: 'expense',
-                description: `Depreciación anual acumulada - Vigencia ${yearFilter}`,
-                amount: totalDepreciationGenerated,
-                category: 'Depreciación Acumulada Activos Fijos',
-                date: dateStr,
-                isInternalTransfer: true,
-                voucherNumber: voucherNumber,
-                debitAccount: { code: '516005', name: 'GASTOS DEPRECIACION' },
-                creditAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
-                company_id: activeCompany?.id,
-                companyId: activeCompany?.id
-            };
-            saveTransactions([...(transactions || []), deprTransaction]);
-            toast({ title: "Depreciación Aplicada", description: `Se calculó la depreciación fiscal y se asignó el comprobante T-${String(voucherNumber).padStart(4,'0')}` });
-        }
+        await saveTransactions([...(transactions || []), deprTransaction]);
+        await saveAssets(updatedAssets);
+        toast({ title: 'Depreciación Aplicada', description: `Se calculó la depreciación pendiente y se asignó el comprobante A-${String(voucherNumber).padStart(4,'0')}` });
 
         setDepreciationDialogOpen(false);
     };
 
-    // --- DAR DE BAJA ACTIVO CON CONSECUTIVO DE TRANSFERENCIA ---
-    const handleConfirmRetire = () => {
+    // --- DAR DE BAJA ACTIVO CON COMPROBANTE DE AJUSTE ---
+    const handleConfirmRetire = async () => {
         if (!selectedAssetForRetire || !canEdit) return;
+        if (selectedAssetForRetire.status === 'Dado de Baja') {
+            toast({ variant: 'destructive', title: 'Activo ya retirado', description: 'Este activo ya tiene registrada su baja.' });
+            return;
+        }
 
-        const assetId = selectedAssetForRetire.id;
-        const assetValue = parseFloat(selectedAssetForRetire.value) || 0;
-        const currentDate = new Date().toISOString().split('T')[0];
-        const currentYear = new Date().getFullYear().toString();
-        const now = Date.now();
-        const retireTxId = `${now}-retire`; // ID único para rastrearlo
+        const currentDate = toAccountingDateInput(new Date());
+        const lockReason = periodLockReason(currentDate);
+        if (lockReason) {
+            toast({ variant: 'destructive', title: 'Período contable cerrado', description: lockReason });
+            return;
+        }
 
-        const updatedAssets = assets.map(a => a.id === assetId ? { 
-            ...a, 
-            status: 'Dado de Baja', 
-            usage: 'Desuso', 
-            retireTransactionId: retireTxId, 
-            notes: `${a.notes || ''} [Dado de baja: ${retireReason}]` 
+        const grossValue = Math.max(0, Number(selectedAssetForRetire.value || 0));
+        const accumulatedDepreciation = Math.min(grossValue, Math.max(0, Number(selectedAssetForRetire.accumulatedDepreciation || 0)));
+        const netBookValue = Math.max(0, grossValue - accumulatedDepreciation);
+        const purchaseTransaction = (transactions || []).find(t => String(t.id) === String(selectedAssetForRetire.transactionId || ''));
+        const assetAccount = String(purchaseTransaction?.debitAccount?.code || '').startsWith('15')
+            ? purchaseTransaction.debitAccount
+            : { code: '154005', name: 'PROPIEDAD PLANTA Y EQUIPO' };
+        const voucherNumber = getNextAdjustmentVoucherNumber(currentDate);
+        const batchId = `${Date.now()}-fixed-asset-retire`;
+        const retirementTransactions = [];
+
+        if (accumulatedDepreciation > 0.0001) {
+            retirementTransactions.push({
+                id: `${batchId}-accumulated`,
+                type: 'adjustment',
+                voucherPrefix: 'A',
+                voucherNumber,
+                description: `Baja de activo fijo: ${selectedAssetForRetire.name} - retiro de depreciación acumulada`,
+                amount: accumulatedDepreciation,
+                category: 'Baja de Activos Fijos',
+                date: currentDate,
+                debitAccount: { code: '159205', name: 'DEPRECIACION ACUMULADA' },
+                creditAccount: assetAccount,
+                isFixedAssetRetirement: true,
+                fixedAssetId: selectedAssetForRetire.id,
+                retirementBatchId: batchId,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
+            });
+        }
+
+        if (netBookValue > 0.0001) {
+            retirementTransactions.push({
+                id: `${batchId}-net`,
+                type: 'adjustment',
+                voucherPrefix: 'A',
+                voucherNumber,
+                description: `Baja de activo fijo: ${selectedAssetForRetire.name} (${retireReason}) - valor neto en libros`,
+                amount: netBookValue,
+                category: 'Retiro o Baja de Activos Fijos',
+                date: currentDate,
+                debitAccount: { code: '540505', name: 'BAJA DE ACTIVOS' },
+                creditAccount: assetAccount,
+                isFixedAssetRetirement: true,
+                fixedAssetId: selectedAssetForRetire.id,
+                retirementBatchId: batchId,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
+            });
+        }
+
+        if (retirementTransactions.length > 0) {
+            await saveTransactions([...(transactions || []), ...retirementTransactions]);
+        }
+
+        const retirementIds = retirementTransactions.map(t => t.id);
+        const updatedAssets = (assets || []).map(a => a.id === selectedAssetForRetire.id ? {
+            ...a,
+            status: 'Dado de Baja',
+            usage: 'Desuso',
+            retireTransactionId: retirementIds[0] || null,
+            retireTransactionIds: retirementIds,
+            retiredAt: currentDate,
+            retirementReason: retireReason,
+            netBookValue: 0,
+            notes: `${a.notes || ''} [Dado de baja: ${retireReason}]`.trim()
         } : a);
-        saveAssets(updatedAssets);
+        await saveAssets(updatedAssets);
 
-        const yearTransactions = (transactions || []).filter(t => {
-            let tType = t.type;
-            if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
-            const tYear = (typeof t.date === 'string' && t.date.includes('-')) ? t.date.split('-')[0] : new Date(t.date).getFullYear().toString();
-            return tType === 'transfer' && tYear === currentYear;
+        toast({
+            title: 'Activo dado de baja',
+            description: retirementTransactions.length > 0
+                ? `Baja contabilizada en el comprobante A-${String(voucherNumber).padStart(4, '0')}, retirando costo y depreciación acumulada sin afectar caja ni bancos.`
+                : 'Activo de control sin valor contable marcado como dado de baja.'
         });
-        const maxNum = yearTransactions.reduce((max, t) => {
-            const currentVnum = parseInt(t.voucherNumber, 10) || 0;
-            return currentVnum > max ? currentVnum : max;
-        }, 0);
-        const voucherNumber = maxNum + 1;
-
-        const retireTransaction = {
-            id: retireTxId,
-            type: 'expense',
-            description: `Baja de activo fijo: ${selectedAssetForRetire.name} (${retireReason})`,
-            amount: assetValue,
-            category: 'Retiro o Baja de Activos Fijos',
-            date: currentDate,
-            isInternalTransfer: true,
-            voucherNumber: voucherNumber,
-            debitAccount: { code: '540505', name: 'BAJA DE ACTIVOS' },
-            creditAccount: { code: '154005', name: 'PROPIEDAD PLANTA Y EQUIPO' },
-            company_id: activeCompany?.id,
-            companyId: activeCompany?.id
-        };
-        saveTransactions([...(transactions || []), retireTransaction]);
-
-        toast({ title: "Activo Dado de Baja", description: "Se asignó el consecutivo de comprobante de transferencia correspondiente." });
         setRetireDialogOpen(false);
         setSelectedAssetForRetire(null);
     };
@@ -384,7 +477,7 @@ const newAccumulated = originalValue > 0 ? Math.min(originalValue, historicalDep
                     <Button onClick={handleExportWord} variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50"><FileText className="w-4 h-4 mr-2" /> Word</Button>
                     
                     {canAdd && <Button onClick={handleCloneYear} variant="outline">Clonar a Año Actual</Button>}
-             {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
+             {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Anual</Button>}
                 </div>
 
 
@@ -457,7 +550,7 @@ const AssetDialog = ({ open, onOpenChange, onSave, asset }) => {
         <div className="space-y-1"><Label>Estado</Label><select value={data.status || 'Bueno'} onChange={e => setData({...data, status: e.target.value})} className="w-full p-2 border rounded-lg"><option>Bueno</option><option>Regular</option><option>Malo</option></select></div>
         <div className="space-y-1"><Label>Lugar a inventariar</Label><input value={data.location || ''} onChange={e => setData({...data, location: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Ej: Templo, Sacristía, etc."/></div>
         <div className="space-y-1"><Label>Valor Total</Label><input type="number" step="0.01" required value={data.value} onChange={e => setData({...data, value: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-<div className="space-y-1"><Label>Deprec. Acumulada Histórica</Label><input type="number" step="0.01" value={data.accumulatedDepreciation || 0} onChange={e => setData({...data, accumulatedDepreciation: e.target.value})} className="w-full p-2 border rounded-lg text-red-600" /></div>
+<div className="space-y-1"><Label>Deprec. Acumulada Histórica</Label><input type="number" step="0.01" disabled={Boolean(asset)} value={data.accumulatedDepreciation || 0} onChange={e => setData({...data, accumulatedDepreciation: e.target.value})} className="w-full p-2 border rounded-lg text-red-600 disabled:bg-slate-100" /></div>
         <div className="md:col-span-2 space-y-1"><Label>Observaciones</Label><textarea value={data.notes || ''} onChange={e => setData({...data, notes: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
         <div className="md:col-span-2 flex justify-end gap-2 pt-4"><DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose><Button type="submit" className="bg-blue-600 hover:bg-blue-700">Guardar</Button></div>
     </form></DialogContent></Dialog>);
@@ -659,7 +752,7 @@ const DepreciationDialog = ({ open, onOpenChange, onRun }) => (
         <DialogContent className="sm:max-w-md">
             <DialogHeader><DialogTitle>Depreciación Automática (Normas COLGAAP / DIAN)</DialogTitle></DialogHeader>
             <DialogDescription>
-                Este proceso calculará la depreciación anual en línea recta de todos los activos del año actual aplicando las tasas fiscales permitidas. Se generará un comprobante interno en transferencias sin afectar cuentas de efectivo o bancos.
+                Este proceso calcula la depreciación anual con tasas operativas de referencia por categoría y limita cada activo al valor pendiente por depreciar. Generará un comprobante de ajuste A, sin afectar caja ni bancos. La tasa aplicable debe corresponder a la política contable y fiscal de la entidad.
             </DialogDescription>
             <div className="flex justify-end gap-2 pt-4">
                 <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>

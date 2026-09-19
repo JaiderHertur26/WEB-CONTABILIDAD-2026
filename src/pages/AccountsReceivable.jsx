@@ -19,6 +19,8 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import { resolveLiquidityAccount, liquidityEndpointOptions } from '@/lib/liquidityAccounts';
 
 const Highlight = ({ text, highlight }) => {
   if (!highlight || !text) return <>{text}</>;
@@ -112,6 +114,9 @@ const AccountsReceivable = () => {
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts'); 
     const [bankAccounts] = useCompanyData('bankAccounts');
+    const [cashAccounts] = useCompanyData('cash_accounts');
+    const [fiscalYears] = useCompanyData('fiscal_years');
+    const [monthlyClosings] = useCompanyData('monthly_closings');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
     const [trackingDialogOpen, setTrackingDialogOpen] = useState(false);
@@ -130,7 +135,7 @@ const AccountsReceivable = () => {
     // CORRECCIÓN: Función que cuenta los comprobantes basados en el año real
     const getNextVoucherNumber = (type, dateStr) => {
         if (!transactions) return 1;
-        const year = new Date(dateStr).getFullYear().toString();
+        const year = getAccountingYear(dateStr).toString();
         const typeTransactions = transactions.filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
@@ -143,49 +148,127 @@ const AccountsReceivable = () => {
         return maxNum + 1;
     };
 
+    const receivableAccount = () => {
+        const account = (accounts || []).find(a => String(a.number) === '13050505')
+            || (accounts || []).find(a => String(a.number).startsWith('130505'))
+            || (accounts || []).find(a => String(a.number).startsWith('13'));
+        return account
+            ? { code: String(account.number), name: account.name }
+            : { code: '13050505', name: 'CUENTAS POR COBRAR' };
+    };
+
+    const periodLockReason = date =>
+        getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
+
     const handleSaveReceivable = (receivableData) => {
         if (!canAdd && !editingReceivable) return;
         if (!canEdit && editingReceivable) return;
 
         const { isNew, ...data } = receivableData;
+        const amount = Number(data.amount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            toast({ variant:'destructive', title:'Monto inválido', description:'La cuenta por cobrar debe ser mayor a cero.' });
+            return;
+        }
+        const revenue = (accounts || []).find(a => a.name === data.linkedAccount);
+        if (!revenue) {
+            toast({ variant:'destructive', title:'Cuenta inválida', description:'No se pudo resolver la cuenta de ingreso seleccionada.' });
+            return;
+        }
+        const lockReason = periodLockReason(data.issueDate);
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
+
         let updatedReceivables;
         let updatedTransactions = [...(transactions || [])];
 
         if (isNew) {
             const newReceivableId = Date.now().toString();
-            const voucherNumber = getNextVoucherNumber('income', data.issueDate); // Usar fecha de emisión
+            const voucherNumber = getNextVoucherNumber('adjustment', data.issueDate);
+            const ar = receivableAccount();
 
-            updatedReceivables = [...(receivables || []), { ...data, id: newReceivableId, status: 'Pendiente', internalPayments: [] }];
+            updatedReceivables = [...(receivables || []), {
+                ...data,
+                amount,
+                id: newReceivableId,
+                status: 'Pendiente',
+                paidAmount: 0,
+                balance: amount,
+                payments: [],
+                internalPayments: []
+            }];
 
-            const newIncomeTransaction = {
-                id: `txn-inc-${newReceivableId}`,
-                type: 'income',
+            updatedTransactions.push({
+                id: `txn-ar-accrual-${newReceivableId}`,
+                type: 'adjustment',
+                voucherPrefix: 'A',
                 date: data.issueDate,
-                description: `Ingreso por venta a crédito: ${data.description}`,
-                amount: data.amount,
-                category: data.linkedAccount, 
-                destination: 'pending_receivable', 
+                description: `Causación CxC: ${data.description}`,
+                amount,
+                category: data.linkedAccount,
+                debitAccount: ar,
+                creditAccount: { code: String(revenue.number), name: revenue.name },
+                isReceivableAccrual: true,
                 isReceivablePayable: true,
-                voucherNumber: voucherNumber
-            };
-            updatedTransactions.push(newIncomeTransaction);
+                receivableId: newReceivableId,
+                voucherNumber,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
+            });
 
-            toast({ title: "Cuenta por cobrar creada", description: `Se ha generado el comprobante I-${String(voucherNumber).padStart(4, '0')} (Pendiente).` });
+            toast({ title: "Cuenta por cobrar creada", description: `Causación registrada en A-${String(voucherNumber).padStart(4, '0')} sin mover Caja/Banco.` });
         } else {
-            updatedReceivables = receivables.map(r => r.id === editingReceivable.id ? { ...r, ...data } : r);
-            const transactionIndex = updatedTransactions.findIndex(t => t.id === `txn-inc-${editingReceivable.id}`);
-            if (transactionIndex > -1) {
-                updatedTransactions[transactionIndex] = {
-                    ...updatedTransactions[transactionIndex],
+            const current = editingReceivable;
+            const officialPayments = (current.payments || []).filter(p => !p.reversedAt);
+            const accrual = updatedTransactions.find(t =>
+                t.receivableId === current.id && t.isReceivableAccrual
+            ) || updatedTransactions.find(t => t.id === `txn-inc-${current.id}`);
+
+            if (officialPayments.length > 0 || current.status === 'Parcial' || current.status === 'Cobrado') {
+                toast({ variant:'destructive', title:'CxC con recaudos', description:'No puede editarse la causación después de registrar cobros oficiales.' });
+                return;
+            }
+            const sourceLockReason = accrual
+                ? periodLockReason(accrual.date)
+                : periodLockReason(current.issueDate);
+            if (accrual?.isLocked || sourceLockReason) {
+                toast({
+                    variant:'destructive',
+                    title:'Causación oficializada',
+                    description: accrual?.isLocked
+                        ? 'El asiento de esta CxC pertenece a un período oficializado.'
+                        : sourceLockReason
+                });
+                return;
+            }
+
+            updatedReceivables = receivables.map(r =>
+                r.id === current.id ? { ...r, ...data, amount, balance: amount } : r
+            );
+
+            if (accrual) {
+                const ar = receivableAccount();
+                updatedTransactions = updatedTransactions.map(t => t.id === accrual.id ? {
+                    ...t,
+                    type: 'adjustment',
+                    voucherPrefix: 'A',
                     date: data.issueDate,
-                    description: `Ingreso por venta a crédito: ${data.description}`,
-                    amount: data.amount,
+                    description: `Causación CxC: ${data.description}`,
+                    amount,
                     category: data.linkedAccount,
-                };
+                    debitAccount: ar,
+                    creditAccount: { code: String(revenue.number), name: revenue.name },
+                    destination: undefined,
+                    isReceivableAccrual: true,
+                    isReceivablePayable: true,
+                    receivableId: current.id,
+                } : t);
             }
             toast({ title: "Cuenta por cobrar actualizada" });
         }
-        
+
         saveTransactions(updatedTransactions);
         saveReceivables(updatedReceivables);
         setDialogOpen(false);
@@ -193,37 +276,97 @@ const AccountsReceivable = () => {
 
     const handleDeleteReceivable = (id) => {
         if (!canDelete) return;
-        saveTransactions(transactions.filter(t => t.id !== `txn-inc-${id}`));
-        saveReceivables(receivables.filter(r => r.id !== id));
-        toast({ title: "Cuenta por cobrar eliminada", description: "La transacción asociada también fue eliminada." });
+        const target = (receivables || []).find(r => r.id === id);
+        const accrual = (transactions || []).find(t =>
+            (t.receivableId === id && t.isReceivableAccrual) ||
+            t.id === `txn-inc-${id}`
+        );
+        const hasPayments = (target?.payments || []).some(p => !p.reversedAt) ||
+            (transactions || []).some(t => t.receivableId === id && t.isReceivableCollection);
+        if (hasPayments) {
+            toast({ variant:'destructive', title:'CxC con recaudos', description:'No puede eliminarse una cuenta por cobrar que ya tiene cobros oficiales.' });
+            return;
+        }
+        const sourceLockReason = accrual
+            ? periodLockReason(accrual.date)
+            : periodLockReason(target?.issueDate);
+        if (accrual?.isLocked || sourceLockReason) {
+            toast({
+                variant:'destructive',
+                title:'CxC oficializada',
+                description: accrual?.isLocked
+                    ? 'La causación pertenece a un período oficializado y es inalterable.'
+                    : sourceLockReason
+            });
+            return;
+        }
+        saveTransactions((transactions || []).filter(t => t.id !== accrual?.id));
+        saveReceivables((receivables || []).filter(r => r.id !== id));
+        toast({ title: "Cuenta por cobrar eliminada", description: "Se retiró también su causación contable." });
     };
 
     const handleMarkAsCollected = (paymentData) => {
         if (!canAdd) return;
-        const { receivable, destination } = paymentData;
-        
-        const currentDate = format(new Date(), 'yyyy-MM-dd');
-        const newVoucherNumber = getNextVoucherNumber('income', currentDate);
+        const { receivable, destination, amount: requestedAmount, paymentDate } = paymentData;
+        const currentDate = paymentDate || format(new Date(), 'yyyy-MM-dd');
+        const lockReason = periodLockReason(currentDate);
+        if (lockReason) {
+            toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
+            return;
+        }
 
-        const updatedTransactions = transactions.map(t => {
-            if (t.id === `txn-inc-${receivable.id}`) {
-                return {
-                    ...t,
-                    destination: destination, 
-                    date: currentDate, 
-                    description: `${t.description} (Cobrado)`,
-                    voucherNumber: newVoucherNumber 
-                };
-            }
-            return t;
-        });
-        
-        saveTransactions(updatedTransactions);
+        const previousPaid = receivable?.paidAmount != null
+            ? Number(receivable.paidAmount || 0)
+            : (receivable?.payments || []).filter(p => !p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
+        const remainingBefore = Math.max(0, Number(receivable?.amount || 0) - previousPaid);
+        const paymentAmount = Number(requestedAmount == null || requestedAmount === '' ? remainingBefore : requestedAmount);
+        if (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > remainingBefore + 0.01) {
+            toast({ variant:'destructive', title:'Monto inválido', description:'El cobro debe ser mayor a cero y no puede superar el saldo pendiente.' });
+            return;
+        }
 
-        const updatedReceivables = receivables.map(r => r.id === receivable.id ? { ...r, status: 'Cobrado' } : r);
-        saveReceivables(updatedReceivables);
+        const liquidity = resolveLiquidityAccount(destination, { bankAccounts, cashAccounts });
+        if (!liquidity?.code) {
+            toast({ variant:'destructive', title:'Destino inválido', description:'No se pudo resolver la cuenta de Caja/Banco seleccionada.' });
+            return;
+        }
+        const ar = receivableAccount();
+        const voucherNumber = getNextVoucherNumber('income', currentDate);
+        const receiptId = `txn-ar-collection-${receivable.id}-${Date.now()}`;
+        const receipt = {
+            id: receiptId,
+            type: 'income',
+            voucherPrefix: 'I',
+            date: currentDate,
+            description: `Cobro CxC: ${receivable.description}`,
+            amount: paymentAmount,
+            category: ar.name,
+            destination,
+            debitAccount: { code: liquidity.code, name: liquidity.name },
+            creditAccount: ar,
+            isReceivableCollection: true,
+            receivableId: receivable.id,
+            voucherNumber,
+            company_id: activeCompany?.id,
+            companyId: activeCompany?.id
+        };
 
-        toast({ title: "¡Cuenta Cobrada!", description: `Se ha generado el comprobante de cobro I-${String(newVoucherNumber).padStart(4, '0')}.` });
+        const newPaid = previousPaid + paymentAmount;
+        const balance = Math.max(0, Number(receivable.amount || 0) - newPaid);
+        const newStatus = balance <= 0.01 ? 'Cobrado' : 'Parcial';
+        const paymentRecord = { id: receiptId, date: currentDate, amount: paymentAmount, destination, voucherNumber };
+
+        saveTransactions([...(transactions || []), receipt]);
+        saveReceivables((receivables || []).map(r => r.id === receivable.id ? {
+            ...r,
+            status: newStatus,
+            paidAmount: newPaid,
+            balance,
+            payments: [...(r.payments || []), paymentRecord],
+            collectedAt: newStatus === 'Cobrado' ? currentDate : r.collectedAt,
+        } : r));
+
+        toast({ title: newStatus === 'Cobrado' ? "Cuenta cobrada" : "Abono oficial registrado", description: `Comprobante I-${String(voucherNumber).padStart(4, '0')} · Saldo $${balance.toLocaleString('es-CO')}.` });
         setPaymentDialogOpen(false);
     };
 
@@ -349,10 +492,10 @@ const AccountsReceivable = () => {
                         <td className="p-3 font-medium">{r.customer}</td><td className="p-3">{r.description}</td><td className="p-3">{format(parseAccountingDate(r.dueDate), 'dd/MM/yyyy', { locale: es })}</td><td className="p-3 font-mono">${parseFloat(r.amount).toLocaleString('es-ES')}</td>
                         <td className="p-3"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${r.status === 'Cobrado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{r.status}</span></td>
                         <td className="p-3"><div className="flex gap-1">
-                            {r.status === 'Pendiente' && (
+                            {['Pendiente','Parcial'].includes(r.status) && (
                                 <>
                                     <Button size="icon" variant="ghost" className="hover:text-blue-600" onClick={() => { setReceivableForTracking(r); setTrackingDialogOpen(true); }} title="Hoja de Apuntes"><ClipboardList className="w-4 h-4" /></Button>
-                                    {canAdd && <Button size="icon" variant="ghost" className="hover:text-green-600" onClick={() => { setReceivableToPay(r); setPaymentDialogOpen(true); }} title="Marcar como Cobrado"><CheckCircle className="w-4 h-4" /></Button>}
+                                    {canAdd && <Button size="icon" variant="ghost" className="hover:text-green-600" onClick={() => { setReceivableToPay(r); setPaymentDialogOpen(true); }} title="Registrar cobro / abono oficial"><CheckCircle className="w-4 h-4" /></Button>}
                                 </>
                             )}
                             {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingReceivable(r); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
@@ -363,7 +506,7 @@ const AccountsReceivable = () => {
             )}
         </div>
         <ReceivableDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSaveReceivable} receivable={editingReceivable} accounts={accounts} />
-        <PaymentDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen} onSave={handleMarkAsCollected} receivable={receivableToPay} bankAccounts={bankAccounts} />
+        <PaymentDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen} onSave={handleMarkAsCollected} receivable={receivableToPay} bankAccounts={bankAccounts} cashAccounts={cashAccounts} />
         <TrackingSheetDialog open={trackingDialogOpen} onOpenChange={setTrackingDialogOpen} onSave={handleSaveTracking} receivable={receivableForTracking} type="receivable" onPrint={openPrintPreview} canAdd={canAdd} />
         
         <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
@@ -554,37 +697,57 @@ const ReceivableDialog = ({ open, onOpenChange, onSave, receivable, accounts }) 
     </form></DialogContent></Dialog>);
 };
 
-const PaymentDialog = ({ open, onOpenChange, onSave, receivable, bankAccounts }) => {
+const PaymentDialog = ({ open, onOpenChange, onSave, receivable, bankAccounts, cashAccounts }) => {
     const [destination, setDestination] = useState('caja_principal|CAJA PRINCIPAL');
+    const [amount, setAmount] = useState('');
+    const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+    const previousPaid = receivable?.paidAmount != null
+        ? Number(receivable.paidAmount || 0)
+        : (receivable?.payments || []).filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
+    const remaining = Math.max(0, Number(receivable?.amount || 0) - previousPaid);
+
     useEffect(() => {
         if (open) {
             setDestination('caja_principal|CAJA PRINCIPAL');
+            setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+            const paid = receivable?.paidAmount != null
+                ? Number(receivable.paidAmount || 0)
+                : (receivable?.payments || []).filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
+            setAmount(String(Math.max(0, Number(receivable?.amount || 0) - paid)));
         }
-    }, [open]);
+    }, [open, receivable]);
     
     const handleSave = () => {
-        onSave({ receivable, destination });
+        onSave({ receivable, destination, amount: Number(amount), paymentDate });
     };
+
+    const options = liquidityEndpointOptions({ bankAccounts, cashAccounts });
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
-                <DialogHeader><DialogTitle>Registrar Cobro</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>Registrar Cobro de Cuenta por Cobrar</DialogTitle></DialogHeader>
                 <div className="py-4 space-y-4">
-                    <p>Vas a marcar la cuenta de <strong>{receivable?.customer}</strong> por un monto de <strong>${parseFloat(receivable?.amount || 0).toLocaleString('es-ES')}</strong> como cobrada.</p>
+                    <div className="bg-slate-50 border rounded-lg p-3 text-sm">
+                        <div className="flex justify-between"><span>Cliente</span><strong>{receivable?.customer}</strong></div>
+                        <div className="flex justify-between mt-1"><span>Valor original</span><strong>${Number(receivable?.amount || 0).toLocaleString('es-CO')}</strong></div>
+                        <div className="flex justify-between mt-1"><span>Cobrado</span><strong className="text-green-700">${previousPaid.toLocaleString('es-CO')}</strong></div>
+                        <div className="flex justify-between mt-1"><span>Saldo pendiente</span><strong className="text-amber-700">${remaining.toLocaleString('es-CO')}</strong></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label>Fecha del cobro</Label><input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} className="w-full p-2 border rounded-lg"/></div>
+                        <div className="space-y-1"><Label>Monto a cobrar</Label><input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-2 border rounded-lg"/></div>
+                    </div>
                     <div className="space-y-2">
                         <Label htmlFor="destination">¿Dónde se recibió el dinero?</Label>
                         <select id="destination" value={destination} onChange={e => setDestination(e.target.value)} className="w-full p-2 border rounded-lg">
-                            <option value="caja_principal|CAJA PRINCIPAL">Caja Principal (Efectivo)</option>
-                            {(bankAccounts || []).map(b_acc => (
-                                <option key={b_acc.id} value={`${b_acc.id}|${b_acc.bankName}`}>{b_acc.bankName}</option>
-                            ))}
+                            {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                     </div>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
-                    <Button onClick={handleSave} className="bg-green-600 hover:bg-green-700">Confirmar Cobro</Button>
+                    <Button onClick={handleSave} disabled={Number(amount)<=0||Number(amount)>remaining} className="bg-green-600 hover:bg-green-700">{Number(amount)<remaining ? 'Registrar Abono' : 'Confirmar Cobro'}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
