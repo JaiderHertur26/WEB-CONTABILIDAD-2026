@@ -446,12 +446,10 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
             { Concepto: '  Otros Activos Corrientes', Valor: otherAssetsValue, isDetail: true },
             { Concepto: '  Activos Intangibles (Licencias)', Valor: intangiblesValue, isDetail: true },
             { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
-            { Concepto: '  Propiedades, Planta y Equipo (inmuebles)', Valor: realEstatesValue, isDetail: true },
-            { Concepto: '  Activos Fijos (inventario de la vigencia)', Valor: manualFixedAssetsValue, isDetail: true },
+            { Concepto: '  Propiedades, Planta y Equipo', Valor: realEstatesValue, isDetail: true },
+            { Concepto: '  Activos Fijos (Oficina y Equipos)', Valor: manualFixedAssetsValue, isDetail: true },
             { Concepto: '  Inventario', Valor: inventoryValue, isDetail: true },
-            { Concepto: '    Depreciación acumulada de Activos Fijos', Valor: -Math.abs(totalDepreciacionInventario), isDetail: true },
-            { Concepto: '    Depreciación acumulada de Propiedades/Inmuebles', Valor: -Math.abs(totalDepreciacionPropiedades), isDetail: true },
-            { Concepto: '  TOTAL DEPRECIACIÓN ACUMULADA', Valor: depreciacionAcumuladaValue, isSubtotal: true },
+            { Concepto: '  Depreciación Acumulada', Valor: depreciacionAcumuladaValue, isDetail: true },
         ];
 
         return [
@@ -497,7 +495,7 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
             rows,
             notes: [
                 'Reporte de base contable para revisión tributaria. No sustituye el formulario oficial ni acredita presentación ante la DIAN.',
-                'Los totales de activos, patrimonio y excedente aquí presentados son CONTABLES; la determinación fiscal requiere conciliación, depuración y ajustes conforme a las reglas tributarias aplicables.',
+                'Los totales de activos, patrimonio e excedente aquí presentados son CONTABLES; la determinación fiscal requiere conciliación, depuración y ajustes conforme a las reglas tributarias aplicables.',
                 'Las cifras deben revisarse con el contador, soportes y conciliaciones antes de cualquier presentación tributaria.',
                 'Los saldos de Caja, Bancos y Aportes provienen del mismo motor de liquidez utilizado por el Balance General; Activos Fijos corresponde al inventario de la vigencia seleccionada.'
             ]
