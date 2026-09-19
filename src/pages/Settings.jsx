@@ -10,7 +10,6 @@ import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePermission } from '@/hooks/usePermission';
 import { useCompanyData } from '@/hooks/useCompanyData';
-import SyncIntegrityPanel from '@/components/settings/SyncIntegrityPanel';
 import { validateCompanyJSON, saveCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
@@ -413,7 +412,6 @@ const Settings = () => {
                     </div>
                 </motion.div>
 
-                <SyncIntegrityPanel />
             </motion.div>
             
             <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
