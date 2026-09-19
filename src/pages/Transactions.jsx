@@ -1345,6 +1345,33 @@ const Transactions = () => {
             });
         });
 
+        // Toda cuenta bancaria líquida configurada debe ser visible aun si no tuvo
+        // saldo inicial ni movimientos en el período. Se excluyen registros usados
+        // exclusivamente como vehículo de inversión/aportes.
+        (bankAccounts || []).filter(isRelevant).forEach(ba => {
+            const code = String(ba.accountingCode || '');
+            const initialBankBalance = Number(ba.initialBalance) || 0;
+            const investmentBalance = Number(ba.initialInvestmentBalance) || 0;
+            const isBankingCode = code.startsWith('1110') || code.startsWith('1120');
+            const investmentOnly = Math.abs(investmentBalance) > 0.01 && Math.abs(initialBankBalance) <= 0.01;
+            const showRow = accountFilters.length === 0 || accountFilters.some(f => code.startsWith(f));
+
+            if (!isBankingCode || investmentOnly || !showRow || movementCodes.has(code)) return;
+            if (flatRows.some(row => String(row.pCode) === code)) return;
+
+            flatRows.push({
+                _openingOnly: true,
+                _forceOpeningRow: true,
+                date: startDate,
+                vId: 'SALDO',
+                tercero: '-',
+                pCode: code,
+                pName: ba.accountingConcept || ba.bankName || 'CUENTA BANCARIA',
+                isDebit: false,
+                val: 0
+            });
+        });
+
         flatRows.sort((a, b) => {
             const codeCompare = String(a.pCode).localeCompare(String(b.pCode));
             if (codeCompare !== 0) return codeCompare;
@@ -1363,7 +1390,7 @@ const Transactions = () => {
                 const openingBalance = openingBalancesByCode[row.pCode] || 0;
                 runningBalances[row.pCode] = openingBalance;
 
-                if (Math.abs(openingBalance) > 0.01) {
+                if (Math.abs(openingBalance) > 0.01 || row._forceOpeningRow) {
                     rows.push({
                         Fecha: formatSafeDate(startDate),
                         Comprobante: 'SALDO',
@@ -3341,6 +3368,30 @@ const Transactions = () => {
                                                 });
                                             });
 
+                                            (bankAccounts || []).filter(isRelevant).forEach(ba => {
+                                                const code = String(ba.accountingCode || '');
+                                                const initialBankBalance = Number(ba.initialBalance) || 0;
+                                                const investmentBalance = Number(ba.initialInvestmentBalance) || 0;
+                                                const isBankingCode = code.startsWith('1110') || code.startsWith('1120');
+                                                const investmentOnly = Math.abs(investmentBalance) > 0.01 && Math.abs(initialBankBalance) <= 0.01;
+                                                const showRow = accountFilters.length === 0 || accountFilters.some(f => code.startsWith(f));
+
+                                                if (!isBankingCode || investmentOnly || !showRow || movementCodes.has(code)) return;
+                                                if (flatRows.some(row => String(row.pCode) === code)) return;
+
+                                                flatRows.push({
+                                                    _openingOnly: true,
+                                                    _forceOpeningRow: true,
+                                                    date: startDate,
+                                                    vId: 'SALDO',
+                                                    tercero: '-',
+                                                    pCode: code,
+                                                    pName: ba.accountingConcept || ba.bankName || 'CUENTA BANCARIA',
+                                                    isDebit: false,
+                                                    val: 0
+                                                });
+                                            });
+
                                             // Ordenar por Cuenta PUC y luego cronológicamente.
                                             flatRows.sort((a, b) => {
                                                 const codeCompare = String(a.pCode).localeCompare(String(b.pCode));
@@ -3365,7 +3416,7 @@ const Transactions = () => {
                                                     const openingBalance = openingBalancesByCode[row.pCode] || 0;
                                                     runningBalances[row.pCode] = openingBalance;
 
-                                                    if (Math.abs(openingBalance) > 0.01) {
+                                                    if (Math.abs(openingBalance) > 0.01 || row._forceOpeningRow) {
                                                         rowsToRender.push(
                                                             <tr key={`opening-${row.pCode}`} className="bg-amber-50 border-y border-amber-200 font-semibold">
                                                                 <td className="py-2 px-1 text-slate-600 whitespace-nowrap">{formatSafeDate(startDate)}</td>
