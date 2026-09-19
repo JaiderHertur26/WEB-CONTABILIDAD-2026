@@ -7,7 +7,9 @@ import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
-import { exportToExcel } from '@/lib/excel';
+import { exportProfessionalWorkbook } from '@/lib/excel';
+import { useCompany } from '@/contexts/CompanyContext';
+import * as XLSX from 'xlsx';
 import { usePermission } from '@/hooks/usePermission';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,8 +21,61 @@ const CATEGORIES = {
   ACREEDOR: { label: 'Acreedor', color: 'bg-orange-100 text-orange-800', icon: CreditCard }
 };
 
+const normalizeText = (value) => String(value ?? '')
+  .trim()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ')
+  .toUpperCase();
+
+const normalizeDocType = (value, contactType = 'person') => {
+  const normalized = normalizeText(value).replace(/\./g, '');
+  if (['CC', 'CEDULA', 'CEDULA DE CIUDADANIA'].includes(normalized)) return 'CC';
+  if (normalized === 'NIT') return 'NIT';
+  if (['CE', 'CEDULA DE EXTRANJERIA'].includes(normalized)) return 'CE';
+  if (['PAS', 'PASAPORTE', 'PASSPORT'].includes(normalized)) return 'PAS';
+  return contactType === 'company' ? 'NIT' : 'CC';
+};
+
+const normalizeContactType = (value, docType = '') => {
+  const normalized = normalizeText(value);
+  if (['EMPRESA', 'COMPANY', 'JURIDICA', 'PERSONA JURIDICA'].includes(normalized)) return 'company';
+  if (['PERSONA', 'PERSON', 'NATURAL', 'PERSONA NATURAL'].includes(normalized)) return 'person';
+  return normalizeDocType(docType) === 'NIT' ? 'company' : 'person';
+};
+
+const normalizeCategory = (value) => {
+  const normalized = normalizeText(value);
+  if (normalized === 'PROVEEDOR') return 'Proveedor';
+  if (normalized === 'ACREEDOR') return 'Acreedor';
+  return 'Cliente';
+};
+
+const cleanDocumentNumber = (value) => String(value ?? '').trim().replace(/^'+/, '');
+
+const contactDocumentKey = (docType, docNumber, type = 'person') => {
+  const normalizedType = normalizeDocType(docType, type);
+  const normalizedNumber = cleanDocumentNumber(docNumber).replace(/[^0-9A-Z]/gi, '').toUpperCase();
+  return normalizedNumber ? `${normalizedType}:${normalizedNumber}` : '';
+};
+
+const contactComparable = (contact) => ({
+  name: normalizeText(contact?.name),
+  category: normalizeCategory(contact?.category),
+  type: normalizeContactType(contact?.type, contact?.docType),
+  docType: normalizeDocType(contact?.docType, contact?.type),
+  docNumber: cleanDocumentNumber(contact?.docNumber).replace(/[^0-9A-Z]/gi, '').toUpperCase(),
+  email: normalizeText(contact?.email),
+  phone: cleanDocumentNumber(contact?.phone).replace(/\s+/g, ''),
+  address: normalizeText(contact?.address),
+});
+
+const sameContactData = (a, b) =>
+  JSON.stringify(contactComparable(a)) === JSON.stringify(contactComparable(b));
+
 const Contacts = () => {
   const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+  const { activeCompany } = useCompany();
   const [contacts, saveContacts] = useCompanyData('contacts');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -33,14 +88,56 @@ const Contacts = () => {
     if (!canAdd && !editingContact) return;
     if (!canEdit && editingContact) return;
 
+    const normalizedType = normalizeContactType(contact.type, contact.docType);
+    const normalizedDocType = normalizeDocType(contact.docType, normalizedType);
+    const normalizedCategory = normalizeCategory(contact.category);
+    const docNumber = cleanDocumentNumber(contact.docNumber);
+    const key = contactDocumentKey(normalizedDocType, docNumber, normalizedType);
+
+    if (!contact.name?.trim() || !key) {
+      toast({
+        variant: 'destructive',
+        title: 'Datos incompletos',
+        description: 'Nombre/Razón Social y documento son obligatorios.'
+      });
+      return;
+    }
+
+    const duplicate = (contacts || []).find(c =>
+      c.id !== editingContact?.id &&
+      contactDocumentKey(c.docType, c.docNumber, c.type) === key
+    );
+
+    if (duplicate) {
+      toast({
+        variant: 'destructive',
+        title: 'Documento duplicado',
+        description: `Ya existe "${duplicate.name}" con ${normalizedDocType} ${docNumber}. Edite ese contacto en lugar de crear otro.`
+      });
+      return;
+    }
+
+    const normalizedContact = {
+      ...contact,
+      name: String(contact.name || '').trim().replace(/\s+/g, ' '),
+      category: normalizedCategory,
+      type: normalizedType,
+      docType: normalizedDocType,
+      docNumber,
+      email: String(contact.email || '').trim(),
+      phone: String(contact.phone || '').trim(),
+      address: String(contact.address || '').trim().replace(/\s+/g, ' ')
+    };
+
     let updatedContacts;
     if (editingContact) {
-      updatedContacts = contacts.map(c => c.id === editingContact.id ? contact : c);
+      updatedContacts = contacts.map(c => c.id === editingContact.id ? normalizedContact : c);
       toast({ title: "¡Contacto actualizado!", description: "Los cambios se guardaron correctamente." });
     } else {
-      updatedContacts = [...contacts, { ...contact, id: Date.now().toString() }];
+      updatedContacts = [...contacts, { ...normalizedContact, id: crypto.randomUUID() }];
       toast({ title: "¡Contacto creado!", description: "El nuevo contacto se ha guardado." });
     }
+
     saveContacts(updatedContacts);
     setDialogOpen(false);
     setEditingContact(null);
@@ -66,22 +163,91 @@ const Contacts = () => {
   };
 
   const handleExport = () => {
-    if (contacts.length === 0) {
+    if (!contacts?.length) {
       toast({ variant: 'destructive', title: "No hay contactos para exportar" });
       return;
     }
-    const dataToExport = contacts.map(c => ({
-      'Nombre': c.name,
-      'Categoría': c.category || 'Cliente',
-      'Email': c.email,
-      'Teléfono': c.phone,
-      'Dirección': c.address,
-      'Tipo': c.type === 'person' ? 'Persona' : 'Empresa',
-      'Tipo Documento': c.docType,
-      'Número Documento': c.docNumber
+
+    const sortedContacts = [...contacts].sort((a, b) => {
+      const categoryCompare = normalizeCategory(a.category).localeCompare(normalizeCategory(b.category), 'es');
+      if (categoryCompare !== 0) return categoryCompare;
+      const typeCompare = normalizeContactType(a.type, a.docType).localeCompare(normalizeContactType(b.type, b.docType));
+      if (typeCompare !== 0) return typeCompare;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base', numeric: true });
+    });
+
+    const rows = sortedContacts.map((c, index) => ({
+      'N°': index + 1,
+      'Nombre / Razón Social': String(c.name || '').trim(),
+      'Categoría': normalizeCategory(c.category),
+      'Tipo': normalizeContactType(c.type, c.docType) === 'company' ? 'Empresa' : 'Persona',
+      'Tipo Documento': normalizeDocType(c.docType, c.type),
+      'Número Documento': cleanDocumentNumber(c.docNumber),
+      'Email': String(c.email || '').trim(),
+      'Teléfono': String(c.phone || '').trim(),
+      'Dirección': String(c.address || '').trim()
     }));
-    exportToExcel(dataToExport, 'Contactos');
-    toast({ title: "¡Exportado!", description: "Tus contactos han sido exportados a Excel." });
+
+    const totals = {
+      total: rows.length,
+      people: rows.filter(r => r.Tipo === 'Persona').length,
+      companies: rows.filter(r => r.Tipo === 'Empresa').length,
+      clients: rows.filter(r => r.Categoría === 'Cliente').length,
+      suppliers: rows.filter(r => r.Categoría === 'Proveedor').length,
+      creditors: rows.filter(r => r.Categoría === 'Acreedor').length
+    };
+
+    exportProfessionalWorkbook({
+      fileName: 'Contactos',
+      companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
+      nit: activeCompany?.doc || '',
+      title: 'MAESTRO DE CONTACTOS',
+      period: `CORTE ${new Date().toLocaleDateString('es-CO')}`,
+      sheets: [
+        {
+          name: 'Contactos',
+          title: 'MAESTRO DE CONTACTOS',
+          period: `CORTE ${new Date().toLocaleDateString('es-CO')}`,
+          orientation: 'landscape',
+          columns: [
+            { key: 'N°', label: 'N°', width: 7, type: 'integer' },
+            { key: 'Nombre / Razón Social', label: 'NOMBRE / RAZÓN SOCIAL', width: 38, type: 'text' },
+            { key: 'Categoría', label: 'CATEGORÍA', width: 16, type: 'text' },
+            { key: 'Tipo', label: 'TIPO', width: 14, type: 'text' },
+            { key: 'Tipo Documento', label: 'TIPO DOCUMENTO', width: 17, type: 'text' },
+            { key: 'Número Documento', label: 'NÚMERO DOCUMENTO', width: 22, type: 'text' },
+            { key: 'Email', label: 'EMAIL', width: 30, type: 'text' },
+            { key: 'Teléfono', label: 'TELÉFONO', width: 18, type: 'text' },
+            { key: 'Dirección', label: 'DIRECCIÓN', width: 38, type: 'text' }
+          ],
+          rows,
+          notes: [
+            'El número de documento se exporta como texto para conservar guiones y ceros iniciales.',
+            'Este archivo puede editarse y volver a importarse desde el mismo módulo de Contactos.',
+            'Los contactos antiguos sin categoría explícita se normalizan como Cliente.'
+          ]
+        },
+        {
+          name: 'Resumen',
+          title: 'RESUMEN DEL MAESTRO DE CONTACTOS',
+          period: `CORTE ${new Date().toLocaleDateString('es-CO')}`,
+          columns: [
+            { key: 'Indicador', label: 'INDICADOR', width: 42, type: 'text' },
+            { key: 'Cantidad', label: 'CANTIDAD', width: 16, type: 'integer' }
+          ],
+          rows: [
+            { Indicador: 'TOTAL CONTACTOS', Cantidad: totals.total, __style: 'total' },
+            { Indicador: 'PERSONAS NATURALES', Cantidad: totals.people },
+            { Indicador: 'EMPRESAS', Cantidad: totals.companies },
+            { Indicador: 'CLIENTES', Cantidad: totals.clients },
+            { Indicador: 'PROVEEDORES', Cantidad: totals.suppliers },
+            { Indicador: 'ACREEDORES', Cantidad: totals.creditors }
+          ]
+        }
+      ]
+    });
+
+    toast({ title: "Excel profesional generado", description: "El maestro de Contactos fue exportado con resumen y hoja de control." });
   };
 
   const triggerImport = () => {
@@ -95,93 +261,232 @@ const Contacts = () => {
       const reader = new FileReader();
       reader.onload = (event) => {
           try {
+              const fileName = String(file.name || '').toLowerCase();
+              const buffer = event.target.result;
               let parsedData = [];
-              const text = event.target.result;
+              let sourceLabel = file.name;
 
-              if (file.name.endsWith('.json')) {
-                  parsedData = JSON.parse(text);
-              } else if (file.name.endsWith('.csv')) {
-                  const rows = text.split('\n');
-                  const headers = rows[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-                  parsedData = rows.slice(1).filter(r => r.trim()).map(row => {
-                      const values = row.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-                      const obj = {};
-                      headers.forEach((header, i) => obj[header] = values[i]);
-                      return obj;
+              const normalizeHeader = (value) => normalizeText(value)
+                .replace(/[\/\\]/g, ' ')
+                .replace(/\s+/g, ' ');
+
+              const headerAliases = {
+                name: ['NOMBRE / RAZON SOCIAL', 'NOMBRE RAZON SOCIAL', 'NOMBRE', 'RAZON SOCIAL', 'NAME'],
+                category: ['CATEGORIA', 'CATEGORY', 'TIPO CONTACTO'],
+                type: ['TIPO', 'TYPE', 'TIPO PERSONA', 'PERSONA / EMPRESA', 'PERSONA EMPRESA'],
+                docType: ['TIPO DOCUMENTO', 'TIPO DOC', 'TIPO IDENTIFICACION', 'DOCUMENT TYPE', 'DOCTYPE'],
+                docNumber: [
+                  'NUMERO DOCUMENTO', 'N DOCUMENTO', 'NRO DOCUMENTO', 'DOCUMENTO',
+                  'IDENTIFICACION', 'NUMERO IDENTIFICACION', 'NIT CC', 'DOCUMENT NUMBER', 'DOCNUMBER'
+                ],
+                email: ['EMAIL', 'CORREO', 'CORREO ELECTRONICO', 'E MAIL'],
+                phone: ['TELEFONO', 'CELULAR', 'MOVIL', 'PHONE'],
+                address: ['DIRECCION', 'DOMICILIO', 'ADDRESS']
+              };
+
+              const findHeaderIndex = (headers, aliases) =>
+                headers.findIndex(header => aliases.includes(normalizeHeader(header)));
+
+              const matrixToContacts = (matrix, sheetName = 'Datos') => {
+                for (let rowIndex = 0; rowIndex < Math.min(matrix.length, 50); rowIndex += 1) {
+                  const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+                  const headers = row.map(normalizeHeader);
+                  const indexes = {
+                    name: findHeaderIndex(headers, headerAliases.name),
+                    category: findHeaderIndex(headers, headerAliases.category),
+                    type: findHeaderIndex(headers, headerAliases.type),
+                    docType: findHeaderIndex(headers, headerAliases.docType),
+                    docNumber: findHeaderIndex(headers, headerAliases.docNumber),
+                    email: findHeaderIndex(headers, headerAliases.email),
+                    phone: findHeaderIndex(headers, headerAliases.phone),
+                    address: findHeaderIndex(headers, headerAliases.address)
+                  };
+
+                  if (indexes.name < 0 || indexes.docNumber < 0) continue;
+
+                  const result = [];
+                  for (let dataIndex = rowIndex + 1; dataIndex < matrix.length; dataIndex += 1) {
+                    const dataRow = matrix[dataIndex] || [];
+                    const rawName = indexes.name >= 0 ? dataRow[indexes.name] : '';
+                    const rawDocNumber = indexes.docNumber >= 0 ? dataRow[indexes.docNumber] : '';
+
+                    if (!String(rawName || '').trim() && !String(rawDocNumber || '').trim()) continue;
+
+                    result.push({
+                      name: rawName,
+                      category: indexes.category >= 0 ? dataRow[indexes.category] : '',
+                      type: indexes.type >= 0 ? dataRow[indexes.type] : '',
+                      docType: indexes.docType >= 0 ? dataRow[indexes.docType] : '',
+                      docNumber: rawDocNumber,
+                      email: indexes.email >= 0 ? dataRow[indexes.email] : '',
+                      phone: indexes.phone >= 0 ? dataRow[indexes.phone] : '',
+                      address: indexes.address >= 0 ? dataRow[indexes.address] : ''
+                    });
+                  }
+
+                  if (result.length > 0) {
+                    sourceLabel = `${file.name} · ${sheetName}`;
+                    return result;
+                  }
+                }
+                return [];
+              };
+
+              if (fileName.endsWith('.json')) {
+                const text = new TextDecoder('utf-8').decode(buffer);
+                const json = JSON.parse(text);
+                parsedData = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : []);
+              } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+                const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: false });
+                for (const sheetName of workbook.SheetNames) {
+                  const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+                    header: 1,
+                    defval: '',
+                    raw: false,
+                    blankrows: false
                   });
+                  parsedData = matrixToContacts(matrix, sheetName);
+                  if (parsedData.length > 0) break;
+                }
+              } else if (fileName.endsWith('.csv')) {
+                const text = new TextDecoder('utf-8').decode(buffer);
+                const workbook = XLSX.read(text, { type: 'string', raw: false });
+                const sheetName = workbook.SheetNames[0];
+                const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+                  header: 1,
+                  defval: '',
+                  raw: false,
+                  blankrows: false
+                });
+                parsedData = matrixToContacts(matrix, 'CSV');
               } else {
-                   toast({ variant: 'destructive', title: "Formato no soportado", description: "Por favor usa archivos JSON o CSV." });
-                   return;
+                toast({
+                  variant: 'destructive',
+                  title: 'Formato no soportado',
+                  description: 'Use Excel (.xlsx/.xls), CSV o JSON.'
+                });
+                return;
               }
 
+              if (!Array.isArray(parsedData) || parsedData.length === 0) {
+                throw new Error('No se encontró una tabla válida de contactos.');
+              }
+
+              const existingByKey = new Map();
+              (contacts || []).forEach(contact => {
+                const key = contactDocumentKey(contact.docType, contact.docNumber, contact.type);
+                if (key) existingByKey.set(key, contact);
+              });
+
+              const importedByKey = new Map();
+              const newContacts = [...(contacts || [])];
+              const conflicts = [];
               let addedCount = 0;
-              let skippedCount = 0;
-              const newContacts = [...contacts];
-              const existingKeys = new Set(contacts.map(c => `${c.docType}-${c.docNumber}`));
+              let exactDuplicates = 0;
+              let invalidCount = 0;
+              let fileDuplicates = 0;
 
-              if (!Array.isArray(parsedData)) throw new Error("Formato de datos inválido");
+              parsedData.forEach((item) => {
+                const rawName = item.name ?? item.Nombre ?? item.nombre ?? item['Nombre / Razón Social'] ?? item['Nombre / Razon Social'];
+                const rawDocNumber = item.docNumber ?? item['Número Documento'] ?? item['Numero Documento'] ?? item.doc_number ?? item.Documento;
+                const rawType = item.type ?? item.Tipo ?? '';
+                const rawDocType = item.docType ?? item['Tipo Documento'] ?? item.tipo_documento ?? '';
+                const type = normalizeContactType(rawType, rawDocType);
+                const docType = normalizeDocType(rawDocType, type);
+                const docNumber = cleanDocumentNumber(rawDocNumber);
+                const name = String(rawName || '').trim().replace(/\s+/g, ' ');
+                const key = contactDocumentKey(docType, docNumber, type);
 
-              parsedData.forEach(item => {
-                  const name = item.name || item.Nombre || item.nombre;
-                  const docType = item.docType || item['Tipo Documento'] || 'CC';
-                  const docNumber = item.docNumber || item['Número Documento'] || item.doc_number;
-                  // Default imported contacts to 'Cliente' if not specified
-                  const category = item.category || item.Categoría || 'Cliente';
-                  
-                  if (!name || !docNumber) {
-                      skippedCount++;
-                      return;
-                  }
+                if (!name || !key) {
+                  invalidCount += 1;
+                  return;
+                }
 
-                  const key = `${docType}-${docNumber}`;
-                  if (!existingKeys.has(key)) {
-                      newContacts.push({
-                          id: `imp-${Date.now()}-${Math.random()}`,
-                          name,
-                          docType,
-                          docNumber,
-                          category,
-                          type: item.type || item.Tipo || 'person',
-                          email: item.email || item.Email || '',
-                          phone: item.phone || item.Teléfono || '',
-                          address: item.address || item.Dirección || ''
-                      });
-                      existingKeys.add(key);
-                      addedCount++;
-                  } else {
-                      skippedCount++;
-                  }
+                const candidate = {
+                  id: crypto.randomUUID(),
+                  name,
+                  category: normalizeCategory(item.category ?? item.Categoría ?? item.Categoria),
+                  type,
+                  docType,
+                  docNumber,
+                  email: String(item.email ?? item.Email ?? item.Correo ?? '').trim(),
+                  phone: String(item.phone ?? item.Teléfono ?? item.Telefono ?? item.Celular ?? '').trim(),
+                  address: String(item.address ?? item.Dirección ?? item.Direccion ?? '').trim().replace(/\s+/g, ' ')
+                };
+
+                const alreadyInFile = importedByKey.get(key);
+                if (alreadyInFile) {
+                  if (sameContactData(alreadyInFile, candidate)) fileDuplicates += 1;
+                  else conflicts.push(`${docType} ${docNumber}: dos registros distintos dentro del archivo`);
+                  return;
+                }
+                importedByKey.set(key, candidate);
+
+                const existing = existingByKey.get(key);
+                if (existing) {
+                  if (sameContactData(existing, candidate)) exactDuplicates += 1;
+                  else conflicts.push(`${docType} ${docNumber}: existe "${existing.name}", archivo "${candidate.name}"`);
+                  return;
+                }
+
+                newContacts.push(candidate);
+                existingByKey.set(key, candidate);
+                addedCount += 1;
               });
 
               if (addedCount > 0) {
-                  saveContacts(newContacts);
-                  toast({ title: "Importación exitosa", description: `${addedCount} contactos importados. ${skippedCount} duplicados/inválidos omitidos.` });
-              } else {
-                  toast({ variant: "warning", title: "Sin cambios", description: "No se importaron contactos nuevos (posibles duplicados)." });
+                newContacts.sort((a, b) =>
+                  String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base', numeric: true })
+                );
+                saveContacts(newContacts);
               }
 
+              const parts = [
+                `${addedCount} nuevos`,
+                `${exactDuplicates} duplicados exactos`,
+                `${fileDuplicates} duplicados dentro del archivo`,
+                `${invalidCount} inválidos`,
+                `${conflicts.length} conflictos no sobrescritos`
+              ];
+
+              toast({
+                title: addedCount > 0 ? 'Importación de Contactos completada' : 'Importación revisada sin contactos nuevos',
+                description: `${parts.join(' · ')}. Fuente: ${sourceLabel}.`
+              });
+
+              if (conflicts.length > 0) {
+                console.warn('Conflictos detectados al importar Contactos:', conflicts);
+              }
           } catch (error) {
               console.error(error);
-              toast({ variant: 'destructive', title: "Error al importar", description: "No se pudo procesar el archivo. Verifique el formato." });
+              toast({
+                variant: 'destructive',
+                title: 'Error al importar',
+                description: error?.message || 'No se pudo procesar el archivo de Contactos.'
+              });
+          } finally {
+              e.target.value = '';
           }
-          e.target.value = '';
       };
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
   };
 
-  const filteredContacts = contacts.filter(c => {
+  const filteredContacts = (contacts || []).filter(c => {
+    const normalizedSearch = searchTerm.toLowerCase();
     const matchesSearch = 
-      (c.name && c.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (c.email && c.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (c.docNumber && c.docNumber.includes(searchTerm));
+      (c.name && c.name.toLowerCase().includes(normalizedSearch)) ||
+      (c.email && c.email.toLowerCase().includes(normalizedSearch)) ||
+      (c.phone && String(c.phone).toLowerCase().includes(normalizedSearch)) ||
+      (c.docNumber && String(c.docNumber).toLowerCase().includes(normalizedSearch));
     
-    const matchesCategory = categoryFilter === 'ALL' || c.category === categoryFilter;
+    const matchesCategory = categoryFilter === 'ALL' || normalizeCategory(c.category) === categoryFilter;
 
     return matchesSearch && matchesCategory;
   });
 
   const getCategoryBadge = (category) => {
-      const catKey = Object.keys(CATEGORIES).find(k => CATEGORIES[k].label === category) || 'CLIENTE';
+      const normalizedCategory = normalizeCategory(category);
+      const catKey = Object.keys(CATEGORIES).find(k => CATEGORIES[k].label === normalizedCategory) || 'CLIENTE';
       const config = CATEGORIES[catKey];
       const Icon = config.icon;
       return (
@@ -206,7 +511,7 @@ const Contacts = () => {
             <p className="text-slate-600">Gestiona los datos de personas y empresas</p>
           </div>
           <div className="flex gap-2 items-center flex-wrap">
-            <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".csv,.json" />
+            <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".xlsx,.xls,.csv,.json" />
             {canAdd && <Button onClick={triggerImport} variant="outline" className="bg-white"><Upload className="w-4 h-4 mr-2" />Importar</Button>}
             <Button onClick={handleExport} variant="outline" className="bg-white"><Download className="w-4 h-4 mr-2" />Exportar</Button>
             {isReadOnly && <div className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1"/> Acceso Parcial</div>}
