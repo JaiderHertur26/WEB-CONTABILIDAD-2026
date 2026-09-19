@@ -533,8 +533,19 @@ const BookClosings = () => {
                 'Cuenta / Destino': String(targetName || '-').toUpperCase(),
                 'Movimiento Interno': isInternalMovement ? amount : null,
                 Ingreso: !isInternalMovement && t.type === 'income' ? amount : null,
-                Egreso: !isInternalMovement && t.type === 'expense' ? amount : null
+                Egreso: !isInternalMovement && t.type === 'expense' ? amount : null,
+                _sortDate: String(t.date || '').slice(0, 10),
+                _sortPrefix: String(t.voucherPrefix || (t.type === 'income' ? 'I' : (t.type === 'expense' ? 'E' : 'T'))).toUpperCase(),
+                _sortNumber: Number.isFinite(Number(t.voucherNumber)) ? Number(t.voucherNumber) : Number.MAX_SAFE_INTEGER
             };
+        }).sort((a, b) => {
+            const dateCompare = a._sortDate.localeCompare(b._sortDate);
+            if (dateCompare !== 0) return dateCompare;
+
+            const prefixCompare = a._sortPrefix.localeCompare(b._sortPrefix, 'es', { sensitivity: 'base' });
+            if (prefixCompare !== 0) return prefixCompare;
+
+            return a._sortNumber - b._sortNumber;
         });
 
         const totalInternalMovements = detailRows.reduce(

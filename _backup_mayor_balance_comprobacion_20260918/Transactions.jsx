@@ -1858,27 +1858,6 @@ const Transactions = () => {
     // =========================================================================
     // 🚀 MÓDULO 2: ALGORITMO DEL LIBRO MAYOR Y DE BALANCES
     // =========================================================================
-    const isDebitNatureCode = (code) => {
-        const value = String(code || '');
-        if (value.startsWith('1592')) return false; // Depreciación acumulada: naturaleza crédito
-        return ['1', '5', '6', '7', '8'].includes(value.charAt(0));
-    };
-
-    const splitBalanceByNature = (code, rawValue) => {
-        const value = Number(rawValue) || 0;
-        const debitNature = isDebitNatureCode(code);
-
-        if (debitNature) {
-            return value >= 0
-                ? { debit: value, credit: 0 }
-                : { debit: 0, credit: Math.abs(value) };
-        }
-
-        return value >= 0
-            ? { debit: 0, credit: value }
-            : { debit: Math.abs(value), credit: 0 };
-    };
-
     const libroMayorData = useMemo(() => {
         const mayor = {};
 
@@ -1964,7 +1943,7 @@ const Transactions = () => {
                 const codeStr = String(accCode);
                 if (!mayor[codeStr]) mayor[codeStr] = { code: codeStr, name: accName || 'N/A', saldoAnterior: 0, debito: 0, credito: 0, nuevoSaldo: 0 };
                 
-                const isDebitNature = isDebitNatureCode(codeStr);
+                const isDebitNature = ['1', '5', '6', '8'].includes(codeStr.charAt(0));
 
                 // 🚀 CORRECCIÓN DE AUDITORÍA: Aislamiento del Efectivo Real (Caja Principal)
                 const isHistoricalOrAdjustment = t.voucherPrefix === 'A' || String(t.description).toUpperCase().includes('SALDO');
@@ -1991,41 +1970,11 @@ const Transactions = () => {
             });
         });
 
-        // 4. Contrapartida patrimonial de apertura para el balance de comprobación.
-        // Los saldos físicos recibidos (Caja, Bancos, Aportes y demás activos/pasivos)
-        // deben tener una contrapartida patrimonial, aunque no sea un movimiento del período.
-        // Se usa la cuenta PUC 31400101 FONDO SOCIAL, ya existente en el catálogo.
-        let openingDebitBalances = 0;
-        let openingCreditBalances = 0;
-
-        Object.values(mayor).forEach(acc => {
-            const split = splitBalanceByNature(acc.code, acc.saldoAnterior);
-            openingDebitBalances += split.debit;
-            openingCreditBalances += split.credit;
-        });
-
-        const openingDifference = openingDebitBalances - openingCreditBalances;
-        if (Math.abs(openingDifference) > 0.01) {
-            const equityCode = '31400101';
-            if (!mayor[equityCode]) {
-                mayor[equityCode] = {
-                    code: equityCode,
-                    name: 'FONDO SOCIAL',
-                    saldoAnterior: 0,
-                    debito: 0,
-                    credito: 0,
-                    nuevoSaldo: 0
-                };
-            }
-            // Cuenta 3 = naturaleza crédito. Un valor positivo equilibra un exceso débito.
-            mayor[equityCode].saldoAnterior += openingDifference;
-        }
-
-        // 5. Aplicar ecuación contable para Nuevo Saldo
+        // 4. Aplicar Ecuación Contable para Nuevo Saldo
         return Object.values(mayor)
             .filter(acc => Math.abs(acc.saldoAnterior) > 0.01 || Math.abs(acc.debito) > 0.01 || Math.abs(acc.credito) > 0.01)
             .map(acc => {
-                const isDebitNature = isDebitNatureCode(acc.code);
+                const isDebitNature = ['1', '5', '6', '8'].includes(acc.code.charAt(0));
                 if (isDebitNature) {
                     acc.nuevoSaldo = acc.saldoAnterior + acc.debito - acc.credito;
                 } else {
@@ -2042,68 +1991,50 @@ const Transactions = () => {
             return;
         }
 
-        const rows = libroMayorData.map(acc => {
-            const previous = splitBalanceByNature(acc.code, acc.saldoAnterior);
-            const ending = splitBalanceByNature(acc.code, acc.nuevoSaldo);
-
-            return {
-                Código: acc.code,
-                Cuenta: acc.name,
-                'Saldo Ant. Débito': previous.debit || null,
-                'Saldo Ant. Crédito': previous.credit || null,
-                'Mov. Débito': Number(acc.debito) || null,
-                'Mov. Crédito': Number(acc.credito) || null,
-                'Nuevo Saldo Débito': ending.debit || null,
-                'Nuevo Saldo Crédito': ending.credit || null
-            };
-        });
+        const rows = libroMayorData.map(acc => ({
+            Código: acc.code,
+            Cuenta: acc.name,
+            'Saldo Anterior': Number(acc.saldoAnterior) || 0,
+            'Mov. Débito': Number(acc.debito) || 0,
+            'Mov. Crédito': Number(acc.credito) || 0,
+            'Nuevo Saldo': Number(acc.nuevoSaldo) || 0
+        }));
 
         const totals = rows.reduce((sum, row) => ({
-            prevDebit: sum.prevDebit + (Number(row['Saldo Ant. Débito']) || 0),
-            prevCredit: sum.prevCredit + (Number(row['Saldo Ant. Crédito']) || 0),
-            movDebit: sum.movDebit + (Number(row['Mov. Débito']) || 0),
-            movCredit: sum.movCredit + (Number(row['Mov. Crédito']) || 0),
-            endDebit: sum.endDebit + (Number(row['Nuevo Saldo Débito']) || 0),
-            endCredit: sum.endCredit + (Number(row['Nuevo Saldo Crédito']) || 0)
-        }), { prevDebit: 0, prevCredit: 0, movDebit: 0, movCredit: 0, endDebit: 0, endCredit: 0 });
+            anterior: sum.anterior + (Number(row['Saldo Anterior']) || 0),
+            debito: sum.debito + (Number(row['Mov. Débito']) || 0),
+            credito: sum.credito + (Number(row['Mov. Crédito']) || 0),
+            nuevo: sum.nuevo + (Number(row['Nuevo Saldo']) || 0)
+        }), { anterior: 0, debito: 0, credito: 0, nuevo: 0 });
 
         exportProfessionalTable({
             fileName: `Libro_Mayor_${startDate}_al_${effectiveEndDate}`,
             companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
             nit: activeCompany?.doc || '',
-            title: 'LIBRO MAYOR Y BALANCE DE COMPROBACIÓN',
+            title: 'LIBRO MAYOR Y DE BALANCES',
             period: `DEL ${startDate} AL ${effectiveEndDate}`,
             sheetName: 'Libro Mayor',
             orientation: 'landscape',
             columns: [
                 { key: 'Código', label: 'CÓDIGO', width: 14, type: 'text' },
-                { key: 'Cuenta', label: 'CUENTA', width: 34, type: 'text' },
-                { key: 'Saldo Ant. Débito', label: 'SALDO ANT. DÉBITO', width: 18, type: 'currency' },
-                { key: 'Saldo Ant. Crédito', label: 'SALDO ANT. CRÉDITO', width: 18, type: 'currency' },
-                { key: 'Mov. Débito', label: 'MOV. DÉBITO', width: 17, type: 'currency' },
-                { key: 'Mov. Crédito', label: 'MOV. CRÉDITO', width: 17, type: 'currency' },
-                { key: 'Nuevo Saldo Débito', label: 'NUEVO SALDO DÉBITO', width: 19, type: 'currency' },
-                { key: 'Nuevo Saldo Crédito', label: 'NUEVO SALDO CRÉDITO', width: 19, type: 'currency' }
+                { key: 'Cuenta', label: 'CUENTA', width: 38, type: 'text' },
+                { key: 'Saldo Anterior', label: 'SALDO ANTERIOR', width: 19, type: 'currency' },
+                { key: 'Mov. Débito', label: 'MOV. DÉBITO', width: 18, type: 'currency' },
+                { key: 'Mov. Crédito', label: 'MOV. CRÉDITO', width: 18, type: 'currency' },
+                { key: 'Nuevo Saldo', label: 'NUEVO SALDO', width: 19, type: 'currency' }
             ],
             rows,
             summaryRows: [{
-                Cuenta: 'SUMAS DE COMPROBACIÓN',
-                'Saldo Ant. Débito': totals.prevDebit,
-                'Saldo Ant. Crédito': totals.prevCredit,
-                'Mov. Débito': totals.movDebit,
-                'Mov. Crédito': totals.movCredit,
-                'Nuevo Saldo Débito': totals.endDebit,
-                'Nuevo Saldo Crédito': totals.endCredit,
-                __style: (
-                    Math.abs(totals.prevDebit - totals.prevCredit) < 0.01 &&
-                    Math.abs(totals.movDebit - totals.movCredit) < 0.01 &&
-                    Math.abs(totals.endDebit - totals.endCredit) < 0.01
-                ) ? 'success' : 'total'
+                Cuenta: 'SUMAS DEL PERÍODO',
+                'Saldo Anterior': totals.anterior,
+                'Mov. Débito': totals.debito,
+                'Mov. Crédito': totals.credito,
+                'Nuevo Saldo': totals.nuevo,
+                __style: 'total'
             }],
             notes: [
-                'Los saldos se presentan por naturaleza Débito/Crédito para facilitar el balance de comprobación.',
-                'La cuenta 31400101 – Fondo Social incorpora la contrapartida patrimonial de los saldos de apertura; no representa un movimiento de efectivo del período.',
-                'Control esperado: Saldo anterior Débito = Crédito, Movimientos Débito = Crédito y Nuevo saldo Débito = Crédito.'
+                'Los saldos anteriores provienen de los saldos de apertura y movimientos previos al período.',
+                'Los saldos finales se calculan respetando la naturaleza contable de cada cuenta PUC.'
             ]
         });
         toast({ title: 'Excel profesional generado', description: 'Libro Mayor exportado con saldos, movimientos y sumas de control.' });
@@ -2119,7 +2050,7 @@ const Transactions = () => {
         const printWindow = window.open('', '_blank', 'width=1000,height=800');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
-        let totalAntDeb = 0, totalAntCred = 0, totalMovDeb = 0, totalMovCred = 0, totalNuevoDeb = 0, totalNuevoCred = 0;
+        let totalAnt = 0, totalDeb = 0, totalCred = 0, totalNuev = 0;
 
         // 🚀 FORMATO NIIF: Paréntesis para naturalezas contrarias, excepto cuando el valor es CERO
         const formatearSaldoContable = (valor, codigoCuenta = '') => {
@@ -2140,26 +2071,19 @@ const Transactions = () => {
         };
         
         const rowsHtml = libroMayorData.map(acc => {
-            const previous = splitBalanceByNature(acc.code, acc.saldoAnterior);
-            const ending = splitBalanceByNature(acc.code, acc.nuevoSaldo);
-
-            totalAntDeb += previous.debit;
-            totalAntCred += previous.credit;
-            totalMovDeb += acc.debito;
-            totalMovCred += acc.credito;
-            totalNuevoDeb += ending.debit;
-            totalNuevoCred += ending.credit;
+            totalAnt += acc.saldoAnterior;
+            totalDeb += acc.debito;
+            totalCred += acc.credito;
+            totalNuev += acc.nuevoSaldo;
             
             return `
                 <tr>
                     <td class="td-code">${acc.code}</td>
                     <td class="td-name">${acc.name}</td>
-                    <td class="td-num">${formatearSaldoContable(previous.debit)}</td>
-                    <td class="td-num">${formatearSaldoContable(previous.credit)}</td>
-                    <td class="td-num">${formatearSaldoContable(acc.debito)}</td>
-                    <td class="td-num">${formatearSaldoContable(acc.credito)}</td>
-                    <td class="td-num">${formatearSaldoContable(ending.debit)}</td>
-                    <td class="td-num">${formatearSaldoContable(ending.credit)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.saldoAnterior, acc.code)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.debito, acc.code)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.credito, acc.code)}</td>
+                    <td class="td-num">${formatearSaldoContable(acc.nuevoSaldo, acc.code)}</td>
                 </tr>
             `;
         }).join('');
@@ -2174,13 +2098,13 @@ const Transactions = () => {
                   <title>Libro_Mayor_${selectedYear}</title>
                   <style>
                       @media print {
-                          @page { margin: 10mm; size: landscape; }
-                          body { font-family: 'Times New Roman', Times, serif; font-size: 10px; color: black; }
+                          @page { margin: 15mm; size: portrait; }
+                          body { font-family: 'Times New Roman', Times, serif; font-size: 11px; color: black; }
                           table { page-break-inside: auto; border-collapse: collapse; width: 100%; }
                           tr { page-break-inside: avoid; page-break-after: auto; }
                           thead { display: table-header-group; }
                       }
-                      body { font-family: 'Times New Roman', Times, serif; font-size: 10px; color: black; margin: 0; padding: 12px; }
+                      body { font-family: 'Times New Roman', Times, serif; font-size: 11px; color: black; margin: 0; padding: 20px; }
                       
                       /* 🚀 AQUÍ ESTÁ LA MAGIA DEL CENTRADO ABSOLUTO */
                       .header { text-align: center; margin-bottom: 25px; line-height: 1.4; border-bottom: 2px solid black; padding-bottom: 10px;}
@@ -2192,9 +2116,9 @@ const Transactions = () => {
                       th { border-bottom: 1px solid black; border-top: 1px solid black; padding: 6px 4px; text-align: right; font-weight: bold; font-size: 11px; }
                       th:nth-child(1), th:nth-child(2) { text-align: left; }
                       td { padding: 4px; vertical-align: top; }
-                      .td-code { width: 9%; font-weight: bold; }
-                      .td-name { width: 25%; text-transform: uppercase; font-size: 9px; }
-                      .td-num { width: 11%; text-align: right; font-size: 9px; }
+                      .td-code { width: 12%; font-weight: bold; }
+                      .td-name { width: 28%; text-transform: uppercase; font-size: 10px; }
+                      .td-num { width: 15%; text-align: right; }
                       .totals-row td { font-weight: bold; border-top: 1px solid black; border-bottom: 3px double black; padding-top: 8px; padding-bottom: 8px; }
                       .footer { margin-top: 40px; text-align: center; font-size: 9px; }
                   </style>
@@ -2203,7 +2127,7 @@ const Transactions = () => {
                   <div class="header">
                       <p class="header-title">${companyName}</p>
                       <p class="header-sub">NIT: ${companyNit}</p>
-                      <p class="header-center-title">LIBRO MAYOR Y BALANCE DE COMPROBACIÓN</p>
+                      <p class="header-center-title">LIBRO MAYOR Y DE BALANCES</p>
                       <p class="header-sub">DEL ${formatSafeDate(startDate)} AL ${formatSafeDate(effectiveEndDate)}</p>
                   </div>
                   
@@ -2212,24 +2136,20 @@ const Transactions = () => {
                           <tr>
                               <th>Código</th>
                               <th>Cuenta</th>
-                              <th>Saldo Ant. Débito</th>
-                              <th>Saldo Ant. Crédito</th>
+                              <th>Saldo Anterior</th>
                               <th>Mov. Débito</th>
                               <th>Mov. Crédito</th>
-                              <th>Nuevo Saldo Débito</th>
-                              <th>Nuevo Saldo Crédito</th>
+                              <th>Nuevo Saldo</th>
                           </tr>
                       </thead>
                       <tbody>
                           ${rowsHtml}
                           <tr class="totals-row">
-                              <td colspan="2" style="text-align:right;">SUMAS DE COMPROBACIÓN:</td>
-                              <td class="td-num">${formatearSaldoContable(totalAntDeb)}</td>
-                              <td class="td-num">${formatearSaldoContable(totalAntCred)}</td>
-                              <td class="td-num">${formatearSaldoContable(totalMovDeb)}</td>
-                              <td class="td-num">${formatearSaldoContable(totalMovCred)}</td>
-                              <td class="td-num">${formatearSaldoContable(totalNuevoDeb)}</td>
-                              <td class="td-num">${formatearSaldoContable(totalNuevoCred)}</td>
+                              <td colspan="2" style="text-align:right;">SUMAS DEL PERIODO:</td>
+                              <td class="td-num">${formatearSaldoContable(totalAnt)}</td>
+                              <td class="td-num">${formatearSaldoContable(totalDeb)}</td>
+                              <td class="td-num">${formatearSaldoContable(totalCred)}</td>
+                              <td class="td-num">${formatearSaldoContable(totalNuev)}</td>
                           </tr>
                       </tbody>
                   </table>
@@ -2532,8 +2452,8 @@ const Transactions = () => {
                         <div className="overflow-x-auto">
                             <div className="bg-purple-50 p-4 border-b border-purple-100 flex justify-between items-center">
                                 <div>
-                                    <h3 className="font-bold text-purple-900 text-lg">Libro Mayor y Balance de Comprobación</h3>
-                                    <p className="text-xs text-purple-700">Saldos por naturaleza Débito/Crédito y control automático de cuadre</p>
+                                    <h3 className="font-bold text-purple-900 text-lg">Libro Mayor y de Balances</h3>
+                                    <p className="text-xs text-purple-700">Consolidación algorítmica de saldos reglamentarios</p>
                                 </div>
                                 <div className="flex gap-2">
                                     <Button variant="outline" size="sm" onClick={handlePrintMayorPdf} className="bg-white border-purple-200 text-purple-700 shadow-sm hover:bg-purple-100"><Printer className="w-4 h-4 mr-2" /> Imprimir Mayor Oficial (PDF)</Button>
@@ -2545,12 +2465,10 @@ const Transactions = () => {
                                     <tr>
                                         <th className="px-4 py-3">Código</th>
                                         <th className="px-4 py-3 w-1/3">Cuenta</th>
-                                        <th className="px-3 py-3 text-right">Saldo Ant. Débito</th>
-                                        <th className="px-3 py-3 text-right">Saldo Ant. Crédito</th>
-                                        <th className="px-3 py-3 text-right text-blue-300">Mov. Débito</th>
-                                        <th className="px-3 py-3 text-right text-orange-300">Mov. Crédito</th>
-                                        <th className="px-3 py-3 text-right">Nuevo Saldo Débito</th>
-                                        <th className="px-3 py-3 text-right">Nuevo Saldo Crédito</th>
+                                        <th className="px-4 py-3 text-right">Saldo Anterior</th>
+                                        <th className="px-4 py-3 text-right text-blue-300">Mov. Débito</th>
+                                        <th className="px-4 py-3 text-right text-orange-300">Mov. Crédito</th>
+                                        <th className="px-4 py-3 text-right">Nuevo Saldo</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-slate-100">
@@ -2558,57 +2476,22 @@ const Transactions = () => {
                                         <tr key={acc.code} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-4 py-3 font-mono font-bold text-slate-700">{acc.code}</td>
                                             <td className="px-4 py-3 text-xs uppercase text-slate-600">{acc.name}</td>
-                                            {(() => {
-                                                const previous = splitBalanceByNature(acc.code, acc.saldoAnterior);
-                                                const ending = splitBalanceByNature(acc.code, acc.nuevoSaldo);
-                                                const fmt = (value) => value > 0 ? value.toLocaleString('es-CO', {minimumFractionDigits:2}) : '—';
-                                                return (
-                                                    <>
-                                                        <td className="px-3 py-3 text-right font-mono text-slate-500">{fmt(previous.debit)}</td>
-                                                        <td className="px-3 py-3 text-right font-mono text-slate-500">{fmt(previous.credit)}</td>
-                                                        <td className="px-3 py-3 text-right font-mono text-blue-600 font-medium">{fmt(acc.debito)}</td>
-                                                        <td className="px-3 py-3 text-right font-mono text-orange-600 font-medium">{fmt(acc.credito)}</td>
-                                                        <td className="px-3 py-3 text-right font-mono font-bold text-slate-900">{fmt(ending.debit)}</td>
-                                                        <td className="px-3 py-3 text-right font-mono font-bold text-slate-900">{fmt(ending.credit)}</td>
-                                                    </>
-                                                );
-                                            })()}
+                                            <td className="px-4 py-3 text-right font-mono text-slate-500">{acc.saldoAnterior.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-blue-600 font-medium">{acc.debito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-orange-600 font-medium">{acc.credito.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">{acc.nuevoSaldo.toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
                                         </tr>
                                     ))}
-                                    {libroMayorData.length > 0 && (() => {
-                                        const totals = libroMayorData.reduce((sum, acc) => {
-                                            const previous = splitBalanceByNature(acc.code, acc.saldoAnterior);
-                                            const ending = splitBalanceByNature(acc.code, acc.nuevoSaldo);
-                                            sum.prevDebit += previous.debit;
-                                            sum.prevCredit += previous.credit;
-                                            sum.movDebit += Number(acc.debito) || 0;
-                                            sum.movCredit += Number(acc.credito) || 0;
-                                            sum.endDebit += ending.debit;
-                                            sum.endCredit += ending.credit;
-                                            return sum;
-                                        }, { prevDebit: 0, prevCredit: 0, movDebit: 0, movCredit: 0, endDebit: 0, endCredit: 0 });
-
-                                        const balanced =
-                                            Math.abs(totals.prevDebit - totals.prevCredit) < 0.01 &&
-                                            Math.abs(totals.movDebit - totals.movCredit) < 0.01 &&
-                                            Math.abs(totals.endDebit - totals.endCredit) < 0.01;
-
-                                        const fmt = (value) => value.toLocaleString('es-CO', {minimumFractionDigits:2});
-                                        return (
-                                            <tr className={balanced ? "bg-emerald-50 font-bold text-emerald-900 border-t-2 border-emerald-700" : "bg-red-50 font-bold text-red-900 border-t-2 border-red-700"}>
-                                                <td colSpan="2" className="px-3 py-4 text-right uppercase tracking-wider">
-                                                    {balanced ? 'SUMAS DE COMPROBACIÓN · CUADRADAS' : 'SUMAS DE COMPROBACIÓN · VERIFICAR'}
-                                                </td>
-                                                <td className="px-3 py-4 text-right font-mono">{fmt(totals.prevDebit)}</td>
-                                                <td className="px-3 py-4 text-right font-mono">{fmt(totals.prevCredit)}</td>
-                                                <td className="px-3 py-4 text-right font-mono">{fmt(totals.movDebit)}</td>
-                                                <td className="px-3 py-4 text-right font-mono">{fmt(totals.movCredit)}</td>
-                                                <td className="px-3 py-4 text-right font-mono">{fmt(totals.endDebit)}</td>
-                                                <td className="px-3 py-4 text-right font-mono">{fmt(totals.endCredit)}</td>
-                                            </tr>
-                                        );
-                                    })()}
-                                    {libroMayorData.length === 0 && (<tr><td colSpan="8" className="text-center py-8 text-slate-400">No hay movimientos en este periodo</td></tr>)}
+                                    {libroMayorData.length > 0 && (
+                                        <tr className="bg-slate-100 font-bold text-slate-900 border-t-2 border-slate-800">
+                                            <td colSpan="2" className="px-4 py-4 text-right uppercase tracking-wider">SUMAS DEL PERIODO:</td>
+                                            <td className="px-4 py-4 text-right font-mono">{libroMayorData.reduce((sum, a) => sum + a.saldoAnterior, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-4 text-right font-mono text-blue-700">{libroMayorData.reduce((sum, a) => sum + a.debito, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-4 text-right font-mono text-orange-700">{libroMayorData.reduce((sum, a) => sum + a.credito, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                            <td className="px-4 py-4 text-right font-mono">{libroMayorData.reduce((sum, a) => sum + a.nuevoSaldo, 0).toLocaleString('es-CO', {minimumFractionDigits:2})}</td>
+                                        </tr>
+                                    )}
+                                    {libroMayorData.length === 0 && (<tr><td colSpan="6" className="text-center py-8 text-slate-400">No hay movimientos en este periodo</td></tr>)}
                                 </tbody>
                             </table>
                         </div>
