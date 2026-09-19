@@ -7,9 +7,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
-import { exportProfessionalTable } from '@/lib/excel';
+import { exportToExcel } from '@/lib/excel';
 import { usePermission } from '@/hooks/usePermission';
-import { useCompany } from '@/contexts/CompanyContext';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
 
@@ -43,7 +42,6 @@ const getLevelInfo = (code) => {
 
 const Accounts = () => {
   const { canEdit, canDelete, canAdd, canImport, isReadOnly } = usePermission();
-  const { activeCompany } = useCompany();
   const [accounts, saveAccounts] = useCompanyData('accounts');
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -164,41 +162,8 @@ const Accounts = () => {
   
   const handleExport = () => {
     if (accounts.length === 0) return;
-
-    const sortedAccounts = [...accounts].sort((a, b) =>
-      String(a.number).localeCompare(String(b.number), 'es', { numeric: false, sensitivity: 'base' })
-    );
-
-    const rows = sortedAccounts.map(c => {
-      const levelInfo = getLevelInfo(c.number);
-      return {
-        Código: String(c.number),
-        Nombre: c.name,
-        Nivel: levelInfo.label,
-        __style: levelInfo.label === 'Clase' ? 'section' : (levelInfo.label === 'Grupo' ? 'subtotal' : '')
-      };
-    });
-
-    exportProfessionalTable({
-      fileName: 'Plan_de_Cuentas',
-      companyName: activeCompany?.name || 'ENTIDAD CONTABLE',
-      nit: activeCompany?.doc || '',
-      title: 'PLAN DE CUENTAS',
-      period: 'ESTRUCTURA CONTABLE VIGENTE',
-      sheetName: 'Plan de Cuentas',
-      columns: [
-        { key: 'Código', label: 'CÓDIGO PUC', width: 18, type: 'text' },
-        { key: 'Nombre', label: 'NOMBRE DE LA CUENTA', width: 54, type: 'text' },
-        { key: 'Nivel', label: 'NIVEL', width: 16, type: 'text' }
-      ],
-      rows,
-      notes: [
-        'Plan de cuentas ordenado jerárquicamente por código PUC.',
-        'Las clases y grupos se resaltan para facilitar la lectura y revisión.'
-      ]
-    });
-
-    toast({ title: 'Excel profesional generado', description: 'Plan de Cuentas exportado con entidad, NIT y orden jerárquico.' });
+    const dataToExport = accounts.map(c => ({ 'Código': c.number, 'Nombre': c.name, 'Nivel': getLevelInfo(c.number).label }));
+    exportToExcel(dataToExport, 'Plan_de_Cuentas');
   };
   
   const handleImport = (event) => {

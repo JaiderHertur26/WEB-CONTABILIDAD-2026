@@ -575,23 +575,7 @@ const Transactions = () => {
             result = result.filter(t => (t.description || '').toLowerCase().includes(lower) || getTransactionCategoryLabel(t).toLowerCase().includes(lower) || (t._accountNumber || '').toLowerCase().includes(lower));
         }
         
-        result.sort((a, b) => {
-            const dateA = String(a.date || '').slice(0, 10);
-            const dateB = String(b.date || '').slice(0, 10);
-            const dateCompare = dateA.localeCompare(dateB);
-            if (dateCompare !== 0) return dateCompare;
-
-            const prefixA = String(a.voucherPrefix || '').toUpperCase();
-            const prefixB = String(b.voucherPrefix || '').toUpperCase();
-            const prefixCompare = prefixA.localeCompare(prefixB, 'es', { sensitivity: 'base' });
-            if (prefixCompare !== 0) return prefixCompare;
-
-            const numberA = Number.isFinite(Number(a.voucherNumber)) ? Number(a.voucherNumber) : Number.MAX_SAFE_INTEGER;
-            const numberB = Number.isFinite(Number(b.voucherNumber)) ? Number(b.voucherNumber) : Number.MAX_SAFE_INTEGER;
-            if (numberA !== numberB) return numberA - numberB;
-
-            return String(a.id || '').localeCompare(String(b.id || ''));
-        });
+        result.sort((a, b) => new Date(a.date) - new Date(b.date));
         setFilteredTransactions(result);
     }, [processedTransactions, searchTerm, filterType, startDate, effectiveEndDate, accountFilters]);
 

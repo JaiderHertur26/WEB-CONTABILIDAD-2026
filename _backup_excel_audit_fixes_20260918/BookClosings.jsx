@@ -400,25 +400,7 @@ const BookClosings = () => {
             }
         });
 
-        const exportTransactions = allRelevantBase
-            .filter(t => !t.isInternalTransfer || (t.isInternalTransfer && t.category !== 'Transferencia Interna'))
-            .sort((a, b) => {
-                const dateA = String(a.date || '').slice(0, 10);
-                const dateB = String(b.date || '').slice(0, 10);
-                const dateCompare = dateA.localeCompare(dateB);
-                if (dateCompare !== 0) return dateCompare;
-
-                const prefixA = String(a.voucherPrefix || '').toUpperCase();
-                const prefixB = String(b.voucherPrefix || '').toUpperCase();
-                const prefixCompare = prefixA.localeCompare(prefixB, 'es', { sensitivity: 'base' });
-                if (prefixCompare !== 0) return prefixCompare;
-
-                const numberA = Number.isFinite(Number(a.voucherNumber)) ? Number(a.voucherNumber) : Number.MAX_SAFE_INTEGER;
-                const numberB = Number.isFinite(Number(b.voucherNumber)) ? Number(b.voucherNumber) : Number.MAX_SAFE_INTEGER;
-                if (numberA !== numberB) return numberA - numberB;
-
-                return String(a.id || '').localeCompare(String(b.id || ''));
-            });
+        const exportTransactions = allRelevantBase.filter(t => !t.isInternalTransfer || (t.isInternalTransfer && t.category !== 'Transferencia Interna'));
 
         setReport({
             period: { start, end },
@@ -487,60 +469,27 @@ const BookClosings = () => {
             const dateObj = new Date(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
-            const amount = Number(t.amount || 0);
-            const isInternalMovement = Boolean(t.isInternalTransfer || t.type === 'transfer');
-
-            const parseAccountName = (value, fallback = '-') => {
-                if (!value) return fallback;
-                const parts = String(value).split('|');
-                return (parts[1] || parts[0] || fallback).replace(/_/g, ' ').trim();
-            };
-
-            let movementAccount = parseAccountName(t.destination, 'Caja Principal');
-            if (movementAccount.toLowerCase() === 'caja principal') movementAccount = 'Caja Principal';
-
-            let sourceName = '-';
-            let targetName = '-';
-
-            if (isInternalMovement) {
-                sourceName = parseAccountName(t.fromAccount, t.creditAccount?.name || 'Origen no identificado');
-                targetName = parseAccountName(t.toAccount || t.destination, t.debitAccount?.name || 'Destino no identificado');
-            } else if (t.type === 'income') {
-                targetName = movementAccount;
-            } else if (t.type === 'expense') {
-                sourceName = movementAccount;
-            } else if (t.debitAccount && t.creditAccount) {
-                sourceName = t.creditAccount.name || '-';
-                targetName = t.debitAccount.name || '-';
-            }
-
+            let destName = t.destination ? t.destination.split('|')[1] || t.destination.split('|')[0] : 'N/A';
+            if (destName === 'caja_principal') destName = 'Caja Principal';
             let accCat = getTransactionCategoryLabel(t);
             if (t.debitAccount && t.creditAccount) {
                 accCat = t.type === 'income' ? t.creditAccount.name : t.debitAccount.name;
             }
-
             const voucher = t.voucherNumber
-                ? `${t.voucherPrefix || (t.type === 'income' ? 'I' : (t.type === 'expense' ? 'E' : 'T'))}-${String(t.voucherNumber).padStart(4, '0')}`
+                ? `${t.voucherPrefix || (t.type === 'income' ? 'I' : 'E')}-${String(t.voucherNumber).padStart(4, '0')}`
                 : '-';
 
             return {
                 Fecha: format(adjustedDate, 'dd/MM/yyyy'),
                 Comprobante: voucher,
-                Tipo: isInternalMovement ? 'Traslado Interno' : (t.type === 'income' ? 'Ingreso' : (t.type === 'expense' ? 'Egreso' : 'Movimiento')),
+                Tipo: t.type === 'income' ? 'Ingreso' : (t.type === 'expense' ? 'Egreso' : 'Movimiento'),
                 'Categoría Contable': accCat || 'Sin Categoría',
                 Descripción: t.description || '',
-                'Cuenta / Origen': String(sourceName || '-').toUpperCase(),
-                'Cuenta / Destino': String(targetName || '-').toUpperCase(),
-                'Movimiento Interno': isInternalMovement ? amount : null,
-                Ingreso: !isInternalMovement && t.type === 'income' ? amount : null,
-                Egreso: !isInternalMovement && t.type === 'expense' ? amount : null
+                'Cuenta / Destino': String(destName || '').toUpperCase(),
+                Ingreso: t.type === 'income' ? Number(t.amount || 0) : 0,
+                Egreso: t.type === 'expense' ? Number(t.amount || 0) : 0
             };
         });
-
-        const totalInternalMovements = detailRows.reduce(
-            (sum, row) => sum + (Number(row['Movimiento Interno']) || 0),
-            0
-        );
 
         exportProfessionalWorkbook({
             fileName,
@@ -588,29 +537,20 @@ const BookClosings = () => {
                     columns: [
                         { key: 'Fecha', label: 'FECHA', width: 13, type: 'text' },
                         { key: 'Comprobante', label: 'COMP.', width: 13, type: 'text' },
-                        { key: 'Tipo', label: 'TIPO', width: 16, type: 'text' },
-                        { key: 'Categoría Contable', label: 'CATEGORÍA CONTABLE', width: 30, type: 'text' },
-                        { key: 'Descripción', label: 'DESCRIPCIÓN', width: 42, type: 'text' },
-                        { key: 'Cuenta / Origen', label: 'CUENTA / ORIGEN', width: 28, type: 'text' },
+                        { key: 'Tipo', label: 'TIPO', width: 13, type: 'text' },
+                        { key: 'Categoría Contable', label: 'CATEGORÍA CONTABLE', width: 32, type: 'text' },
+                        { key: 'Descripción', label: 'DESCRIPCIÓN', width: 44, type: 'text' },
                         { key: 'Cuenta / Destino', label: 'CUENTA / DESTINO', width: 28, type: 'text' },
-                        { key: 'Movimiento Interno', label: 'TRASLADO INTERNO', width: 19, type: 'currency' },
                         { key: 'Ingreso', label: 'INGRESO', width: 18, type: 'currency' },
                         { key: 'Egreso', label: 'EGRESO', width: 18, type: 'currency' }
                     ],
                     rows: detailRows,
-                    summaryRows: [
-                        {
-                            Descripción: 'TOTALES OPERATIVOS DEL PERÍODO',
-                            Ingreso: Number(report.totalIncome || 0),
-                            Egreso: Number(report.totalExpense || 0),
-                            __style: 'total'
-                        },
-                        {
-                            Descripción: 'TRASLADOS INTERNOS (NO AFECTAN RESULTADO)',
-                            'Movimiento Interno': totalInternalMovements,
-                            __style: 'subtotal'
-                        }
-                    ]
+                    summaryRows: [{
+                        Descripción: 'TOTALES DEL PERÍODO',
+                        Ingreso: Number(report.totalIncome || 0),
+                        Egreso: Number(report.totalExpense || 0),
+                        __style: 'total'
+                    }]
                 }
             ]
         });

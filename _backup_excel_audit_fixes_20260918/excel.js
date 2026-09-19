@@ -59,14 +59,6 @@ const getCell = (ws, r, c) => {
   if (!ws[ref]) ws[ref] = { t: 's', v: '' };
   return ws[ref];
 };
-
-const getExistingCell = (ws, r, c) => {
-  const ref = XLSX.utils.encode_cell({ r, c });
-  return ws[ref] || null;
-};
-
-const cleanMatrixValue = (value) =>
-  value === '' || value === undefined || value === null ? null : value;
 const baseCellStyle = {
   font: { name: 'Aptos', sz: 10, color: { rgb: COLORS.black } },
   alignment: { vertical: 'center' },
@@ -134,40 +126,29 @@ const styleMetadata = (ws, colCount, metaRowCount) => {
   const lastCol = Math.max(0, colCount - 1);
 
   for (let r = 0; r < metaRowCount; r += 1) {
-    const cell = getExistingCell(ws, r, 0);
-    if (cell) {
-      cell.s = {
-        font: { name: 'Aptos Display', sz: 10, color: { rgb: COLORS.grayText } },
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-      };
-    }
+    const cell = getCell(ws, r, 0);
+    cell.s = {
+      font: { name: 'Aptos Display', sz: 10, color: { rgb: COLORS.grayText } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    };
     ws['!merges'].push({ s: { r, c: 0 }, e: { r, c: lastCol } });
   }
 
-  const institutionCell = getExistingCell(ws, 0, 0);
-  if (institutionCell) institutionCell.s.font = {
+  getCell(ws, 0, 0).s.font = {
     name: 'Aptos Display', sz: 11, bold: true, color: { rgb: COLORS.navyDark },
   };
-
-  const companyCell = getExistingCell(ws, 1, 0);
-  if (companyCell) companyCell.s.font = {
+  getCell(ws, 1, 0).s.font = {
     name: 'Aptos Display', sz: 15, bold: true, color: { rgb: COLORS.black },
   };
-
-  const nitCell = getExistingCell(ws, 2, 0);
-  if (nitCell) nitCell.s.font = {
+  getCell(ws, 2, 0).s.font = {
     name: 'Aptos', sz: 10, bold: true, color: { rgb: COLORS.grayText },
   };
-
-  const titleCell = getExistingCell(ws, 3, 0);
-  if (titleCell) titleCell.s = {
+  getCell(ws, 3, 0).s = {
     fill: { fgColor: { rgb: COLORS.navy } },
     font: { name: 'Aptos Display', sz: 14, bold: true, color: { rgb: COLORS.white } },
     alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
   };
-
-  const periodCell = getExistingCell(ws, 4, 0);
-  if (periodCell) periodCell.s.font = {
+  getCell(ws, 4, 0).s.font = {
     name: 'Aptos', sz: 10, bold: true, color: { rgb: COLORS.navyDark },
   };
 };
@@ -193,22 +174,22 @@ const buildProfessionalSheet = ({
   const metadata = [
     [institution],
     [companyName || 'ENTIDAD CONTABLE'],
-    [cleanMatrixValue(normalizeNit(nit))],
+    [normalizeNit(nit)],
     [title],
-    [cleanMatrixValue(period)],
+    [period || ''],
     [subtitle || `Generado: ${generatedText()} | Moneda: COP`],
     [],
   ];
 
   const header = safeColumns.map((c) => c.label || c.key);
   const dataMatrix = rows.map((row) =>
-    safeColumns.map((column) => cleanMatrixValue(row?.[column.key]))
+    safeColumns.map((column) => row?.[column.key] ?? '')
   );
   const summaryMatrix = summaryRows.length
     ? [
         [],
         ...summaryRows.map((row) =>
-          safeColumns.map((column) => cleanMatrixValue(row?.[column.key]))
+          safeColumns.map((column) => row?.[column.key] ?? '')
         ),
       ]
     : [];
@@ -249,8 +230,7 @@ const buildProfessionalSheet = ({
       (row?.isTotal ? 'total' : row?.isSubtotal ? 'subtotal' : row?.isBold ? 'section' : '');
 
     safeColumns.forEach((column, c) => {
-      const cell = getExistingCell(ws, excelRow, c);
-      if (!cell) return;
+      const cell = getCell(ws, excelRow, c);
       styleDataCell(cell, column, rowStyle);
     });
   });
@@ -261,9 +241,7 @@ const buildProfessionalSheet = ({
       const excelRow = summaryStart + index;
       const rowStyle = row?.__style || 'total';
       safeColumns.forEach((column, c) => {
-        const cell = getExistingCell(ws, excelRow, c);
-        if (!cell) return;
-        styleDataCell(cell, column, rowStyle);
+        styleDataCell(getCell(ws, excelRow, c), column, rowStyle);
       });
     });
   }
