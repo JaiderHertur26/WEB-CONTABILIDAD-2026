@@ -185,6 +185,7 @@ const buildProfessionalSheet = ({
   orientation = 'portrait',
   freezeHeader = true,
   autoFilter = true,
+  showCurrency = true,
 }) => {
   const safeColumns = columns.length
     ? columns
@@ -196,7 +197,7 @@ const buildProfessionalSheet = ({
     [cleanMatrixValue(normalizeNit(nit))],
     [title],
     [cleanMatrixValue(period)],
-    [subtitle || `Generado: ${generatedText()} | Moneda: COP`],
+    [subtitle || (showCurrency ? `Generado: ${generatedText()} | Moneda: COP` : `Generado: ${generatedText()}`)],
     [],
   ];
 
@@ -338,6 +339,9 @@ const makeControlSheet = ({
   title,
   period,
   fileName,
+  showCurrency = true,
+  controlNature = 'Documento contable generado por el sistema para revisión y archivo.',
+  controlNotes,
 }) =>
   buildProfessionalSheet({
     institution,
@@ -356,13 +360,15 @@ const makeControlSheet = ({
       { Campo: 'Identificación', Detalle: normalizeNit(nit) },
       { Campo: 'Período', Detalle: period },
       { Campo: 'Fecha y hora de generación', Detalle: generatedText() },
-      { Campo: 'Moneda', Detalle: 'Pesos colombianos (COP)' },
-      { Campo: 'Naturaleza', Detalle: 'Documento contable generado por el sistema para revisión y archivo.' },
+      ...(showCurrency ? [{ Campo: 'Moneda', Detalle: 'Pesos colombianos (COP)' }] : []),
+      { Campo: 'Naturaleza', Detalle: controlNature },
     ],
-    notes: [
-      'Los valores deben contrastarse con comprobantes, soportes, extractos y documentos fuente.',
-      'La firma o aprobación del responsable contable corresponde a los procedimientos internos de la entidad.',
-    ],
+    notes: Array.isArray(controlNotes) && controlNotes.length
+      ? controlNotes
+      : [
+          'Los valores deben contrastarse con comprobantes, soportes, extractos y documentos fuente.',
+          'La firma o aprobación del responsable contable corresponde a los procedimientos internos de la entidad.',
+        ],
   });
 export const exportProfessionalWorkbook = ({
   fileName,
@@ -373,6 +379,9 @@ export const exportProfessionalWorkbook = ({
   period = '',
   sheets = [],
   includeControlSheet = true,
+  showCurrency = true,
+  controlNature = 'Documento contable generado por el sistema para revisión y archivo.',
+  controlNotes,
 }) => {
   if (!Array.isArray(sheets) || sheets.length === 0) return;
 
@@ -400,6 +409,7 @@ export const exportProfessionalWorkbook = ({
       orientation: sheetConfig.orientation || 'portrait',
       freezeHeader: sheetConfig.freezeHeader !== false,
       autoFilter: sheetConfig.autoFilter !== false,
+      showCurrency: sheetConfig.showCurrency ?? showCurrency,
     });
 
     XLSX.utils.book_append_sheet(
@@ -411,7 +421,17 @@ export const exportProfessionalWorkbook = ({
   if (includeControlSheet) {
     XLSX.utils.book_append_sheet(
       workbook,
-      makeControlSheet({ institution, companyName, nit, title, period, fileName }),
+      makeControlSheet({
+        institution,
+        companyName,
+        nit,
+        title,
+        period,
+        fileName,
+        showCurrency,
+        controlNature,
+        controlNotes,
+      }),
       'Control'
     );
   }

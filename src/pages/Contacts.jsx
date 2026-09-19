@@ -203,6 +203,12 @@ const Contacts = () => {
       nit: activeCompany?.doc || '',
       title: 'MAESTRO DE CONTACTOS',
       period: `CORTE ${new Date().toLocaleDateString('es-CO')}`,
+      showCurrency: false,
+      controlNature: 'Maestro de contactos y terceros para identificación, facturación, compras, cartera y obligaciones.',
+      controlNotes: [
+        'La información debe mantenerse actualizada y contrastarse con documentos de identificación y datos suministrados por cada tercero.',
+        'Los cambios de documento, razón social o datos de contacto deben realizarse preservando la trazabilidad del tercero.'
+      ],
       sheets: [
         {
           name: 'Contactos',
