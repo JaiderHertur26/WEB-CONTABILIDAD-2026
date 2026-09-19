@@ -18,3 +18,12 @@ dist/
 Thumbs.db
 .vercel
 .env*.local
+# Auditorías locales / respaldos técnicos (no versionar)
+/_backup_*/
+/_sync_audit_browser_snapshot_*/
+/_tmp_*/
+/_tmp_*.mjs
+/_tmp_*.json
+/_inspect_leveldb_offsets.mjs
+/_scan_leveldb_history.mjs
+/_test_sync_reconciliation.mjs

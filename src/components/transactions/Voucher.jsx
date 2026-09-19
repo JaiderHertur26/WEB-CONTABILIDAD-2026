@@ -1,11 +1,16 @@
 import React from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useCompanyData } from '@/hooks/useCompanyData';
 import { numberToWords } from '@/lib/numberToWords';
 import { parseISO, format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 const VoucherContent = ({ transaction }) => {
   const { activeCompany, companies } = useCompany();
+  const [allContacts] = useCompanyData('contacts');
+  const [allAccounts] = useCompanyData('accounts');
+  const [allBankAccounts] = useCompanyData('bankAccounts');
+  const [allInitialBalances] = useCompanyData('initialBalance');
 
   if (!transaction || !activeCompany) return <div className="p-8 text-center text-slate-500">Cargando datos...</div>;
 
@@ -13,8 +18,13 @@ const VoucherContent = ({ transaction }) => {
   const transactionCompanyId = transaction._companyId || activeCompany.id;
   const company = companies.find(c => c.id === transactionCompanyId) || activeCompany;
 
-  // Buscamos los contactos usando la llave exacta de tu sistema
-  const contacts = JSON.parse(localStorage.getItem(`${company.id}-contacts`) || '[]');
+  const belongsToCompany = (item) => {
+    const itemCompanyId = item?._companyId || item?.company_id || item?.companyId;
+    return !itemCompanyId || String(itemCompanyId) === String(company.id);
+  };
+
+  // Todos los datos auxiliares vienen del mismo motor localForage/Supabase.
+  const contacts = (Array.isArray(allContacts) ? allContacts : []).filter(belongsToCompany);
 
   const getDisplayName = () => {
     // 1. Buscamos si la transacción tiene un contactId guardado
@@ -39,10 +49,10 @@ const VoucherContent = ({ transaction }) => {
 
   const displayName = getDisplayName();
   
-  // Load necessary data for account resolution
-  const accounts = JSON.parse(localStorage.getItem(`${company.id}-accounts`) || '[]');
-  const bankAccounts = JSON.parse(localStorage.getItem(`${company.id}-bankAccounts`) || '[]');
-  const initialBalances = JSON.parse(localStorage.getItem(`${company.id}-initialBalance`) || '[]');
+  // Datos para resolución contable, sincronizados por useCompanyData.
+  const accounts = (Array.isArray(allAccounts) ? allAccounts : []).filter(belongsToCompany);
+  const bankAccounts = (Array.isArray(allBankAccounts) ? allBankAccounts : []).filter(belongsToCompany);
+  const initialBalances = (Array.isArray(allInitialBalances) ? allInitialBalances : []).filter(belongsToCompany);
 
   // --- ACCOUNT RESOLUTION LOGIC ---
   const getAccountDetails = () => {

@@ -96,14 +96,28 @@ const CashAccounts = () => {
     setIsDialogOpen(true);
   };
 
-  const getNextVoucherNumber = (type) => {
-    if (!activeCompany) return 0;
-    const sequenceKey = `${activeCompany.id}-voucher-sequence`;
-    const sequences = JSON.parse(localStorage.getItem(sequenceKey) || '{ "income": 0, "expense": 0, "transfer": 0 }');
-    const nextNumber = (sequences[type] || 0) + 1;
-    sequences[type] = nextNumber;
-    localStorage.setItem(sequenceKey, JSON.stringify(sequences));
-    return nextNumber;
+  const getNextVoucherNumber = (type, dateStr = formData.date) => {
+    const year = String(dateStr || '').includes('-')
+      ? String(dateStr).split('-')[0]
+      : String(new Date(dateStr || Date.now()).getFullYear());
+
+    const typeTransactions = (transactions || []).filter(t => {
+      let transactionType = t.type;
+      if (t.isInternalTransfer || t.type === 'transfer' || t.type === 'adjustment') {
+        transactionType = 'transfer';
+      }
+      const transactionYear = String(t.date || '').includes('-')
+        ? String(t.date).split('-')[0]
+        : String(new Date(t.date).getFullYear());
+      return transactionType === type && transactionYear === year;
+    });
+
+    const maxNumber = typeTransactions.reduce(
+      (max, t) => Math.max(max, Number(t.voucherNumber) || 0),
+      0
+    );
+
+    return maxNumber + 1;
   };
 
   const handleSave = (e) => {
@@ -155,7 +169,7 @@ const CashAccounts = () => {
         return;
       }
       finalInitialBalance = 0;
-      const transferVoucherNumber = getNextVoucherNumber('transfer');
+      const transferVoucherNumber = getNextVoucherNumber('transfer', formData.date);
       newTransactions.push({
         id: `txn-init-inc-${newId}`,
         date: formData.date,

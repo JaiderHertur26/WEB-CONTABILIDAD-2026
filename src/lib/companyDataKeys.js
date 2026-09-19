@@ -1,0 +1,24 @@
+export const COMPANY_DATA_KEYS = [
+  { key: 'transactions', label: 'Transacciones' },
+  { key: 'contacts', label: 'Contactos' },
+  { key: 'accounts', label: 'Plan de Cuentas' },
+  { key: 'bankAccounts', label: 'Cuentas Bancarias' },
+  { key: 'cash_accounts', label: 'Cajas' },
+  { key: 'fixedAssets', label: 'Activos Fijos' },
+  { key: 'realEstates', label: 'Propiedades / Inmuebles' },
+  { key: 'accountsReceivable', label: 'Cuentas por Cobrar' },
+  { key: 'accountsPayable', label: 'Cuentas por Pagar' },
+  { key: 'initialBalance', label: 'Saldo Inicial' },
+  { key: 'inventory', label: 'Inventario' },
+  { key: 'fiscal_years', label: 'Años Fiscales' },
+  { key: 'billing_documents', label: 'Documentos de Facturación' },
+  { key: 'auto_billing_categories', label: 'Categorías de Facturación' },
+  { key: 'invoices', label: 'Facturas' },
+  { key: 'purchase_invoices', label: 'Facturas de Compra' },
+  { key: 'mass_intentions', label: 'Intenciones de Misa' },
+  { key: 'voucher-sequence', label: 'Secuencias' },
+  { key: 'voucher_config', label: 'Configuración de Comprobantes' },
+  { key: 'offices', label: 'Oficinas (legado)' },
+];
+
+export const COMPANY_DATA_SUFFIXES = COMPANY_DATA_KEYS.map(item => item.key);

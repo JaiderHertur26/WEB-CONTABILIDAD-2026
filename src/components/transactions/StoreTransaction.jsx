@@ -275,16 +275,26 @@ const StoreTransaction = ({ open, onOpenChange }) => {
         return qty * price;
     }, [saleQty, salePrice]);
 
-    const getNextVoucherNumber = (type) => {
-        try {
-            const activeCompanyId = JSON.parse(localStorage.getItem('auth_session') || '{}');
-            const sequenceKey = `${activeCompanyId}-voucher-sequence`;
-            const sequences = JSON.parse(localStorage.getItem(sequenceKey) || '{ "income": 0, "expense": 0, "transfer": 0 }');
-            const nextNumber = (sequences[type] || 0) + 1;
-            sequences[type] = nextNumber;
-            localStorage.setItem(sequenceKey, JSON.stringify(sequences));
-            return nextNumber;
-        } catch (e) { return Date.now() % 10000; }
+    const getNextVoucherNumber = (type, dateStr = date) => {
+        const year = String(dateStr || '').includes('-')
+            ? String(dateStr).split('-')[0]
+            : String(new Date(dateStr || Date.now()).getFullYear());
+
+        const typeTransactions = (transactions || []).filter(t => {
+            let transactionType = t.type;
+            if (t.isInternalTransfer || t.type === 'transfer' || t.type === 'adjustment') {
+                transactionType = 'transfer';
+            }
+            const transactionYear = String(t.date || '').includes('-')
+                ? String(t.date).split('-')[0]
+                : String(new Date(t.date).getFullYear());
+            return transactionType === type && transactionYear === year;
+        });
+
+        return typeTransactions.reduce(
+            (max, t) => Math.max(max, Number(t.voucherNumber) || 0),
+            0
+        ) + 1;
     };
 
     const getAccountObject = (identifier) => {

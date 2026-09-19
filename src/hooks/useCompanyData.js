@@ -2,260 +2,517 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { storage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
+import {
+  SYNC_META_VERSION,
+  syncMetaKey,
+  parseStoredData,
+  parseTime,
+  sameData,
+  isIdArray,
+  dedupeById,
+  diffArrayById,
+  mergeRemoteWithLocalChanges,
+  reconcileLegacyCopies,
+  defaultSyncMeta,
+} from '@/lib/syncReconciliation';
 
+const asCompanyId = (company) => String(company?.id ?? '');
+
+const tagRowsForCompany = (rows, company, activeCompany) => {
+  if (!Array.isArray(rows)) return [];
+  return rows.map(item => ({
+    ...item,
+    _companyId: company.id,
+    _companyName: company.name,
+    _isConsolidated: company.id !== activeCompany.id,
+  }));
+};
 export function useCompanyData(key) {
   const { activeCompany, companies, isConsolidated } = useCompany();
   const [data, setData] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const mounted = useRef(true);
+  const latestDataRef = useRef([]);
+  const saveQueueRef = useRef(Promise.resolve());
 
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
 
+  useEffect(() => {
+    latestDataRef.current = data;
+  }, [data]);
+
+  const readMeta = useCallback(async (storageKey) => {
+    const raw = await storage.getItem(syncMetaKey(storageKey));
+    const parsed = parseStoredData(raw);
+    if (parsed?.version === SYNC_META_VERSION) {
+      return { ...defaultSyncMeta(), ...parsed };
+    }
+    return null;
+  }, []);
+
+  const writeMeta = useCallback(async (storageKey, meta) => {
+    await storage.setItem(syncMetaKey(storageKey), JSON.stringify({
+      ...defaultSyncMeta(),
+      ...meta,
+      version: SYNC_META_VERSION,
+    }));
+  }, []);
+  const writeCloud = useCallback(async (companyId, payload) => {
+    const requestedAt = new Date().toISOString();
+    const { data: row, error } = await supabase
+      .from('app_data_sync')
+      .upsert({
+        company_id: String(companyId),
+        storage_key: key,
+        data: payload,
+        updated_at: requestedAt,
+      })
+      .select('updated_at')
+      .maybeSingle();
+
+    if (error) throw error;
+    return row?.updated_at || requestedAt;
+  }, [key]);
+
+  const reconcileCompany = useCallback(async (company) => {
+    const companyId = asCompanyId(company);
+    const storageKey = `${companyId}-${key}`;
+    const localRaw = await storage.getItem(storageKey);
+    let localData = parseStoredData(localRaw);
+    let meta = await readMeta(storageKey);
+    const hadSyncMeta = Boolean(meta);
+    meta = meta || defaultSyncMeta();
+
+    let cloudRow = null;
+    try {
+      const { data: fetched, error } = await supabase
+        .from('app_data_sync')
+        .select('data, updated_at')
+        .eq('company_id', companyId)
+        .eq('storage_key', key)
+        .maybeSingle();
+      if (error) throw error;
+      cloudRow = fetched;
+    } catch (error) {
+      const fallback = localData ?? [];
+      meta.status = 'offline-local';
+      await writeMeta(storageKey, meta);
+      return fallback;
+    }
+    const cloudData = cloudRow?.data;
+    const cloudUpdatedAt = cloudRow?.updated_at || null;
+
+    if (!cloudRow) {
+      const fallback = localData ?? [];
+      if (localData !== undefined) {
+        try {
+          const repairedAt = await writeCloud(companyId, fallback);
+          meta = {
+            ...meta,
+            dirty: false,
+            needsReview: false,
+            lastCloudUpdatedAt: repairedAt,
+            status: 'cloud-created-from-local',
+            pendingChangedIds: [],
+            pendingDeletedIds: [],
+          };
+        } catch {
+          meta = { ...meta, dirty: true, status: 'pending-cloud-create' };
+        }
+      } else {
+        meta = { ...meta, lastCloudUpdatedAt: null, status: 'empty' };
+      }
+      await storage.setItem(storageKey, JSON.stringify(fallback));
+      await writeMeta(storageKey, meta);
+      return fallback;
+    }
+
+    if (meta.dirty && localData !== undefined) {
+      const changedIds = meta.pendingChangedIds || [];
+      const deletedIds = meta.pendingDeletedIds || [];
+      const resolved = (
+        isIdArray(cloudData) &&
+        isIdArray(localData) &&
+        (changedIds.length > 0 || deletedIds.length > 0)
+      )
+        ? mergeRemoteWithLocalChanges({
+            remote: cloudData,
+            local: localData,
+            changedIds,
+            deletedIds,
+          })
+        : localData;
+      try {
+        const syncedAt = await writeCloud(companyId, resolved);
+        meta = {
+          ...meta,
+          dirty: false,
+          needsReview: false,
+          lastCloudUpdatedAt: syncedAt,
+          localUpdatedAt: new Date().toISOString(),
+          pendingChangedIds: [],
+          pendingDeletedIds: [],
+          status: 'pending-local-recovered',
+        };
+        localData = resolved;
+        await storage.setItem(storageKey, JSON.stringify(localData));
+        await writeMeta(storageKey, meta);
+        return localData;
+      } catch {
+        meta.status = 'pending-local';
+        await writeMeta(storageKey, meta);
+        return localData;
+      }
+    }
+
+    if (!hadSyncMeta) {
+      const legacy = reconcileLegacyCopies(localData, cloudData);
+      const resolved = legacy.data ?? [];
+      const historicalDifference =
+        !sameData(localData, cloudData) &&
+        localData !== undefined &&
+        cloudData !== undefined;
+
+      meta = {
+        ...meta,
+        dirty: false,
+        needsReview: historicalDifference || Boolean(legacy.ambiguous),
+        lastCloudUpdatedAt: cloudUpdatedAt,
+        localUpdatedAt: new Date().toISOString(),
+        status: historicalDifference
+          ? `legacy-${legacy.source}-review`
+          : legacy.source,
+      };
+
+      await storage.setItem(storageKey, JSON.stringify(resolved));
+      await writeMeta(storageKey, meta);
+      return resolved;
+    }
+
+    if (localData === undefined) {
+      localData = cloudData ?? [];
+      meta = {
+        ...meta,
+        dirty: false,
+        needsReview: false,
+        lastCloudUpdatedAt: cloudUpdatedAt,
+        localUpdatedAt: new Date().toISOString(),
+        status: 'cloud-restored-local',
+      };
+      await storage.setItem(storageKey, JSON.stringify(localData));
+      await writeMeta(storageKey, meta);
+      return localData;
+    }
+
+    if (sameData(localData, cloudData)) {
+      meta = {
+        ...meta,
+        dirty: false,
+        lastCloudUpdatedAt: cloudUpdatedAt,
+        status: 'in-sync',
+      };
+      await writeMeta(storageKey, meta);
+      return localData;
+    }
+
+    const cloudAdvanced =
+      parseTime(cloudUpdatedAt) > parseTime(meta.lastCloudUpdatedAt);
+
+    if (meta.needsReview) {
+      const legacy = reconcileLegacyCopies(localData, cloudData);
+      localData = legacy.data ?? localData;
+      meta = {
+        ...meta,
+        lastCloudUpdatedAt: cloudUpdatedAt,
+        localUpdatedAt: new Date().toISOString(),
+        needsReview: true,
+        status: cloudAdvanced ? 'review-remote-advanced' : 'review-required',
+      };
+      await storage.setItem(storageKey, JSON.stringify(localData));
+      await writeMeta(storageKey, meta);
+      return localData;
+    }
+
+    if (cloudAdvanced) {
+      localData = cloudData ?? [];
+      meta = {
+        ...meta,
+        dirty: false,
+        needsReview: false,
+        lastCloudUpdatedAt: cloudUpdatedAt,
+        localUpdatedAt: new Date().toISOString(),
+        status: 'cloud-newer',
+      };
+      await storage.setItem(storageKey, JSON.stringify(localData));
+      await writeMeta(storageKey, meta);
+      return localData;
+    }
+
+    const legacy = reconcileLegacyCopies(localData, cloudData);
+    localData = legacy.data ?? localData;
+
+    if (legacy.repairCloud || legacy.ambiguous) {
+      meta = {
+        ...meta,
+        dirty: false,
+        needsReview: true,
+        lastCloudUpdatedAt: cloudUpdatedAt,
+        localUpdatedAt: new Date().toISOString(),
+        status: 'local-drift-review',
+      };
+    } else {
+      meta = {
+        ...meta,
+        needsReview: false,
+        lastCloudUpdatedAt: cloudUpdatedAt,
+        status: legacy.source,
+      };
+    }
+    await storage.setItem(storageKey, JSON.stringify(localData));
+    await writeMeta(storageKey, meta);
+    return localData;
+  }, [key, readMeta, writeMeta, writeCloud]);
+
   const loadData = useCallback(async () => {
     if (!activeCompany) {
-        if (mounted.current) {
-            setData([]);
-            setIsLoaded(true);
-        }
-        return;
+      if (mounted.current) {
+        setData([]);
+        latestDataRef.current = [];
+        setIsLoaded(true);
+      }
+      return;
     }
+
+    if (mounted.current) setIsLoaded(false);
 
     try {
-        let loadedData = [];
-        let fetchFromCloudSuccess = false;
+      let loadedData;
 
-        // 1. INTENTO DE DESCARGA EN LA NUBE
-        try {
-            if (isConsolidated && companies && companies.length > 0) {
-                const relevantCompanies = companies.filter(c => c && (c.id === activeCompany.id || c.parentId === activeCompany.id));
-                const companyIds = relevantCompanies.map(c => String(c.id));
+      if (isConsolidated && Array.isArray(companies) && companies.length > 0) {
+        const relevant = companies.filter(c =>
+          c && (c.id === activeCompany.id || c.parentId === activeCompany.id)
+        );
+        const uniqueCompanies = Array.from(
+          new Map(relevant.map(c => [String(c.id), c])).values()
+        );
 
-                const { data: dbData, error } = await supabase
-                    .from('app_data_sync')
-                    .select('company_id, data')
-                    .eq('storage_key', key)
-                    .in('company_id', companyIds);
-
-                if (!error && dbData && Array.isArray(dbData)) {
-                    dbData.forEach(row => {
-                        const comp = relevantCompanies.find(c => String(c.id) === String(row.company_id));
-                        if (comp && Array.isArray(row.data)) {
-                            const tagged = row.data.map(item => ({ 
-                                ...item, 
-                                _companyId: comp.id, 
-                                _companyName: comp.name,
-                                _isConsolidated: comp.id !== activeCompany.id
-                            }));
-                            loadedData = [...loadedData, ...tagged];
-                        }
-                    });
-                    fetchFromCloudSuccess = true;
-                }
-            } else {
-                const { data: dbData, error } = await supabase
-                    .from('app_data_sync')
-                    .select('data')
-                    .eq('company_id', String(activeCompany.id))
-                    .eq('storage_key', key)
-                    .maybeSingle();
-
-                if (!error && dbData && dbData.data !== undefined) {
-                    loadedData = dbData.data;
-                    fetchFromCloudSuccess = true;
-                }
-            }
-        } catch (cloudError) {
-            console.warn("Nube no disponible, buscando local...");
+        const parts = [];
+        for (const company of uniqueCompanies) {
+          const companyData = await reconcileCompany(company);
+          parts.push(...tagRowsForCompany(companyData, company, activeCompany));
         }
 
-        // 2. RESPALDO LOCAL SI LA NUBE FALLA O ESTÁ VACÍA
-        const isEmpty = Array.isArray(loadedData) ? loadedData.length === 0 : !loadedData;
-        
-        if (!fetchFromCloudSuccess || isEmpty) {
-            if (isConsolidated && companies && companies.length > 0) {
-                const relevantCompanies = companies.filter(c => c && (c.id === activeCompany.id || c.parentId === activeCompany.id));
-                const uniqueCompanies = Array.from(new Map(relevantCompanies.map(c => [c.id, c])).values());
-
-                for (const comp of uniqueCompanies) {
-                    const stored = await storage.getItem(`${comp.id}-${key}`);
-                    if (stored) {
-                        try {
-                            const parsed = JSON.parse(stored);
-                            if (Array.isArray(parsed)) {
-                                const tagged = parsed.map(item => ({ 
-                                    ...item, 
-                                    _companyId: comp.id, 
-                                    _companyName: comp.name,
-                                    _isConsolidated: comp.id !== activeCompany.id
-                                }));
-                                loadedData = [...loadedData, ...tagged];
-                            }
-                        } catch (e) {}
-                    }
-                }
-            } else {
-                const stored = await storage.getItem(`${activeCompany.id}-${key}`);
-                if (stored) {
-                    try { loadedData = JSON.parse(stored); } catch (e) { loadedData = []; }
-                } else {
-                    loadedData = [];
-                }
-            }
-        } else if (!isConsolidated) {
-            await storage.setItem(`${activeCompany.id}-${key}`, JSON.stringify(loadedData));
+        loadedData = Array.from(
+          new Map(parts.map(item => [
+            `${item._companyId}:${item.id ?? JSON.stringify(item)}`,
+            item,
+          ])).values()
+        );
+      } else {
+        loadedData = await reconcileCompany(activeCompany);
+        if (Array.isArray(loadedData) && isIdArray(loadedData)) {
+          loadedData = dedupeById(loadedData);
         }
-
-        // 3. ACTUALIZACIÓN VISUAL SEGURA
-        if (mounted.current) {
-            if (Array.isArray(loadedData)) {
-                 const allHaveIds = loadedData.every(item => item && (item.id !== undefined && item.id !== null));
-                 if (loadedData.length > 0 && allHaveIds) {
-                     const uniqueData = Array.from(new Map(loadedData.map(item => [item.id, item])).values());
-                     setData(uniqueData);
-                 } else {
-                     setData(loadedData);
-                 }
-            } else {
-                 setData(loadedData || {});
-            }
-            setIsLoaded(true);
-        }
-    } catch (fatalError) {
-        console.error("Error protegido en loadData:", fatalError);
-        if (mounted.current) setIsLoaded(true);
+      }
+      if (mounted.current) {
+        const safeValue = loadedData ?? (Array.isArray(data) ? [] : {});
+        setData(safeValue);
+        latestDataRef.current = safeValue;
+        setIsLoaded(true);
+      }
+    } catch (error) {
+      console.error('[Sync] Error protegido en loadData:', error);
+      if (mounted.current) setIsLoaded(true);
     }
-  }, [activeCompany, companies, key, isConsolidated]);
+  }, [activeCompany, companies, isConsolidated, key, reconcileCompany]);
 
-  // ESCUCHA EN TIEMPO REAL
   useEffect(() => {
     let isActive = true;
-    let channel = null;
+    const channels = [];
 
     const safeLoad = async () => {
-        try {
-            if (isActive) await loadData();
-        } catch (e) {
-            console.error("Error atrapado en safeLoad:", e);
-        }
+      try {
+        if (isActive) await loadData();
+      } catch (error) {
+        console.error('[Sync] Error atrapado en safeLoad:', error);
+      }
     };
 
     safeLoad();
 
     try {
-        if (activeCompany && typeof supabase.channel === 'function') {
-            channel = supabase
-                .channel(`sync-${activeCompany.id}-${key}`)
-                .on(
-                    'postgres_changes',
-                    { event: '*', schema: 'public', table: 'app_data_sync', filter: `company_id=eq.${activeCompany.id}` },
-                    (payload) => {
-                        if (payload.new && payload.new.storage_key === key && isActive) {
-                            safeLoad();
-                        }
-                    }
-                )
-                .subscribe();
-        }
-    } catch (realtimeError) {
-        console.warn("⚠️ Tiempo real falló, funcionando en modo normal.");
+      if (activeCompany && typeof supabase.channel === 'function') {
+        const relevant = isConsolidated && Array.isArray(companies)
+          ? companies.filter(c =>
+              c && (c.id === activeCompany.id || c.parentId === activeCompany.id)
+            )
+          : [activeCompany];
+
+        const uniqueIds = [...new Set(relevant.map(c => String(c.id)))];
+        uniqueIds.forEach(companyId => {
+          const channel = supabase
+            .channel(`sync-v3-${companyId}-${key}`)
+            .on(
+              'postgres_changes',
+              {
+                event: '*',
+                schema: 'public',
+                table: 'app_data_sync',
+                filter: `company_id=eq.${companyId}`,
+              },
+              (payload) => {
+                if (
+                  isActive &&
+                  (payload.new?.storage_key === key || payload.old?.storage_key === key)
+                ) {
+                  safeLoad();
+                }
+              }
+            )
+            .subscribe();
+          channels.push(channel);
+        });
+      }
+    } catch {
+      console.warn('[Sync] Tiempo real no disponible; continúa sincronización normal.');
     }
 
-    const handleStorageUpdate = (e) => {
-        if (e.detail?.key === `${activeCompany?.id}-${key}` || e.detail?.key === 'all-data-update') {
-            safeLoad();
-        }
+    const handleStorageUpdate = (event) => {
+      const activeKey = `${activeCompany?.id}-${key}`;
+      if (
+        event.detail?.key === activeKey ||
+        event.detail?.key === 'all-data-update'
+      ) safeLoad();
     };
-    
+
+    const handleOnline = () => safeLoad();
     window.addEventListener('storage-updated', handleStorageUpdate);
-    
+    window.addEventListener('online', handleOnline);
+
     return () => {
-        isActive = false;
-        window.removeEventListener('storage-updated', handleStorageUpdate);
-        try {
-            if (channel && typeof supabase.removeChannel === 'function') {
-                supabase.removeChannel(channel);
-            }
-        } catch (e) {}
+      isActive = false;
+      window.removeEventListener('storage-updated', handleStorageUpdate);
+      window.removeEventListener('online', handleOnline);
+      channels.forEach(channel => {
+        try { supabase.removeChannel(channel); } catch {}
+      });
     };
-  }, [loadData, activeCompany, key, isConsolidated]);
-
-
-  // FUNCIÓN DE GUARDADO (CON DETECTOR DE ELIMINACIÓN)
-  const saveData = async (newData) => {
-      if (!activeCompany) return;
-      const storageKey = `${activeCompany.id}-${key}`;
-      
-      try {
-          // DETECTOR DE ELIMINACIÓN: Comparamos qué teníamos vs qué estamos guardando
-          let deletedIds = [];
-          if (Array.isArray(data) && Array.isArray(newData)) {
-              const currentIds = data.map(item => item?.id).filter(Boolean);
-              const newIds = newData.map(item => item?.id).filter(Boolean);
-              // Si un ID estaba antes pero ya no está en la nueva data, fue eliminado
-              deletedIds = currentIds.filter(id => !newIds.includes(id));
-          }
-
-          // 1. CAMBIO VISUAL INMEDIATO
-          if (!isConsolidated && mounted.current) {
-              setData(newData);
-          }
-          await storage.setItem(storageKey, JSON.stringify(newData));
-
-          // 2. FUSIÓN INTELIGENTE (CON BORRADO)
-          const { data: cloudRow, error: fetchError } = await supabase
-              .from('app_data_sync')
-              .select('data')
-              .eq('company_id', String(activeCompany.id))
-              .eq('storage_key', key)
-              .maybeSingle();
-
-          let finalDataToUpload = newData;
-
-          if (!fetchError && cloudRow && Array.isArray(cloudRow.data)) {
-              const checkHasIds = (arr) => Array.isArray(arr) && arr.length > 0 && arr[0] && arr[0].id;
-              const isMergeable = checkHasIds(newData) || checkHasIds(data) || checkHasIds(cloudRow.data);
-              
-              if (isMergeable) {
-                  // Mapeamos lo de la nube
-                  const mergeMap = new Map(cloudRow.data.map(item => [item?.id, item]).filter(entry => entry[0]));
-                  
-                  // Agregamos o actualizamos lo local
-                  if (Array.isArray(newData)) {
-                      newData.forEach(item => {
-                          if (item && item.id) mergeMap.set(item.id, item);
-                      });
-                  }
-
-                  // ¡NUEVO! Eliminamos expresamente lo que el usuario acaba de borrar
-                  deletedIds.forEach(id => mergeMap.delete(id));
-                  
-                  finalDataToUpload = Array.from(mergeMap.values());
-              }
-          }
-
-          // 3. SUBIMOS A LA NUBE
-          const { error } = await supabase
-              .from('app_data_sync')
-              .upsert({
-                  company_id: String(activeCompany.id),
-                  storage_key: key,
-                  data: finalDataToUpload,
-                  updated_at: new Date().toISOString()
-              });
-
-          if (!error) {
-              await storage.setItem(storageKey, JSON.stringify(finalDataToUpload));
-              if (!isConsolidated && mounted.current) setData(finalDataToUpload);
-              window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: storageKey } }));
-          }
-          
-      } catch (cloudError) {
-          console.error("Error crítico guardando en Supabase:", cloudError);
+  }, [loadData, activeCompany, companies, key, isConsolidated]);
+  const persistData = useCallback(async (newData, baseData) => {
+    if (!activeCompany || isConsolidated) {
+      if (isConsolidated) {
+        console.warn('[Sync] Escritura bloqueada en vista consolidada.');
       }
-  };
+      return;
+    }
+
+    const companyId = String(activeCompany.id);
+    const storageKey = `${companyId}-${key}`;
+    const now = new Date().toISOString();
+    const diff = diffArrayById(
+      Array.isArray(baseData) ? baseData : [],
+      Array.isArray(newData) ? newData : []
+    );
+
+    let meta = (await readMeta(storageKey)) || defaultSyncMeta();
+    meta = {
+      ...meta,
+      dirty: true,
+      localUpdatedAt: now,
+      pendingChangedIds: diff.mergeable ? diff.changedIds : [],
+      pendingDeletedIds: diff.mergeable ? diff.deletedIds : [],
+      status: 'saving-local',
+    };
+
+    await storage.setItem(storageKey, JSON.stringify(newData));
+    await writeMeta(storageKey, meta);
+
+    let cloudRow = null;
+    try {
+      const { data: fetched, error } = await supabase
+        .from('app_data_sync')
+        .select('data, updated_at')
+        .eq('company_id', companyId)
+        .eq('storage_key', key)
+        .maybeSingle();
+      if (error) throw error;
+      cloudRow = fetched;
+    } catch {
+      meta.status = 'pending-offline';
+      await writeMeta(storageKey, meta);
+      return;
+    }
+    let finalData = newData;
+    const remoteAdvanced =
+      cloudRow &&
+      meta.lastCloudUpdatedAt &&
+      parseTime(cloudRow.updated_at) > parseTime(meta.lastCloudUpdatedAt);
+
+    if (
+      remoteAdvanced &&
+      diff.mergeable &&
+      isIdArray(cloudRow.data) &&
+      isIdArray(newData)
+    ) {
+      finalData = mergeRemoteWithLocalChanges({
+        remote: cloudRow.data,
+        local: newData,
+        changedIds: diff.changedIds,
+        deletedIds: diff.deletedIds,
+      });
+    }
+
+    try {
+      const syncedAt = await writeCloud(companyId, finalData);
+      meta = {
+        ...meta,
+        dirty: false,
+        needsReview: false,
+        lastCloudUpdatedAt: syncedAt,
+        localUpdatedAt: new Date().toISOString(),
+        pendingChangedIds: [],
+        pendingDeletedIds: [],
+        status: 'in-sync',
+      };
+
+      await storage.setItem(storageKey, JSON.stringify(finalData));
+      await writeMeta(storageKey, meta);
+
+      if (mounted.current) {
+        setData(finalData);
+        latestDataRef.current = finalData;
+      }
+
+      window.dispatchEvent(new CustomEvent('storage-updated', {
+        detail: { key: storageKey, source: 'sync-v3' },
+      }));
+      window.dispatchEvent(new CustomEvent('sync-status-changed', {
+        detail: { companyId, key, status: 'in-sync', updatedAt: syncedAt },
+      }));
+    } catch (error) {
+      meta.status = 'pending-upload';
+      await writeMeta(storageKey, meta);
+      console.error('[Sync] Pendiente de subir a Supabase:', error);
+    }
+  }, [activeCompany, isConsolidated, key, readMeta, writeMeta, writeCloud]);
+  const saveData = useCallback((newData) => {
+    if (!activeCompany) return Promise.resolve();
+
+    const baseData = latestDataRef.current;
+    if (!isConsolidated && mounted.current) {
+      setData(newData);
+      latestDataRef.current = newData;
+    }
+
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(() => persistData(newData, baseData));
+
+    return saveQueueRef.current;
+  }, [activeCompany, isConsolidated, persistData]);
 
   return [data, saveData, isLoaded];
 }

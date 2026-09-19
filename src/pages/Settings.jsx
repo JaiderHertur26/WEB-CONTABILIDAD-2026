@@ -9,14 +9,18 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePermission } from '@/hooks/usePermission';
+import { useCompanyData } from '@/hooks/useCompanyData';
+import SyncIntegrityPanel from '@/components/settings/SyncIntegrityPanel';
 import { validateCompanyJSON, saveCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
+import { COMPANY_DATA_SUFFIXES } from '@/lib/companyDataKeys';
 
 const Settings = () => {
     const { activeCompany, companies, setCompanies, isGeneralAdmin, updateCompanyCredentials } = useCompany();
     const { canModify, isReadOnly } = usePermission();
     const { toast } = useToast();
+    const [syncedVoucherSequences, saveVoucherSequences, voucherSequencesLoaded] = useCompanyData('voucher-sequence');
     const fileInputRef = useRef(null);
     
     const [backupPreview, setBackupPreview] = useState(null);
@@ -28,35 +32,39 @@ const Settings = () => {
     const [voucherSequences, setVoucherSequences] = useState({ income: '1', expense: '1', transfer: '1' });
 
     useEffect(() => {
-      const loadSequences = async () => {
-        if (activeCompany) {
-          const sequenceKey = `${activeCompany.id}-voucher-sequence`;
-          const seqData = await storage.getItem(sequenceKey);
-          const sequences = JSON.parse(seqData || '{ "income": 0, "expense": 0, "transfer": 0 }');
-          setVoucherSequences({
-            income: String(sequences.income || 0),
-            expense: String(sequences.expense || 0),
-            transfer: String(sequences.transfer || 0)
-          });
-          setProfileData({
-              name: activeCompany.name || '',
-              doc: activeCompany.doc || '',
-              authSerial: activeCompany.authSerial || '',
-              address: activeCompany.address || '',
-              phone: activeCompany.phone || '',
-              username: activeCompany.username || ''
-          });
-        }
-      };
-      loadSequences();
-    }, [activeCompany]);
+      if (!activeCompany) return;
+
+      if (voucherSequencesLoaded) {
+        const sequences = syncedVoucherSequences && !Array.isArray(syncedVoucherSequences)
+          ? syncedVoucherSequences
+          : { income: 0, expense: 0, transfer: 0 };
+
+        setVoucherSequences({
+          income: String(sequences.income || 0),
+          expense: String(sequences.expense || 0),
+          transfer: String(sequences.transfer || 0)
+        });
+      }
+
+      setProfileData({
+          name: activeCompany.name || '',
+          doc: activeCompany.doc || '',
+          authSerial: activeCompany.authSerial || '',
+          address: activeCompany.address || '',
+          phone: activeCompany.phone || '',
+          username: activeCompany.username || ''
+      });
+    }, [activeCompany, syncedVoucherSequences, voucherSequencesLoaded]);
 
     const handleSaveSettings = async () => {
         if (!canModify) return;
         if (activeCompany) {
-          const sequenceKey = `${activeCompany.id}-voucher-sequence`;
-          const sequences = { income: parseInt(voucherSequences.income) || 0, expense: parseInt(voucherSequences.expense) || 0, transfer: parseInt(voucherSequences.transfer) || 0 };
-          await storage.setItem(sequenceKey, JSON.stringify(sequences));
+          const sequences = {
+            income: parseInt(voucherSequences.income) || 0,
+            expense: parseInt(voucherSequences.expense) || 0,
+            transfer: parseInt(voucherSequences.transfer) || 0
+          };
+          await saveVoucherSequences(sequences);
 
           await updateCompanyCredentials(activeCompany.id, {
               name: profileData.name, 
@@ -93,7 +101,7 @@ const Settings = () => {
                 const relevantCompanies = [activeCompany];
                 backupData.companies = relevantCompanies.map(sanitizeCompany);
                 
-                const dataSuffixes = ['transactions', 'contacts', 'accounts', 'bankAccounts', 'fixedAssets', 'realEstates', 'accountsReceivable', 'accountsPayable', 'initialBalance', 'voucher-sequence', 'cash_accounts', 'inventory', 'offices', 'mass_intentions', 'billing_documents', 'auto_billing_categories'];
+                const dataSuffixes = COMPANY_DATA_SUFFIXES;
                 
                 for (const comp of relevantCompanies) {
                     for (const suffix of dataSuffixes) {
@@ -395,7 +403,7 @@ const Settings = () => {
                 )}
                 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
-                    <div className="flex items-center justify-between"><div className="flex items-center"><Server className="w-6 h-6 text-green-600 mr-3" /><h2 className="text-xl font-bold text-slate-900">Datos</h2></div><span className="text-xs font-medium px-2 py-1 bg-green-100 text-green-800 rounded-full">V2.4 Cloud Sync</span></div>
+                    <div className="flex items-center justify-between"><div className="flex items-center"><Server className="w-6 h-6 text-green-600 mr-3" /><h2 className="text-xl font-bold text-slate-900">Datos</h2></div><span className="text-xs font-medium px-2 py-1 bg-green-100 text-green-800 rounded-full">V3 Sync Seguro</span></div>
                     
                     {!isGeneralAdmin && <div className="flex gap-2 items-start text-xs bg-slate-50 p-2 rounded"><Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" /><span>La restauración subirá a la Nube los datos de la empresa/parroquia actual. No altera el Perfil de Ajustes.</span></div>}
                     
@@ -404,6 +412,8 @@ const Settings = () => {
                         {canModify && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Upload className="w-6 h-6 text-orange-500" /></div><div className="text-sm"><p className="font-semibold text-orange-800">Importar a Nube</p><p className="text-orange-600/80 text-xs">Sincronizar base de datos</p></div><input type="file" ref={fileInputRef} onChange={handleFileSelect} accept=".json" className="hidden" /><Button onClick={() => fileInputRef.current.click()} variant="default" className="w-full mt-auto bg-orange-600 hover:bg-orange-700 text-white border-none"><Upload className="w-4 h-4 mr-2" /> Subir Archivo</Button></div>}
                     </div>
                 </motion.div>
+
+                <SyncIntegrityPanel />
             </motion.div>
             
             <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
