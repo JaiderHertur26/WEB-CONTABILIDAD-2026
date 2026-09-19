@@ -3,9 +3,9 @@ import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { useAuth, getCompanies, saveCompanies } from '@/contexts/LocalAuthContext';
+import { useAuth, getCompanies } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase';
+import { secureCompanyLogin, secureAdminLogin, registerCompanyStructure } from '@/lib/secureApi';
 import { 
   User, Lock, Building, Shield, Key, Phone, MapPin, 
   Hash, Plus, Trash2, CornerDownRight, Layers, 
@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from '@/components/ui/label';
-import { generateCompanySerial } from '@/lib/auth-utils';
 import { cn } from '@/lib/utils';
 
 const Login = () => {
@@ -40,7 +39,7 @@ const Login = () => {
 
   // Sub-company add state
   const [isAddingSub, setIsAddingSub] = useState(false);
-  const [newSubData, setNewSubData] = useState({ doc: '', serial: '' });
+  const [newSubData, setNewSubData] = useState({ doc: '' });
 
   useEffect(() => {
     const loadData = async () => {
@@ -70,24 +69,19 @@ const Login = () => {
       return;
     }
 
-    if (selectedCompanyId === 'general_admin') {
-      if (loginUsername === 'hertur26' && loginPassword === '1052042443-Ht') {
-        toast({ title: "Bienvenido Administrador", description: "Acceso concedido." });
-        await login({ isGeneralAdmin: true, accessLevel: 'full' });
-      } else {
-        toast({ variant: "destructive", title: "Acceso Denegado", description: "Usuario o contraseña incorrectos." });
-      }
-      return;
-    }
-
     try {
-      const { data, error } = await supabase.rpc('secure_login', {
-        p_username: loginUsername,
-        p_password: loginPassword
-      });
+      if (selectedCompanyId === 'general_admin') {
+        const data = await secureAdminLogin(loginUsername, loginPassword);
+        if (!data?.success) {
+          toast({ variant: "destructive", title: "Acceso Denegado", description: data?.message || "Usuario o contraseña incorrectos." });
+          return;
+        }
+        await login({ isGeneralAdmin: true, accessLevel: 'full', sessionToken: data.sessionToken });
+        toast({ title: "Bienvenido Administrador", description: data.mustRotate ? "Acceso seguro concedido. Conviene renovar la clave administrativa." : "Acceso seguro concedido." });
+        return;
+      }
 
-      if (error) throw error;
-
+      const data = await secureCompanyLogin(loginUsername, loginPassword);
       if (!data || !data.success) {
         toast({ variant: "destructive", title: "Acceso Denegado", description: data?.message || "Usuario o contraseña incorrectos." });
         return;
@@ -98,7 +92,7 @@ const Login = () => {
         return;
       }
 
-      await login({ isGeneralAdmin: false, company: data.company, accessLevel: data.accessLevel });
+      await login({ isGeneralAdmin: false, company: data.company, accessLevel: data.accessLevel, sessionToken: data.sessionToken });
       
     } catch (err) {
       console.error("Error crítico en login:", err);
@@ -108,25 +102,27 @@ const Login = () => {
 
   const handleStartRegistration = async (e) => {
     e.preventDefault();
-    const expected = await generateCompanySerial(rootAuth.doc);
-    if (!expected || expected !== rootAuth.serial) {
-        toast({ variant: "destructive", title: "Serial Inválido", description: "El serial no coincide con el documento." });
-        return;
-    }
     const existing = companies.find(c => c.doc === rootAuth.doc);
-    if (existing && existing.username) {
-        toast({ variant: "destructive", title: "Ya registrado", description: "Esta empresa ya tiene usuario." });
+    if (!existing) {
+        toast({ variant: "destructive", title: "Entidad no pre-registrada", description: "El Administrador General debe pre-registrar la entidad y emitir un código de activación." });
         return;
     }
-    
-    // CORRECCIÓN: Respetar dirección y teléfono si la empresa ya existía previamente
+    if (existing.isActive) {
+        toast({ variant: "destructive", title: "Ya registrado", description: "Esta entidad ya tiene credenciales activas." });
+        return;
+    }
+    if (!rootAuth.serial?.trim()) {
+        toast({ variant: "destructive", title: "Código requerido", description: "Ingresa el código de activación emitido por el Administrador General." });
+        return;
+    }
+
     const rootNode = {
-        id: existing ? existing.id : Date.now().toString(),
-        doc: rootAuth.doc, authSerial: rootAuth.serial, 
-        name: existing ? (existing.name || '') : '',
-        parentId: null, 
-        address: existing ? (existing.address || '') : '', 
-        phone: existing ? (existing.phone || '') : '', 
+        id: existing.id,
+        doc: rootAuth.doc, authSerial: rootAuth.serial,
+        name: existing.name || '',
+        parentId: null,
+        address: existing.address || '',
+        phone: existing.phone || '',
         username: '', password: '', partialPassword: '', isRoot: true
     };
     
@@ -147,21 +143,16 @@ const Login = () => {
   };
 
   const handleAddSubCompany = async () => {
-    const expected = await generateCompanySerial(newSubData.doc);
-    if (!expected || expected !== newSubData.serial) {
-        toast({ variant: "destructive", title: "Serial Inválido", description: "Verifica el NIT y Serial." });
-        return;
-    }
     if (hierarchy.some(n => n.doc === newSubData.doc)) {
         toast({ variant: "destructive", title: "Duplicado", description: "Esta empresa ya está en la lista." });
         return;
     }
     const newNode = {
-        id: Date.now().toString(), doc: newSubData.doc, authSerial: newSubData.serial, name: '',
+        id: Date.now().toString(), doc: newSubData.doc, name: '',
         parentId: selectedNodeId, address: '', phone: '', username: '', password: '', partialPassword: '', isRoot: false
     };
     setHierarchy(prev => [...prev, newNode]);
-    setNewSubData({ doc: '', serial: '' });
+    setNewSubData({ doc: '' });
     setIsAddingSub(false);
     setSelectedNodeId(newNode.id);
     setFormData({ name: '', address: '', phone: '', username: '', password: '', partialPassword: '' });
@@ -206,22 +197,21 @@ const Login = () => {
         return;
     }
     try {
-        const currentCloud = await getCompanies();
-        let currentStorage = [...currentCloud];
-        hierarchy.forEach(newNode => {
-            const idx = currentStorage.findIndex(c => c.doc === newNode.doc);
-            if (idx >= 0) currentStorage[idx] = { ...currentStorage[idx], ...newNode };
-            else currentStorage.push(newNode);
-        });
-        await saveCompanies(currentStorage);
-        await storage.setItem('companies', JSON.stringify(currentStorage));
-        setCompanies(currentStorage);
-        toast({ title: "¡Registro Exitoso!", description: "Empresas registradas correctamente en la nube." });
+        const result = await registerCompanyStructure(rootAuth.doc, rootAuth.serial, hierarchy);
+        if (!result?.success) {
+            toast({ variant: "destructive", title: "Registro rechazado", description: result?.message || "El código de activación no es válido." });
+            return;
+        }
+        const refreshed = await getCompanies();
+        setCompanies(refreshed);
+        await storage.setItem('companies', JSON.stringify(refreshed));
+        toast({ title: "¡Registro Exitoso!", description: "La estructura y las credenciales quedaron protegidas en el servidor." });
         setRegStep(1); setHierarchy([]); setRootAuth({ doc: '', serial: '' }); setIsAddingSub(false);
         const tabTrigger = document.querySelector('[data-value="login"]');
         if (tabTrigger) tabTrigger.click();
     } catch (error) {
-        toast({ variant: "destructive", title: "Error de conexión", description: "No se pudieron guardar las empresas en la nube." });
+        console.error(error);
+        toast({ variant: "destructive", title: "Error de conexión", description: "No se pudo completar el registro seguro." });
     }
   };
 
@@ -252,7 +242,7 @@ const Login = () => {
     );
   };
 
-  const activeCompanies = companies.filter(c => c.username);
+  const activeCompanies = companies.filter(c => c.isActive);
   const filteredCompanies = activeCompanies
     .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.doc.includes(searchQuery))
     .slice(0, 50);
@@ -421,7 +411,7 @@ const Login = () => {
                                 <div className="bg-blue-50 p-5 rounded-xl flex gap-3 items-start border border-blue-100">
                                     <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
                                     <div className="text-sm text-blue-800 leading-relaxed">
-                                        Para comenzar el registro, ingresa el <strong>NIT</strong> y el <strong>Serial de Autenticación</strong> proporcionados.
+                                        Para comenzar el registro, ingresa el <strong>NIT</strong> y el <strong>Código de Activación</strong> emitido por el Administrador General.
                                     </div>
                                 </div>
                                 <div className="space-y-5">
@@ -433,10 +423,10 @@ const Login = () => {
                                         </div>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Serial de Autenticación</Label>
+                                        <Label>Código de Activación</Label>
                                         <div className="relative">
                                             <Key className="absolute left-3 top-3.5 text-slate-400 w-4 h-4" />
-                                            <input value={rootAuth.serial} onChange={e => setRootAuth({...rootAuth, serial: e.target.value})} className="w-full pl-10 h-12 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" placeholder="Pegar serial..." />
+                                            <input value={rootAuth.serial} onChange={e => setRootAuth({...rootAuth, serial: e.target.value})} className="w-full pl-10 h-12 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" placeholder="Pegar código seguro..." />
                                         </div>
                                     </div>
                                     <Button onClick={handleStartRegistration} className="w-full bg-slate-900 hover:bg-slate-800 h-12 rounded-xl text-base font-medium">
@@ -459,7 +449,6 @@ const Login = () => {
                                             <div className="bg-white p-4 rounded-xl border shadow-sm space-y-3 animate-in slide-in-from-bottom-2">
                                                 <p className="text-xs font-bold text-slate-500 uppercase">Nueva Sub-empresa</p>
                                                 <input className="w-full text-sm p-2.5 border rounded-lg bg-slate-50" placeholder="NIT Sub-empresa" value={newSubData.doc} onChange={e => setNewSubData({...newSubData, doc: e.target.value})} />
-                                                <input className="w-full text-sm p-2.5 border rounded-lg bg-slate-50 font-mono" placeholder="Serial Auth" value={newSubData.serial} onChange={e => setNewSubData({...newSubData, serial: e.target.value})} />
                                                 <div className="flex gap-2">
                                                     <Button size="sm" variant="ghost" className="flex-1" onClick={() => setIsAddingSub(false)}>Cancelar</Button>
                                                     <Button size="sm" className="flex-1 bg-blue-600" onClick={handleAddSubCompany}>Agregar</Button>

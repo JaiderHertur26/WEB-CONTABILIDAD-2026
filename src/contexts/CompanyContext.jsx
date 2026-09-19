@@ -2,43 +2,35 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './LocalAuthContext';
 import { useToast } from '@/components/ui/use-toast';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase'; // <-- Conexión a la nube
+import { sessionCompanies, updateCompanySecure } from '@/lib/secureApi';
 
 export const CompanyContext = createContext();
 
 export const CompanyProvider = ({ children }) => {
-  const { activeSessionId, isGeneralAdmin, isAuthenticated } = useAuth();
+  const { activeSessionId, isGeneralAdmin, isAuthenticated, accessLevel, sessionToken } = useAuth();
   const [activeCompany, setActiveCompany] = useState(null);
   const [companies, setCompanies] = useState([]);
   const [isConsolidated, setIsConsolidated] = useState(false);
   const { toast } = useToast();
 
-  // NUEVO: Cargar empresas desde Supabase en la nube
-  // NUEVO: Cargar empresas desde Supabase en la nube
   const loadCompanies = async () => {
+    if (!isAuthenticated || !sessionToken) {
+      setCompanies([]);
+      return;
+    }
     try {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*');
-
-      if (error) {
-          console.error("Error cargando empresas de Supabase:", error);
-          return;
-      }
-
-      // Mapeamos las columnas de BD a las variables que usa React
-      // FORZAMOS A QUE LOS IDs SEAN TEXTO PARA QUE EL BOTÓN DE CONSOLIDAR FUNCIONE
+      const data = await sessionCompanies(sessionToken);
       const mappedCompanies = (data || []).map(comp => ({
-          ...comp,
-          id: String(comp.id), // <-- Aseguramos que sea texto
-          doc: comp.doc_nit,
-          parentId: comp.parent_id ? String(comp.parent_id) : null, // <-- Aseguramos que sea texto
-          partialPassword: comp.partial_password
+        ...comp,
+        id: String(comp.id),
+        doc: comp.doc_nit,
+        parentId: comp.parent_id ? String(comp.parent_id) : null,
+        isActive: !!comp.is_active,
       }));
-
       setCompanies(mappedCompanies);
     } catch (e) {
-      console.error("Error de red al cargar empresas:", e);
+      console.error("Error cargando empresas autorizadas:", e);
+      setCompanies([]);
     }
   };
 
@@ -54,7 +46,7 @@ export const CompanyProvider = ({ children }) => {
     };
     window.addEventListener('storage-updated', handleStorageUpdate);
     return () => window.removeEventListener('storage-updated', handleStorageUpdate);
-  }, []);
+  }, [isAuthenticated, sessionToken]);
 
   // Establecer la empresa activa basándose en la sesión (Guardado en Local)
   useEffect(() => {
@@ -93,42 +85,34 @@ export const CompanyProvider = ({ children }) => {
   // ACTUALIZADO: Traductor completo de variables a nombres de columna SQL
   const updateCompanyCredentials = async (companyId, newData) => {
     try {
-        // Preparamos el objeto para Supabase asegurando los nombres correctos de columnas
-        const updatePayload = { ...newData };
-        
-        if (newData.doc !== undefined) {
-            updatePayload.doc_nit = newData.doc;
-            delete updatePayload.doc;
-        }
-        if (newData.parentId !== undefined) {
-            updatePayload.parent_id = newData.parentId;
-            delete updatePayload.parentId;
-        }
-        // NUEVA REGLA DE TRADUCCIÓN:
-        if (newData.partialPassword !== undefined) {
-            updatePayload.partial_password = newData.partialPassword;
-            delete updatePayload.partialPassword;
-        }
+      if (!sessionToken) throw new Error('Sesión segura no disponible');
+      const updatePayload = { ...newData };
+      if (newData.doc !== undefined) {
+        updatePayload.doc_nit = newData.doc;
+        delete updatePayload.doc;
+      }
+      if (newData.parentId !== undefined) {
+        updatePayload.parent_id = newData.parentId;
+        delete updatePayload.parentId;
+      }
+      if (newData.partialPassword !== undefined) {
+        updatePayload.partial_password = newData.partialPassword;
+        delete updatePayload.partialPassword;
+      }
 
-        const { error } = await supabase
-            .from('companies')
-            .update(updatePayload)
-            .eq('id', companyId);
+      await updateCompanySecure(sessionToken, companyId, updatePayload);
+      await loadCompanies();
 
-        if (error) throw error;
+      if (activeCompany && activeCompany.id === companyId) {
+        setActiveCompany(prev => ({ ...prev, ...newData }));
+      }
 
-        // Recargamos el estado local con los datos frescos de la nube
-        await loadCompanies();
-        
-        // Si actualizamos la empresa actual, refrescamos el estado activo
-        if (activeCompany && activeCompany.id === companyId) {
-           setActiveCompany(prev => ({ ...prev, ...newData }));
-        }
-
-        toast({ title: "Seguridad Actualizada", description: "Las credenciales han sido modificadas en la nube." });
+      toast({ title: "Seguridad Actualizada", description: "Los datos se actualizaron mediante sesión protegida." });
+      return true;
     } catch (e) {
-        console.error("Error actualizando credenciales:", e);
-        toast({ variant: "destructive", title: "Error", description: "No se pudieron actualizar las credenciales." });
+      console.error("Error actualizando credenciales:", e);
+      toast({ variant: "destructive", title: "Error", description: "No se pudieron actualizar las credenciales." });
+      return false;
     }
   };
 
@@ -152,7 +136,7 @@ export const CompanyProvider = ({ children }) => {
     companies,
     setCompanies: refreshCompanies, 
     isGeneralAdmin,
-    accessLevel: useAuth().accessLevel,
+    accessLevel,
     isConsolidated,
     toggleConsolidation,
     updateCompanyCredentials,

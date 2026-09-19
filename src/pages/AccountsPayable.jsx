@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Plus, Download, Edit2, Trash2, Search, CheckCircle, ClipboardList, Printer, Loader2, Lock, Check, ChevronsUpDown } from 'lucide-react';
+import { Plus, Download, Edit2, Trash2, Search, CheckCircle, ClipboardList, Printer, Loader2, Lock, Check, ChevronsUpDown, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog';
@@ -16,6 +16,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { usePermission } from '@/hooks/usePermission';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useAuth } from '@/contexts/LocalAuthContext';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -107,9 +108,11 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) =
 
 const AccountsPayable = () => {
     const { activeCompany } = useCompany();
+    const { activeSessionId } = useAuth();
     const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
     const [payables, savePayables] = useCompanyData('accountsPayable');
     const [transactions, saveTransactions] = useCompanyData('transactions');
+    const [contracts, saveContracts] = useCompanyData('contracts');
     const [accounts] = useCompanyData('accounts');
     const [bankAccounts] = useCompanyData('bankAccounts');
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -126,11 +129,17 @@ const AccountsPayable = () => {
     const voucherRef = useRef(null);
 
     const { toast } = useToast();
+    const appendContractAudit = (contractId, action, detail) => {
+        if (!contractId) return;
+        const actor = activeSessionId === 'general_admin' ? 'Administrador General' : (activeCompany?.name || String(activeSessionId || 'Usuario'));
+        const entry = { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, at: new Date().toISOString(), actor, action, detail };
+        saveContracts((contracts || []).map(c => c.id === contractId ? { ...c, auditLog: [...(c.auditLog || []), entry] } : c));
+    };
 
     // CORRECCIÓN: Función que cuenta los comprobantes basados en el año real
     const getNextVoucherNumber = (type, dateStr) => {
         if (!transactions) return 1;
-        const year = new Date(dateStr).getFullYear().toString();
+        const year = getAccountingYear(dateStr).toString();
         const typeTransactions = transactions.filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
@@ -205,10 +214,21 @@ const AccountsPayable = () => {
 
     const handleMarkAsPaid = (paymentData) => {
         if (!canAdd) return;
-        const { payable, origin } = paymentData;
-        const currentDate = format(new Date(), 'yyyy-MM-dd');
+        const { payable, origin, amount: requestedAmount, paymentDate } = paymentData;
+        const currentDate = paymentDate || format(new Date(), 'yyyy-MM-dd');
 
         if (payable?.contractManaged) {
+            if (payable.requiresSocialSecurity && !payable.socialSecurityVerified) {
+                toast({ variant: 'destructive', title: 'Falta soporte de seguridad social', description: 'La CxP contractual exige soporte PILA/seguridad social validado desde el acta.' });
+                return;
+            }
+            const previousPaid = payable.paidAmount != null ? Number(payable.paidAmount || 0) : (payable.payments || []).filter(p=>!p.reversedAt).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+            const remainingBefore = Math.max(0, Number(payable.amount || 0) - previousPaid);
+            const paymentAmount = Number(requestedAmount == null || requestedAmount === '' ? remainingBefore : requestedAmount);
+            if (!paymentAmount || paymentAmount <= 0 || paymentAmount > remainingBefore + 0.01) {
+                toast({ variant: 'destructive', title: 'Monto inválido', description: 'El pago debe ser mayor a cero y no puede superar el saldo pendiente.' });
+                return;
+            }
             const [originId, originName] = String(origin || '').split('|');
             const bank = (bankAccounts || []).find(b => String(b.id) === originId);
             const creditAccount = originId === 'caja_principal'
@@ -220,13 +240,14 @@ const AccountsPayable = () => {
                 type: 'transfer',
                 date: currentDate,
                 description: `Pago contrato · ${payable.description}`,
-                amount: parseFloat(payable.amount) || 0,
+                amount: paymentAmount,
                 category: 'CUENTAS POR PAGAR',
                 isInternalTransfer: true,
                 isContractEntry: true,
                 contractManaged: true,
                 contractId: payable.contractId,
                 contractActId: payable.contractActId,
+                payableId: payable.id,
                 debitAccount: { code: '23050101', name: 'CUENTAS POR PAGAR' },
                 creditAccount,
                 voucherNumber: paymentVoucher,
@@ -235,11 +256,16 @@ const AccountsPayable = () => {
                 companyId: activeCompany?.id,
                 contactId: payable.contactId
             };
+            const paymentRecord = { id: paymentTransaction.id, date: currentDate, amount: paymentAmount, origin, voucherNumber: paymentVoucher };
+            const newPaid = previousPaid + paymentAmount;
+            const balance = Math.max(0, Number(payable.amount || 0) - newPaid);
+            const newStatus = balance <= 0.01 ? 'Pagado' : 'Parcial';
             saveTransactions([...(transactions || []), paymentTransaction]);
             savePayables((payables || []).map(p => p.id === payable.id
-                ? { ...p, status: 'Pagado', paidAt: currentDate, paymentTransactionId: paymentTransaction.id, paymentOrigin: origin }
+                ? { ...p, status: newStatus, paidAmount: newPaid, balance, payments: [...(p.payments || []), paymentRecord], paidAt: newStatus === 'Pagado' ? currentDate : p.paidAt, paymentTransactionId: newStatus === 'Pagado' ? paymentTransaction.id : p.paymentTransactionId, paymentOrigin: origin }
                 : p));
-            toast({ title: "Cuenta contractual pagada", description: `Se generó comprobante T-${String(paymentVoucher).padStart(4, '0')} sin alterar el reconocimiento original del acta.` });
+            appendContractAudit(payable.contractId, newStatus === 'Pagado' ? 'CXP_PAGADA' : 'CXP_ABONO', `${payable.description} · ${paymentAmount.toLocaleString('es-CO',{style:'currency',currency:'COP'})} · T-${String(paymentVoucher).padStart(4,'0')}`);
+            toast({ title: newStatus === 'Pagado' ? "Cuenta contractual pagada" : "Abono contractual registrado", description: `Se generó comprobante T-${String(paymentVoucher).padStart(4, '0')} por ${paymentAmount.toLocaleString('es-CO', { style:'currency', currency:'COP' })}. Saldo: ${balance.toLocaleString('es-CO', { style:'currency', currency:'COP' })}.` });
             setPaymentDialogOpen(false);
             return;
         }
@@ -252,6 +278,53 @@ const AccountsPayable = () => {
         savePayables(payables.map(p => p.id === payable.id ? { ...p, status: 'Pagado' } : p));
         toast({ title: "¡Cuenta Pagada!", description: `Se ha generado el comprobante de pago E-${String(newVoucherNumber).padStart(4, '0')}.` });
         setPaymentDialogOpen(false);
+    };
+
+    const handleReverseLastContractPayment = (payable) => {
+        if (!canEdit || !payable?.contractManaged) return;
+        const payments = payable.payments || [];
+        const lastPayment = [...payments].reverse().find(p => !p.reversedAt);
+        if (!lastPayment) {
+            toast({ variant: 'destructive', title: 'Sin pagos reversables', description: 'No existe un pago contractual activo para reversar.' });
+            return;
+        }
+        const original = (transactions || []).find(t => t.id === lastPayment.id);
+        if (!original || original.reversedById) {
+            toast({ variant: 'destructive', title: 'Pago no disponible', description: 'El comprobante original no existe o ya fue reversado.' });
+            return;
+        }
+        const date = format(new Date(), 'yyyy-MM-dd');
+        const voucherNumber = getNextVoucherNumber('transfer', date);
+        const reversal = {
+            ...original,
+            id: `contract-payment-reversal-${payable.id}-${Date.now()}`,
+            date,
+            description: `REVERSIÓN · ${original.description}`,
+            debitAccount: original.creditAccount,
+            creditAccount: original.debitAccount,
+            voucherNumber,
+            voucherPrefix: 'T',
+            reversesTransactionId: original.id,
+            reversedById: undefined,
+            reversedAt: undefined,
+        };
+        const updatedTransactions = (transactions || []).map(t => t.id === original.id ? { ...t, reversedById: reversal.id, reversedAt: new Date().toISOString() } : t);
+        const oldPaid = payable.paidAmount != null ? Number(payable.paidAmount || 0) : payments.filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
+        const newPaid = Math.max(0, oldPaid - Number(lastPayment.amount || 0));
+        const balance = Math.max(0, Number(payable.amount || 0) - newPaid);
+        const newStatus = newPaid <= 0.01 ? 'Pendiente' : 'Parcial';
+        saveTransactions([...updatedTransactions, reversal]);
+        savePayables((payables || []).map(p => p.id === payable.id ? {
+            ...p,
+            status: newStatus,
+            paidAmount: newPaid,
+            balance,
+            paidAt: null,
+            paymentTransactionId: null,
+            payments: (p.payments || []).map(pay => pay.id === lastPayment.id ? { ...pay, reversedAt: new Date().toISOString(), reversalTransactionId: reversal.id, reversalVoucherNumber: voucherNumber } : pay)
+        } : p));
+        appendContractAudit(payable.contractId, 'PAGO_REVERSADO', `${payable.description} · ${Number(lastPayment.amount||0).toLocaleString('es-CO',{style:'currency',currency:'COP'})} · T-${String(voucherNumber).padStart(4,'0')}`);
+        toast({ title: 'Pago contractual reversado', description: `Se generó comprobante T-${String(voucherNumber).padStart(4,'0')} y se restituyó el saldo de la CxP.` });
     };
 
     const handleSaveTracking = (payableId, newPayment) => {
@@ -372,16 +445,17 @@ const AccountsPayable = () => {
                 ) : (
                     <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
                         <thead className="bg-slate-50"><tr>{['Proveedor', 'Descripción', 'Vencimiento', 'Monto', 'Estado', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
-                        <tbody className="divide-y">{filteredPayables.map(p => (<tr key={p.id} className={`hover:bg-slate-50 ${p.status === 'Pagado' ? 'text-slate-400' : ''}`}>
-                            <td className="p-3 font-medium">{p.supplier}</td><td className="p-3">{p.description}</td><td className="p-3">{format(parseAccountingDate(p.dueDate), 'dd/MM/yyyy', { locale: es })}</td><td className="p-3 font-mono">${parseFloat(p.amount).toLocaleString('es-ES')}</td>
-                            <td className="p-3"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${p.status === 'Pagado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{p.status}</span></td>
+                        <tbody className="divide-y">{filteredPayables.map(p => (<tr key={p.id} className={`hover:bg-slate-50 ${['Pagado','Anulada'].includes(p.status) ? 'text-slate-400' : ''}`}>
+                            <td className="p-3 font-medium">{p.supplier}</td><td className="p-3">{p.description}{p.contractManaged&&<div className="text-[11px] text-blue-600 font-semibold">Contrato · trazabilidad protegida</div>}</td><td className="p-3">{format(parseAccountingDate(p.dueDate), 'dd/MM/yyyy', { locale: es })}</td><td className="p-3 font-mono">${parseFloat(p.amount).toLocaleString('es-ES')}{p.contractManaged&&<div className="text-[11px] text-amber-700">Saldo: ${Math.max(0,Number(p.amount||0)-Number(p.paidAmount != null ? p.paidAmount : (p.status==='Pagado'?p.amount:0))).toLocaleString('es-CO')}</div>}</td>
+                            <td className="p-3"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${p.status === 'Pagado' ? 'bg-green-100 text-green-800' : p.status === 'Parcial' ? 'bg-blue-100 text-blue-800' : p.status === 'Anulada' ? 'bg-slate-200 text-slate-600' : 'bg-yellow-100 text-yellow-800'}`}>{p.status}</span></td>
                             <td className="p-3"><div className="flex gap-1">
-                                {p.status === 'Pendiente' && (
+                                {['Pendiente','Parcial'].includes(p.status) && (
                                     <>
-                                        <Button size="icon" variant="ghost" className="hover:text-blue-600" onClick={() => { setPayableForTracking(p); setTrackingDialogOpen(true); }} title="Hoja de Apuntes"><ClipboardList className="w-4 h-4" /></Button>
+                                        {!p.contractManaged&&<Button size="icon" variant="ghost" className="hover:text-blue-600" onClick={() => { setPayableForTracking(p); setTrackingDialogOpen(true); }} title="Hoja de Apuntes"><ClipboardList className="w-4 h-4" /></Button>}
                                         {canAdd && <Button size="icon" variant="ghost" className="hover:text-green-600" onClick={() => { setPayableToPay(p); setPaymentDialogOpen(true); }} title="Marcar como Pagado"><CheckCircle className="w-4 h-4" /></Button>}
                                     </>
                                 )}
+                                {p.contractManaged&&canEdit&&(p.payments||[]).some(pay=>!pay.reversedAt)&&<Button size="icon" variant="ghost" className="hover:text-amber-600" onClick={()=>handleReverseLastContractPayment(p)} title="Reversar último pago contractual"><RotateCcw className="w-4 h-4"/></Button>}
                                 {canEdit && !p.contractManaged && <Button size="icon" variant="ghost" onClick={() => { setEditingPayable(p); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
                                 {canDelete && !p.contractManaged && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeletePayable(p.id)}><Trash2 className="w-4 h-4" /></Button>}
                             </div></td>
@@ -583,22 +657,36 @@ const PayableDialog = ({ open, onOpenChange, onSave, payable, accounts }) => {
 
 const PaymentDialog = ({ open, onOpenChange, onSave, payable, bankAccounts }) => {
     const [origin, setOrigin] = useState('caja_principal|CAJA PRINCIPAL');
+    const [amount, setAmount] = useState('');
+    const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+    const previousPaid = payable?.paidAmount != null ? Number(payable.paidAmount || 0) : (payable?.payments || []).filter(p=>!p.reversedAt).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const remaining = Math.max(0, Number(payable?.amount || 0) - previousPaid);
+
     useEffect(() => {
         if (open) {
             setOrigin('caja_principal|CAJA PRINCIPAL');
+            setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+            const paid = payable?.paidAmount != null ? Number(payable.paidAmount || 0) : (payable?.payments || []).filter(p=>!p.reversedAt).reduce((sum,p)=>sum+Number(p.amount||0),0);
+            setAmount(payable?.contractManaged ? String(Math.max(0, Number(payable?.amount || 0) - paid)) : String(payable?.amount || ''));
         }
-    }, [open]);
+    }, [open, payable]);
 
     const handleSave = () => {
-        onSave({ payable, origin });
+        onSave({ payable, origin, amount: payable?.contractManaged ? Number(amount) : Number(payable?.amount || 0), paymentDate });
     };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
-                <DialogHeader><DialogTitle>Registrar Pago</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>{payable?.contractManaged ? 'Registrar Pago Contractual' : 'Registrar Pago'}</DialogTitle></DialogHeader>
                 <div className="py-4 space-y-4">
-                    <p>Vas a marcar la cuenta de <strong>{payable?.supplier}</strong> por un monto de <strong>${parseFloat(payable?.amount || 0).toLocaleString('es-ES')}</strong> como pagada.</p>
+                    <div className="bg-slate-50 border rounded-lg p-3 text-sm">
+                        <div className="flex justify-between"><span>Proveedor</span><strong>{payable?.supplier}</strong></div>
+                        <div className="flex justify-between mt-1"><span>Valor original</span><strong>${Number(payable?.amount || 0).toLocaleString('es-CO')}</strong></div>
+                        {payable?.contractManaged&&<><div className="flex justify-between mt-1"><span>Pagado</span><strong className="text-green-700">${previousPaid.toLocaleString('es-CO')}</strong></div><div className="flex justify-between mt-1"><span>Saldo pendiente</span><strong className="text-amber-700">${remaining.toLocaleString('es-CO')}</strong></div></>}
+                    </div>
+                    {payable?.contractManaged&&<div className="grid grid-cols-2 gap-3"><div className="space-y-1"><Label>Fecha del pago</Label><input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} className="w-full p-2 border rounded-lg"/></div><div className="space-y-1"><Label>Monto a pagar</Label><input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-2 border rounded-lg"/></div></div>}
+                    {payable?.requiresSocialSecurity&&<div className={`text-xs rounded-lg border p-3 ${payable.socialSecurityVerified?'bg-green-50 border-green-200 text-green-800':'bg-red-50 border-red-200 text-red-800'}`}>{payable.socialSecurityVerified?'PILA / seguridad social verificada'+(payable.socialSecurityReference?' · '+payable.socialSecurityReference:''):'Pago bloqueado: falta verificar PILA / seguridad social en el acta contractual.'}</div>}
                     <div className="space-y-2">
                         <Label htmlFor="origin">¿Desde dónde se realizó el pago?</Label>
                         <select id="origin" value={origin} onChange={e => setOrigin(e.target.value)} className="w-full p-2 border rounded-lg">
@@ -611,7 +699,7 @@ const PaymentDialog = ({ open, onOpenChange, onSave, payable, bankAccounts }) =>
                 </div>
                 <DialogFooter>
                     <DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose>
-                    <Button onClick={handleSave} className="bg-red-600 hover:bg-red-700">Confirmar Pago</Button>
+                    <Button onClick={handleSave} disabled={payable?.contractManaged&&(Number(amount)<=0||Number(amount)>remaining||Boolean(payable?.requiresSocialSecurity&&!payable?.socialSecurityVerified))} className="bg-red-600 hover:bg-red-700">{payable?.contractManaged&&Number(amount)<remaining?'Registrar Abono':'Confirmar Pago'}</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

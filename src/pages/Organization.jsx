@@ -8,10 +8,12 @@ import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { usePermission } from '@/hooks/usePermission';
-import { supabase } from '@/lib/supabase'; // <-- AÑADIDO: CONEXIÓN A LA NUBE
+import { useAuth } from '@/contexts/LocalAuthContext';
+import { createCompanySecure, deleteCompanySecure } from '@/lib/secureApi';
 
 const Organization = () => {
     const { activeCompany, companies, setCompanies, updateCompanyCredentials } = useCompany();
+    const { sessionToken } = useAuth();
     const { canModify, canEdit, isReadOnly } = usePermission();
     const { toast } = useToast();
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -23,25 +25,16 @@ const Organization = () => {
 
     const subCompanies = companies.filter(c => c.parentId && String(c.parentId) === String(activeCompany?.id));
 
-    // 🚀 LÁSER DESTRUCTOR EN LA NUBE PARA SUB-EMPRESAS
     const handleDelete = async (id) => {
-        if (!canModify) return;
-        if (window.confirm('¿Estás seguro de eliminar esta sub-empresa de la base de datos? Se perderán sus datos permanentemente.')) {
+        if (!canModify || !sessionToken) return;
+        if (window.confirm('¿Estás seguro de eliminar esta sub-empresa? Se eliminarán también sus datos sincronizados dependientes.')) {
             try {
-                const { error } = await supabase
-                    .from('companies')
-                    .delete()
-                    .eq('id', String(id));
-
-                if (error) throw error;
-
-                if (typeof setCompanies === 'function') {
-                    await setCompanies();
-                }
+                await deleteCompanySecure(sessionToken, id);
+                if (typeof setCompanies === 'function') await setCompanies();
                 toast({ title: "Sub-empresa eliminada exitosamente" });
             } catch (err) {
                 console.error("Error eliminando sub-empresa:", err);
-                toast({ variant: "destructive", title: "Error", description: "No se pudo eliminar de la nube." });
+                toast({ variant: "destructive", title: "Error", description: err?.message || "No se pudo eliminar la sub-empresa." });
             }
         }
     };
@@ -54,82 +47,68 @@ const Organization = () => {
 
     const handleOpenEdit = (subCompany) => {
         setEditingId(subCompany.id);
-        setFormData({ name: subCompany.name || '', address: subCompany.address || '', phone: subCompany.phone || '', username: subCompany.username || '', password: subCompany.password || '', partialPassword: subCompany.partialPassword || '' });
+        setFormData({ name: subCompany.name || '', address: subCompany.address || '', phone: subCompany.phone || '', username: subCompany.username || '', password: '', partialPassword: '' });
         setIsDialogOpen(true);
     };
 
-    // 🚀 GUARDADO DIRECTO A LA NUBE PARA SUB-EMPRESAS
     const handleSave = async (e) => {
         e.preventDefault();
-        if (!canModify) return;
-        if (!formData.name.trim() || !formData.username.trim() || !formData.password.trim()) { 
-            toast({ variant: "destructive", title: "Datos incompletos", description: "Nombre, Usuario y Contraseña Global son obligatorios." }); 
-            return; 
+        if (!canModify || !sessionToken || !activeCompany) return;
+        if (!formData.name.trim() || !formData.username.trim() || (!editingId && !formData.password.trim())) {
+            toast({ variant: "destructive", title: "Datos incompletos", description: editingId ? "Nombre y Usuario son obligatorios." : "Nombre, Usuario y Contraseña Global son obligatorios." });
+            return;
         }
-        
+
         const isDuplicateUser = companies.some(c => c.username === formData.username && c.id !== editingId);
-        if (isDuplicateUser) { 
-            toast({ variant: "destructive", title: "Usuario no disponible", description: "Este nombre de usuario ya está en uso." }); 
-            return; 
+        if (isDuplicateUser) {
+            toast({ variant: "destructive", title: "Usuario no disponible", description: "Este nombre de usuario ya está en uso." });
+            return;
         }
 
         try {
             if (editingId) {
-                // EDITAR SUB-EMPRESA
-                const { error } = await supabase
-                    .from('companies')
-                    .update({
-                        name: formData.name,
-                        address: formData.address,
-                        phone: formData.phone,
-                        username: formData.username,
-                        password: formData.password,
-                        partial_password: formData.partialPassword
-                    })
-                    .eq('id', String(editingId));
-                    
-                if (error) throw error;
+                await updateCompanyCredentials(editingId, {
+                    name: formData.name,
+                    address: formData.address,
+                    phone: formData.phone,
+                    username: formData.username,
+                    ...(formData.password ? { password: formData.password } : {}),
+                    ...(formData.partialPassword ? { partialPassword: formData.partialPassword } : {}),
+                });
                 toast({ title: "Sub-empresa actualizada" });
             } else {
-                // CREAR NUEVA SUB-EMPRESA
                 const newId = Date.now().toString();
-                const { error } = await supabase
-                    .from('companies')
-                    .insert([{
-                        id: newId,
-                        parent_id: String(activeCompany.id),
-                        doc_nit: activeCompany.doc, // Hereda el NIT de la parroquia
-                        name: formData.name,
-                        address: formData.address,
-                        phone: formData.phone,
-                        username: formData.username,
-                        password: formData.password,
-                        partial_password: formData.partialPassword
-                    }]);
-                    
-                if (error) throw error;
+                await createCompanySecure(sessionToken, {
+                    id: newId,
+                    parentId: activeCompany.id,
+                    name: formData.name,
+                    doc: activeCompany.doc,
+                });
+                await updateCompanyCredentials(newId, {
+                    address: formData.address,
+                    phone: formData.phone,
+                    username: formData.username,
+                    password: formData.password,
+                    ...(formData.partialPassword ? { partialPassword: formData.partialPassword } : {}),
+                });
                 toast({ title: "Sub-empresa creada exitosamente" });
             }
 
-            // Recargar la lista fresca desde la nube
-            if (typeof setCompanies === 'function') {
-                await setCompanies();
-            }
+            if (typeof setCompanies === 'function') await setCompanies();
             setIsDialogOpen(false);
-            
         } catch (err) {
             console.error("Error guardando sub-empresa:", err);
-            toast({ variant: "destructive", title: "Error", description: "No se pudo conectar con la base de datos." });
+            toast({ variant: "destructive", title: "Error", description: err?.message || "No se pudo completar la operación segura." });
         }
     };
 
-    const handleSecuritySave = (e) => {
+    const handleSecuritySave = async (e) => {
         e.preventDefault();
-        if (!canModify) return;
-        if (securityData.newPassword.length < 6) { toast({ variant: "destructive", title: "Contraseña insegura", description: "La nueva contraseña debe tener al menos 6 caracteres." }); return; }
+        if (!canModify || !activeCompany) return;
+        if (securityData.newPassword.length < 12) { toast({ variant: "destructive", title: "Contraseña insegura", description: "La nueva contraseña debe tener al menos 12 caracteres." }); return; }
         if (securityData.newPassword !== securityData.confirmPassword) { toast({ variant: "destructive", title: "Error", description: "Las contraseñas nuevas no coinciden." }); return; }
-        if (securityData.currentPassword && securityData.currentPassword !== activeCompany.password) { toast({ variant: "destructive", title: "Error", description: "La contraseña actual es incorrecta." }); return; }
-        updateCompanyCredentials(activeCompany.id, { password: securityData.newPassword });
+        const ok = await updateCompanyCredentials(activeCompany.id, { password: securityData.newPassword });
+        if (!ok) return;
         setIsSecurityDialogOpen(false);
         setSecurityData({ currentPassword: '', newPassword: '', confirmPassword: '' });
     };
@@ -145,12 +124,11 @@ const Organization = () => {
                              <Dialog open={isSecurityDialogOpen} onOpenChange={setIsSecurityDialogOpen}>
                                 <DialogTrigger asChild><Button variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-100"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button></DialogTrigger>
                                 <DialogContent>
-                                    <DialogHeader><DialogTitle>Cambiar Contraseña Global</DialogTitle><DialogDescription>Actualiza tu clave de acceso principal.</DialogDescription></DialogHeader>
+                                    <DialogHeader><DialogTitle>Cambiar Contraseña Global</DialogTitle><DialogDescription>La sesión actual ya acredita tu identidad. La nueva clave se almacenará únicamente como hash.</DialogDescription></DialogHeader>
                                     {isReadOnly ? (
                                         <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg flex items-center gap-2 text-amber-800"><AlertTriangle className="w-5 h-5"/> No tienes permisos para modificar la seguridad.</div>
                                     ) : (
                                         <form onSubmit={handleSecuritySave} className="space-y-4 py-2">
-                                            <div className="space-y-2"><Label>Contraseña Actual</Label><input type="password" required className="w-full p-2 border rounded-md" value={securityData.currentPassword} onChange={e => setSecurityData({...securityData, currentPassword: e.target.value})} /></div>
                                             <div className="space-y-2"><Label>Nueva Contraseña</Label><input type="password" required className="w-full p-2 border rounded-md" value={securityData.newPassword} onChange={e => setSecurityData({...securityData, newPassword: e.target.value})} /></div>
                                             <div className="space-y-2"><Label>Confirmar Nueva Contraseña</Label><input type="password" required className="w-full p-2 border rounded-md" value={securityData.confirmPassword} onChange={e => setSecurityData({...securityData, confirmPassword: e.target.value})} /></div>
                                             <Button type="submit" className="w-full bg-slate-900">Actualizar Contraseña</Button>
@@ -167,7 +145,7 @@ const Organization = () => {
                                             <div className="space-y-2"><Label>Nombre</Label><input required disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
                                             <div className="space-y-2"><Label>Usuario</Label><input required disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>
                                              <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2"><Label>Clave Global</Label><input required type="password" disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
+                                                <div className="space-y-2"><Label>Clave Global {editingId ? '(dejar vacía para conservar)' : ''}</Label><input required={!editingId} type="password" disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
                                                 <div className="space-y-2"><Label>Clave Parcial</Label><input type="password" disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.partialPassword} onChange={e => setFormData({...formData, partialPassword: e.target.value})} /></div>
                                             </div>
                                         </div>

@@ -10,13 +10,14 @@ import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePermission } from '@/hooks/usePermission';
 import { useCompanyData } from '@/hooks/useCompanyData';
-import { validateCompanyJSON, saveCompanies } from '@/contexts/LocalAuthContext';
+import { validateCompanyJSON, useAuth } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase';
+import { syncWrite } from '@/lib/secureApi';
 import { COMPANY_DATA_SUFFIXES } from '@/lib/companyDataKeys';
 
 const Settings = () => {
     const { activeCompany, companies, setCompanies, isGeneralAdmin, updateCompanyCredentials } = useCompany();
+    const { sessionToken } = useAuth();
     const { canModify, isReadOnly } = usePermission();
     const { toast } = useToast();
     const [syncedVoucherSequences, saveVoucherSequences, voucherSequencesLoaded] = useCompanyData('voucher-sequence');
@@ -282,7 +283,7 @@ const Settings = () => {
 
         try {
             const { content, validIds } = backupPreview;
-            const supportedTypes = ['transactions', 'contacts', 'accounts', 'bankAccounts', 'accountsReceivable', 'accountsPayable', 'inventory', 'offices', 'voucher-sequence', 'cash_accounts', 'fixedAssets', 'realEstates', 'initialBalance', 'mass_intentions', 'contracts', 'billing_documents', 'auto_billing_categories'];
+            const supportedTypes = ['transactions', 'contacts', 'accounts', 'bankAccounts', 'accountsReceivable', 'accountsPayable', 'inventory', 'offices', 'voucher-sequence', 'cash_accounts', 'fixedAssets', 'realEstates', 'initialBalance', 'mass_intentions', 'contracts', 'contract_documents', 'billing_documents', 'auto_billing_categories'];
             let restoredDataCount = 0;
 
             // ❌ SE ELIMINÓ LA ACTUALIZACIÓN DEL PERFIL (NOMBRE, DIRECCIÓN, TELÉFONO). 
@@ -304,16 +305,8 @@ const Settings = () => {
                         
                         await storage.setItem(key, JSON.stringify(records));
                         
-                        const { error: syncError } = await supabase
-                            .from('app_data_sync')
-                            .upsert({
-                                company_id: String(targetId),
-                                storage_key: type,
-                                data: records,
-                                updated_at: new Date().toISOString()
-                            });
-
-                        if (syncError) console.error("Error subiendo datos a Supabase:", syncError);
+                        if (!sessionToken) throw new Error('Sesión segura no disponible');
+                        await syncWrite(sessionToken, targetId, type, records);
 
                         restoredDataCount += Array.isArray(records) ? records.length : 1;
                     }

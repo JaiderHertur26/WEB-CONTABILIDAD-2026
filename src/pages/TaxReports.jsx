@@ -78,7 +78,7 @@ const TaxReports = () => {
     }, [transactions, filterByCompany]);
     
     const contractTaxRows = useMemo(() => (contracts || []).flatMap(contract => (contract.acts || [])
-        .filter(act => String(act.date || '').startsWith(selectedYear) && Number(act.tax?.totalWithholdings || 0) > 0)
+        .filter(act => act.status !== 'Anulada' && String(act.date || '').startsWith(selectedYear) && Number(act.tax?.totalWithholdings || 0) > 0)
         .map(act => ({
             contract: contract.number,
             contractor: contract.contractorName,

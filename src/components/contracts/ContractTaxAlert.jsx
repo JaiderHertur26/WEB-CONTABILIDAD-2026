@@ -17,7 +17,7 @@ const ContractTaxAlert = ({ compact = false }) => {
 
   const obligations = useMemo(() => (contracts || []).flatMap(contract =>
     (contract.acts || [])
-      .filter(act => money(act.tax?.totalWithholdings) > 0 && act.taxStatus !== 'paid')
+      .filter(act => act.status !== 'Anulada' && money(act.tax?.totalWithholdings) > 0 && act.taxStatus !== 'paid')
       .map(act => ({
         contract,
         act,

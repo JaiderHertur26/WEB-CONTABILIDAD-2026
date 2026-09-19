@@ -3,7 +3,8 @@ import { CheckCircle, RefreshCw, AlertTriangle, Cloud, HardDrive, ShieldCheck } 
 import { Button } from '@/components/ui/button';
 import { useCompany } from '@/contexts/CompanyContext';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase';
+import { syncReadMany } from '@/lib/secureApi';
+import { useAuth } from '@/contexts/LocalAuthContext';
 import { COMPANY_DATA_KEYS } from '@/lib/companyDataKeys';
 import {
   syncMetaKey,
@@ -34,6 +35,7 @@ const formatDateTime = (value) => {
 
 const SyncIntegrityPanel = () => {
   const { activeCompany, isGeneralAdmin } = useCompany();
+  const { sessionToken } = useAuth();
   const [auditRows, setAuditRows] = useState([]);
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditError, setAuditError] = useState('');
@@ -48,13 +50,8 @@ const SyncIntegrityPanel = () => {
     try {
       const companyId = String(activeCompany.id);
       const keys = COMPANY_DATA_KEYS.map(item => item.key);
-      const { data: cloudRows, error } = await supabase
-        .from('app_data_sync')
-        .select('storage_key, data, updated_at')
-        .eq('company_id', companyId)
-        .in('storage_key', keys);
-
-      if (error) throw error;
+      if (!sessionToken) throw new Error('Sesión segura no disponible');
+      const cloudRows = await syncReadMany(sessionToken, companyId, keys);
       const cloudMap = new Map((cloudRows || []).map(row => [row.storage_key, row]));
       const rows = [];
 
@@ -102,7 +99,7 @@ const SyncIntegrityPanel = () => {
     } finally {
       setIsAuditing(false);
     }
-  }, [activeCompany, isGeneralAdmin]);
+  }, [activeCompany, isGeneralAdmin, sessionToken]);
 
   useEffect(() => {
     setAuditRows([]);

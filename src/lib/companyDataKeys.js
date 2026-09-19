@@ -17,6 +17,7 @@ export const COMPANY_DATA_KEYS = [
   { key: 'purchase_invoices', label: 'Facturas de Compra' },
   { key: 'mass_intentions', label: 'Intenciones de Misa' },
   { key: 'contracts', label: 'Contratos' },
+  { key: 'contract_documents', label: 'Documentos de Contratos' },
   { key: 'voucher-sequence', label: 'Secuencias' },
   { key: 'voucher_config', label: 'Configuración de Comprobantes' },
   { key: 'offices', label: 'Oficinas (legado)' },

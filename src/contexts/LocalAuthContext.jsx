@@ -1,103 +1,26 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase';
+import { listLoginCompanies, sessionLogout } from '@/lib/secureApi';
 
 const LocalAuthContext = createContext();
 
 export const getCompanies = async () => {
   try {
-    // EL TRUCO MAESTRO: Pedimos los datos sin exponer las contraseñas
-    const { data, error } = await supabase
-        .from('companies')
-        .select('id, name, doc_nit, parent_id, username, address, phone'); 
-
-    if (error) {
-        console.error("Error al consultar empresas:", error);
-        return [];
-    }
+    const data = await listLoginCompanies();
     return (data || []).map(comp => ({
-        ...comp,
-        doc: comp.doc_nit, 
-        parentId: comp.parent_id
+      ...comp,
+      doc: comp.doc_nit,
+      parentId: comp.parent_id,
+      isActive: !!comp.is_active,
     }));
   } catch (e) {
-    console.error("Error de red:", e);
+    console.error("Error al consultar directorio seguro:", e);
     return [];
   }
 };
 
-export const saveCompanies = async (companies) => {
-  try {
-    // PASO 1: Insertamos todas las empresas sin el parent_id
-    const step1 = companies.map(c => {
-        const payload = {
-            id: String(c.id), 
-            parent_id: null,
-            name: String(c.name),
-            doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
-            address: c.address || '', // CORRECCIÓN: Usamos '' en lugar de null para React
-            phone: c.phone || '',     // CORRECCIÓN: Usamos '' en lugar de null para React
-            username: String(c.username)
-        };
-
-        // 🛡️ BLINDAJE DE CONTRASEÑAS: 
-        // Solo enviamos la contraseña si viene escrita en el objeto.
-        // Esto evita destruir las contraseñas de las empresas existentes con "undefined".
-        if (c.password) {
-            payload.password = String(c.password);
-        }
-        if (c.partialPassword || c.partial_password) {
-            payload.partial_password = String(c.partialPassword || c.partial_password);
-        }
-
-        return payload;
-    });
-
-    const { error: error1 } = await supabase
-        .from('companies')
-        .upsert(step1, { onConflict: 'id' });
-
-    if (error1) {
-        throw new Error("Error BD (Paso 1): " + error1.message); 
-    }
-
-    // PASO 2: Volvemos a guardar las que son sucursales
-    const withParents = companies.filter(c => c.parentId);
-    if (withParents.length > 0) {
-        const step2 = withParents.map(c => {
-            const payload = {
-                id: String(c.id),
-                parent_id: String(c.parentId),
-                name: String(c.name), 
-                doc_nit: (c.doc || c.doc_nit) ? String(c.doc || c.doc_nit) : null,
-                address: c.address || '',
-                phone: c.phone || '',
-                username: String(c.username)
-            };
-
-            if (c.password) {
-                payload.password = String(c.password);
-            }
-            if (c.partialPassword || c.partial_password) {
-                payload.partial_password = String(c.partialPassword || c.partial_password);
-            }
-
-            return payload;
-        });
-        
-        const { error: error2 } = await supabase
-            .from('companies')
-            .upsert(step2, { onConflict: 'id' });
-
-        if (error2) {
-            throw new Error("Error vinculando sucursales: " + error2.message);
-        }
-    }
-
-  } catch (e) {
-    console.error("Error crítico guardando companies:", e);
-    throw e;
-  }
+export const saveCompanies = async () => {
+  throw new Error('El guardado directo de empresas fue deshabilitado. Usa los flujos seguros de sesión.');
 };
 
 export const validateCompanyJSON = (jsonData) => {
@@ -126,6 +49,7 @@ export const LocalAuthProvider = ({ children }) => {
   const [isGeneralAdmin, setIsGeneralAdmin] = useState(false);
   const [accessLevel, setAccessLevel] = useState('full');
   const [activeSessionId, setActiveSessionId] = useState(null);
+  const [sessionToken, setSessionToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -133,12 +57,17 @@ export const LocalAuthProvider = ({ children }) => {
       try {
         const session = await storage.getItem('auth_session');
         const level = await storage.getItem('auth_access_level') || 'full';
-        
-        if (session) {
+        const token = await storage.getItem('app_session_token');
+
+        if (session && token) {
           setIsAuthenticated(true);
           setActiveSessionId(session);
+          setSessionToken(token);
           setAccessLevel(level);
           setIsGeneralAdmin(session === 'general_admin');
+        } else if (session) {
+          await storage.removeItem('auth_session');
+          await storage.removeItem('auth_access_level');
         }
       } catch (error) {
         console.error("Auth init error:", error);
@@ -150,8 +79,11 @@ export const LocalAuthProvider = ({ children }) => {
   }, []);
 
   const login = async (data) => {
+    if (!data.sessionToken) throw new Error('La sesión segura no fue emitida por el servidor.');
     setIsAuthenticated(true);
+    setSessionToken(data.sessionToken);
     setAccessLevel(data.accessLevel || 'full');
+    await storage.setItem('app_session_token', data.sessionToken);
     await storage.setItem('auth_access_level', data.accessLevel || 'full');
 
     if (data.isGeneralAdmin) {
@@ -166,17 +98,20 @@ export const LocalAuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    try { await sessionLogout(sessionToken); } catch (error) { console.warn('No fue posible cerrar la sesión remota:', error); }
     setIsAuthenticated(false);
     setIsGeneralAdmin(false);
     setActiveSessionId(null);
+    setSessionToken(null);
     setAccessLevel('full');
     await storage.removeItem('auth_session');
     await storage.removeItem('auth_access_level');
+    await storage.removeItem('app_session_token');
   };
 
   return (
     <LocalAuthContext.Provider value={{ 
-      isAuthenticated, isGeneralAdmin, accessLevel, activeSessionId, login, logout, loading 
+      isAuthenticated, isGeneralAdmin, accessLevel, activeSessionId, sessionToken, login, logout, loading
     }}>
       {children}
     </LocalAuthContext.Provider>

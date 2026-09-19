@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { storage } from '@/lib/storage';
-import { supabase } from '@/lib/supabase';
+import { syncRead, syncWrite } from '@/lib/secureApi';
+import { useAuth } from '@/contexts/LocalAuthContext';
 
 const SYNC_META_VERSION = 3;
 const syncMetaKey = (storageKey) => `${storageKey}.__sync_meta_v3`;
@@ -172,6 +173,7 @@ const tagConsolidatedData = (value, company, activeCompany) =>
 
 export function useCompanyData(key) {
   const { activeCompany, companies, isConsolidated } = useCompany();
+  const { sessionToken } = useAuth();
   const [data, setData] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const mounted = useRef(true);
@@ -203,21 +205,11 @@ export function useCompanyData(key) {
   }, []);
 
   const uploadCloud = useCallback(async (companyId, value) => {
+    if (!sessionToken) throw new Error('Sesión segura no disponible');
     const now = new Date().toISOString();
-    const { data: row, error } = await supabase
-      .from('app_data_sync')
-      .upsert({
-        company_id: String(companyId),
-        storage_key: key,
-        data: value,
-        updated_at: now,
-      })
-      .select('updated_at')
-      .maybeSingle();
-
-    if (error) throw error;
-    return row?.updated_at || now;
-  }, [key]);
+    const uploadedAt = await syncWrite(sessionToken, companyId, key, value);
+    return uploadedAt || now;
+  }, [key, sessionToken]);
 
   const loadSingleCompany = useCallback(async (company) => {
     const companyId = getCompanyId(company);
@@ -230,15 +222,9 @@ export function useCompanyData(key) {
 
     let cloudRow = null;
     try {
-      const { data: row, error } = await supabase
-        .from('app_data_sync')
-        .select('data, updated_at')
-        .eq('company_id', companyId)
-        .eq('storage_key', key)
-        .maybeSingle();
-
-      if (error) throw error;
-      cloudRow = row;
+      if (!sessionToken) throw new Error('Sesión segura no disponible');
+      const rows = await syncRead(sessionToken, companyId, key);
+      cloudRow = Array.isArray(rows) ? (rows[0] || null) : null;
     } catch {
       const fallback = localData ?? [];
       meta.status = 'offline-local';
@@ -415,7 +401,7 @@ export function useCompanyData(key) {
     await storage.setItem(storageKey, JSON.stringify(localData));
     await writeSyncMeta(storageKey, meta);
     return localData;
-  }, [key, readSyncMeta, writeSyncMeta, uploadCloud]);
+  }, [key, readSyncMeta, writeSyncMeta, uploadCloud, sessionToken]);
 
   const loadData = useCallback(async () => {
     if (!activeCompany) {
@@ -477,7 +463,6 @@ export function useCompanyData(key) {
 
   useEffect(() => {
     let active = true;
-    const channels = [];
 
     const safeLoad = async () => {
       try {
@@ -488,46 +473,6 @@ export function useCompanyData(key) {
     };
 
     safeLoad();
-
-    try {
-      if (activeCompany && typeof supabase.channel === 'function') {
-        const relevant =
-          isConsolidated && Array.isArray(companies)
-            ? companies.filter(
-                company =>
-                  company &&
-                  (company.id === activeCompany.id || company.parentId === activeCompany.id)
-              )
-            : [activeCompany];
-
-        [...new Set(relevant.map(company => String(company.id)))].forEach(companyId => {
-          const channel = supabase
-            .channel(`sync-v3-${companyId}-${key}`)
-            .on(
-              'postgres_changes',
-              {
-                event: '*',
-                schema: 'public',
-                table: 'app_data_sync',
-                filter: `company_id=eq.${companyId}`,
-              },
-              payload => {
-                if (
-                  active &&
-                  (payload.new?.storage_key === key || payload.old?.storage_key === key)
-                ) {
-                  safeLoad();
-                }
-              }
-            )
-            .subscribe();
-
-          channels.push(channel);
-        });
-      }
-    } catch {
-      console.warn('[Sync] Tiempo real no disponible; continúa sincronización normal.');
-    }
 
     const handleStorageUpdate = event => {
       const storageKey = `${activeCompany?.id}-${key}`;
@@ -548,9 +493,6 @@ export function useCompanyData(key) {
       active = false;
       window.removeEventListener('storage-updated', handleStorageUpdate);
       window.removeEventListener('online', handleOnline);
-      channels.forEach(channel => {
-        try { supabase.removeChannel(channel); } catch {}
-      });
     };
   }, [loadData, activeCompany, companies, key, isConsolidated]);
 
@@ -585,15 +527,9 @@ export function useCompanyData(key) {
 
     let cloudRow = null;
     try {
-      const { data: row, error } = await supabase
-        .from('app_data_sync')
-        .select('data, updated_at')
-        .eq('company_id', companyId)
-        .eq('storage_key', key)
-        .maybeSingle();
-
-      if (error) throw error;
-      cloudRow = row;
+      if (!sessionToken) throw new Error('Sesión segura no disponible');
+      const rows = await syncRead(sessionToken, companyId, key);
+      cloudRow = Array.isArray(rows) ? (rows[0] || null) : null;
     } catch {
       meta.status = 'pending-offline';
       await writeSyncMeta(storageKey, meta);
@@ -665,6 +601,7 @@ export function useCompanyData(key) {
     readSyncMeta,
     writeSyncMeta,
     uploadCloud,
+    sessionToken,
   ]);
 
   const saveData = useCallback((newData) => {

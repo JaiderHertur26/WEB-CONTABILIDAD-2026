@@ -7,12 +7,12 @@ import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useCompany } from '@/contexts/CompanyContext';
-import { generateCompanySerial } from '@/lib/auth-utils';
-import { validateCompanyJSON, mergeCompanies } from '@/contexts/LocalAuthContext';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/LocalAuthContext';
+import { createCompanySecure, deleteCompanySecure, issueRegistrationToken, updateCompanySecure } from '@/lib/secureApi';
 
 const Companies = () => {
     const { companies, setCompanies, updateCompanyCredentials } = useCompany();
+    const { sessionToken } = useAuth();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [serialDialogOpen, setSerialDialogOpen] = useState(false);
     const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
@@ -21,71 +21,47 @@ const Companies = () => {
     const [selectedCompanyForCredentials, setSelectedCompanyForCredentials] = useState(null);
     const { toast } = useToast();
 
-    // 🚀 NUEVO: FUNCIÓN DE GUARDADO DIRECTO A LA NUBE
     const handleSaveCompany = async (companyData) => {
         try {
+            if (!sessionToken) throw new Error('Sesión administrativa no disponible');
             const isNew = !editingCompany;
             const companyId = isNew ? Date.now().toString() : editingCompany.id;
-            
+
             if (isNew) {
-                // Crear empresa nueva en Supabase
-                const { error } = await supabase
-                    .from('companies')
-                    .insert([{
-                        id: companyId,
-                        name: companyData.name,
-                        doc_nit: companyData.doc
-                    }]);
-                    
-                if (error) throw error;
-                toast({ title: "Empresa pre-registrada", description: "Creada exitosamente en la nube." });
+                await createCompanySecure(sessionToken, {
+                    id: companyId,
+                    name: companyData.name,
+                    doc: companyData.doc,
+                    parentId: null,
+                });
+                toast({ title: "Empresa pre-registrada", description: "Creada mediante sesión segura. Emite ahora su código de activación." });
             } else {
-                // Editar empresa existente en Supabase
-                const { error } = await supabase
-                    .from('companies')
-                    .update({
-                        name: companyData.name,
-                        doc_nit: companyData.doc
-                    })
-                    .eq('id', companyId);
-                    
-                if (error) throw error;
-                toast({ title: "Datos actualizados", description: "Modificados exitosamente en la nube." });
+                await updateCompanySecure(sessionToken, companyId, {
+                    name: companyData.name,
+                    doc_nit: companyData.doc,
+                });
+                toast({ title: "Datos actualizados", description: "Modificados mediante sesión segura." });
             }
 
-            // Descargamos la lista actualizada para refrescar la pantalla
-            if (typeof setCompanies === 'function') {
-                await setCompanies();
-            }
+            if (typeof setCompanies === 'function') await setCompanies();
             setDialogOpen(false);
-            
         } catch (err) {
             console.error("Error guardando empresa:", err);
-            toast({ variant: "destructive", title: "Error", description: "No se pudo conectar con la base de datos." });
+            toast({ variant: "destructive", title: "Error", description: err?.message || "No se pudo completar la operación segura." });
         }
     };
 
-    // EL LÁSER DESTRUCTOR CONFIGURADO
     const handleDeleteCompany = async (id) => {
-        if (window.confirm('¿Estás seguro de eliminar esta empresa de la nube? Esta acción es irreversible.')) {
-             try {
-                 const { error } = await supabase
-                     .from('companies')
-                     .delete()
-                     .eq('id', String(id));
-
-                 if (error) throw error;
-
-                 // Recargamos la lista limpia
-                 if (typeof setCompanies === 'function') {
-                     await setCompanies();
-                 }
-                 toast({ title: "Empresa eliminada permanentemente" });
-                 
-             } catch (err) {
-                 console.error("Error eliminando en la nube:", err);
-                 toast({ variant: "destructive", title: "Error", description: "No se pudo eliminar la empresa de la base de datos." });
-             }
+        if (window.confirm('¿Estás seguro de eliminar esta empresa? Esta acción elimina también sus datos sincronizados dependientes.')) {
+            try {
+                if (!sessionToken) throw new Error('Sesión administrativa no disponible');
+                await deleteCompanySecure(sessionToken, id);
+                if (typeof setCompanies === 'function') await setCompanies();
+                toast({ title: "Empresa eliminada permanentemente" });
+            } catch (err) {
+                console.error("Error eliminando empresa:", err);
+                toast({ variant: "destructive", title: "Error", description: err?.message || "No se pudo eliminar la empresa." });
+            }
         }
     };
     
@@ -99,9 +75,9 @@ const Companies = () => {
         setCredentialsDialogOpen(true);
     }
     
-    const handleUpdateCredentials = (companyId, newData) => {
-        updateCompanyCredentials(companyId, newData);
-        setCredentialsDialogOpen(false);
+    const handleUpdateCredentials = async (companyId, newData) => {
+        const ok = await updateCompanyCredentials(companyId, newData);
+        if (ok) setCredentialsDialogOpen(false);
     };
 
     return (
@@ -111,7 +87,7 @@ const Companies = () => {
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">Gestión de Empresas</h1>
-                    <p className="text-slate-600 mt-1">Generación de seriales, pre-registro y gestión de credenciales.</p>
+                    <p className="text-slate-600 mt-1">Pre-registro, códigos de activación y gestión segura de credenciales.</p>
                 </div>
                 <div className="flex gap-2">
                     <Button onClick={() => { setEditingCompany(null); setDialogOpen(true); }} className="bg-slate-900 hover:bg-slate-800 text-white shadow-lg">
@@ -168,7 +144,7 @@ const Companies = () => {
                                         </Button>
                                     )}
                                     <Button variant="outline" size="sm" onClick={() => handleOpenSerial(company)} className="text-indigo-600 border-indigo-200 hover:bg-indigo-50">
-                                        <Key className="w-4 h-4 mr-2" /> Serial
+                                        <Key className="w-4 h-4 mr-2" /> Activación
                                     </Button>
                                     <div className="flex gap-1 border-l pl-2 ml-1 border-slate-200">
                                         <Button variant="ghost" size="icon" onClick={() => {setEditingCompany(company); setDialogOpen(true)}} className="text-slate-500 hover:text-blue-600 hover:bg-blue-50">
@@ -198,6 +174,7 @@ const Companies = () => {
                 open={serialDialogOpen} 
                 onOpenChange={setSerialDialogOpen} 
                 company={selectedCompanyForSerial}
+                sessionToken={sessionToken}
             />
         )}
 
@@ -238,7 +215,7 @@ const CompanyDialog = ({ open, onOpenChange, onSave, company }) => {
                 <DialogHeader>
                     <DialogTitle>{company ? 'Editar Datos Básicos' : 'Pre-registrar Empresa'}</DialogTitle>
                     <DialogDescription>
-                        Ingresa el Nombre y NIT. El serial se generará automáticamente.
+                        Ingresa el Nombre y NIT. Después podrás emitir un código de activación aleatorio y temporal.
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4 py-2">
@@ -254,7 +231,7 @@ const CompanyDialog = ({ open, onOpenChange, onSave, company }) => {
                     <div className="flex justify-end gap-2 pt-4">
                         <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
                         <Button type="submit" className="bg-slate-900 hover:bg-slate-800">
-                            {company ? 'Guardar Cambios' : 'Generar Serial'}
+                            {company ? 'Guardar Cambios' : 'Pre-registrar'}
                         </Button>
                     </div>
                 </form>
@@ -263,30 +240,35 @@ const CompanyDialog = ({ open, onOpenChange, onSave, company }) => {
     );
 };
 
-const SerialDialog = ({ open, onOpenChange, company }) => {
-    const [serial, setSerial] = useState('');
+const SerialDialog = ({ open, onOpenChange, company, sessionToken }) => {
+    const [activationCode, setActivationCode] = useState('');
     const [copied, setCopied] = useState(false);
-    
+    const [issuing, setIssuing] = useState(false);
+
     useEffect(() => {
-        const loadSerial = async () => {
-            if (!company) return;
-            if (company.authSerial) {
-                setSerial(company.authSerial);
-            } else if (company.doc) {
-                try {
-                    const generated = await generateCompanySerial(company.doc);
-                    setSerial(generated);
-                } catch (error) {
-                    setSerial('Error generando serial');
-                }
-            }
-        };
-        if (open) loadSerial();
-    }, [company, open]);
-    
+        if (open) {
+            setActivationCode('');
+            setCopied(false);
+        }
+    }, [open, company?.id]);
+
+    const issueCode = async () => {
+        if (!company || !sessionToken) return;
+        try {
+            setIssuing(true);
+            const code = await issueRegistrationToken(sessionToken, company.id);
+            setActivationCode(code || '');
+        } catch (error) {
+            console.error(error);
+            setActivationCode('');
+        } finally {
+            setIssuing(false);
+        }
+    };
+
     const copyToClipboard = () => {
-        if (serial) {
-            navigator.clipboard.writeText(serial);
+        if (activationCode) {
+            navigator.clipboard.writeText(activationCode);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         }
@@ -297,26 +279,35 @@ const SerialDialog = ({ open, onOpenChange, company }) => {
             <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Key className="w-5 h-5 text-indigo-600" /> Serial de Autenticación
+                        <Key className="w-5 h-5 text-indigo-600" /> Código de Activación Seguro
                     </DialogTitle>
+                    <DialogDescription>
+                        Cada código es aleatorio, de un solo uso y vence automáticamente. Emitir uno nuevo invalida el anterior.
+                    </DialogDescription>
                 </DialogHeader>
-                <div className="py-6 space-y-6">
+                <div className="py-6 space-y-5">
                     <div className="space-y-1 text-center">
-                         <h4 className="font-semibold text-slate-900">{company?.name}</h4>
-                         <p className="text-sm text-slate-500">NIT: {company?.doc}</p>
+                        <h4 className="font-semibold text-slate-900">{company?.name}</h4>
+                        <p className="text-sm text-slate-500">NIT: {company?.doc}</p>
                     </div>
-                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 break-all relative group">
-                         <p className="font-mono text-lg text-slate-800 text-center font-bold tracking-wide">
-                            {serial || "Calculando..."}
-                         </p>
-                         {serial && (
-                             <Button size="icon" variant="ghost" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={copyToClipboard}>
+                    {activationCode ? (
+                        <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 break-all relative group">
+                            <p className="font-mono text-sm text-slate-800 text-center font-bold tracking-wide pr-8">{activationCode}</p>
+                            <Button size="icon" variant="ghost" className="absolute top-2 right-2" onClick={copyToClipboard}>
                                 {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                             </Button>
-                         )}
-                    </div>
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="p-4 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800">
+                            El código no se almacena en texto legible. Se mostrará una sola vez después de emitirlo.
+                        </div>
+                    )}
+                    <Button onClick={issueCode} disabled={issuing} className="w-full">
+                        <RefreshCcw className={"w-4 h-4 mr-2 "+(issuing?'animate-spin':'')} />
+                        {activationCode ? 'Emitir un código nuevo' : 'Emitir código de activación'}
+                    </Button>
                 </div>
-                <div className="flex justify-end"><DialogClose asChild><Button>Cerrar</Button></DialogClose></div>
+                <div className="flex justify-end"><DialogClose asChild><Button variant="outline">Cerrar</Button></DialogClose></div>
             </DialogContent>
         </Dialog>
     );
@@ -328,11 +319,10 @@ const CredentialsDialog = ({ open, onOpenChange, company, onSave }) => {
     const [passwords, setPasswords] = useState({ password: '', partialPassword: '' });
 
     useEffect(() => {
-        if(company) {
-            setPasswords({
-                password: company.password || '',
-                partialPassword: company.partialPassword || ''
-            });
+        if (open) {
+            setPasswords({ password: '', partialPassword: '' });
+            setShowPassword(false);
+            setShowPartial(false);
         }
     }, [company, open]);
 
@@ -343,7 +333,7 @@ const CredentialsDialog = ({ open, onOpenChange, company, onSave }) => {
     const handleGenerate = (field) => {
         const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
         let result = '';
-        for (let i = 0; i < 8; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+        for (let i = 0; i < 12; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
         setPasswords(prev => ({ ...prev, [field]: result }));
     };
 
@@ -355,7 +345,7 @@ const CredentialsDialog = ({ open, onOpenChange, company, onSave }) => {
                         <Lock className="w-5 h-5 text-orange-600" /> Gestión de Credenciales
                     </DialogTitle>
                     <DialogDescription>
-                        Puedes visualizar y editar las contraseñas del cliente.
+                        Por seguridad las contraseñas actuales no se muestran. Aquí puedes establecer nuevas credenciales; se almacenarán únicamente como hash.
                     </DialogDescription>
                 </DialogHeader>
 
