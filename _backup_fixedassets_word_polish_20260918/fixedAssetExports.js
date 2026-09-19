@@ -4,9 +4,7 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
-  Footer,
   Packer,
-  PageNumber,
   PageOrientation,
   Paragraph,
   Table,
@@ -532,18 +530,15 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
   const tableRows = [
     new TableRow({
       tableHeader: true,
-      cantSplit: true,
       children: [
-        'N°', 'Cant.', 'Activo', 'Marca / Modelo / Serie', 'Categoría', 'Uso / Estado',
+        'Cant.', 'Activo', 'Marca / Modelo / Serie', 'Categoría', 'Uso / Estado',
         'Lugar', 'Valor Original', 'Deprec. Acum.', 'Valor en Libros', 'Observaciones'
       ].map(label => wordCell(label, { bold: true, align: AlignmentType.CENTER, fill: headerFill, color: 'FFFFFF', size: 12 })),
     }),
   ];
   rows.forEach((row) => {
     tableRows.push(new TableRow({
-      cantSplit: true,
       children: [
-        wordCell(row.No, { align: AlignmentType.CENTER, size: 12 }),
         wordCell(row.Cantidad, { align: AlignmentType.CENTER, size: 12 }),
         wordCell(row.Activo, { size: 12 }),
         wordCell(row.Identificacion, { size: 12 }),
@@ -559,9 +554,7 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
   });
 
   tableRows.push(new TableRow({
-    cantSplit: true,
     children: [
-      wordCell('', { fill: 'E7E6E6' }),
       wordCell(totals.quantity, { bold: true, align: AlignmentType.CENTER, fill: 'E7E6E6' }),
       wordCell('TOTALES', { bold: true, fill: 'E7E6E6' }),
       wordCell('', { fill: 'E7E6E6' }),
@@ -591,32 +584,6 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         wordCell('Responsable del Inventario', { bold: true, align: AlignmentType.CENTER }),
         wordCell('Párroco / Responsable', { bold: true, align: AlignmentType.CENTER }),
       ]}),
-      new TableRow({ children: [
-        wordCell('Nombre, firma y fecha', { align: AlignmentType.CENTER, size: 12 }),
-        wordCell('Nombre, firma y fecha', { align: AlignmentType.CENTER, size: 12 }),
-      ]}),
-    ],
-  });
-
-  const closingSummaryTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({ children: [
-        wordCell('Activos vigentes', { bold: true, fill: 'D9EAF7' }),
-        wordCell(totals.active, { align: AlignmentType.CENTER }),
-        wordCell('Ajustes contables', { bold: true, fill: 'D9EAF7' }),
-        wordCell(totals.adjustments, { align: AlignmentType.CENTER }),
-        wordCell('Unidades físicas', { bold: true, fill: 'D9EAF7' }),
-        wordCell(totals.quantity, { align: AlignmentType.CENTER }),
-      ]}),
-      new TableRow({ children: [
-        wordCell('Valor original', { bold: true, fill: 'EEF5FB' }),
-        wordCell(money(totals.original), { align: AlignmentType.RIGHT }),
-        wordCell('Depreciación acumulada', { bold: true, fill: 'EEF5FB' }),
-        wordCell(money(totals.depreciation), { align: AlignmentType.RIGHT }),
-        wordCell('Valor en libros', { bold: true, fill: 'EEF5FB' }),
-        wordCell(money(totals.net), { bold: true, align: AlignmentType.RIGHT }),
-      ]}),
     ],
   });
 
@@ -625,23 +592,8 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
       properties: {
         page: {
           size: { orientation: PageOrientation.LANDSCAPE },
-          margin: { top: 360, right: 360, bottom: 520, left: 360, footer: 240 },
+          margin: { top: 360, right: 360, bottom: 360, left: 360 },
         },
-      },
-      footers: {
-        default: new Footer({
-          children: [
-            new Paragraph({
-              alignment: AlignmentType.RIGHT,
-              children: [
-                new TextRun({ text: `Generado por Sistema Contable · ${meta.cutoff} · Página `, size: 12, color: '777777' }),
-                PageNumber.CURRENT,
-                new TextRun({ text: ' de ', size: 12, color: '777777' }),
-                PageNumber.TOTAL_PAGES,
-              ],
-            }),
-          ],
-        }),
       },
       children: [
         new Paragraph({
@@ -662,46 +614,25 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         new Paragraph({ text: '', spacing: { after: 120 } }),
         inventoryTable,
         new Paragraph({
-          pageBreakBefore: true,
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 120 },
-          children: [new TextRun({ text: 'CIERRE Y RESPONSABILIDAD DEL INVENTARIO', bold: true, size: 28, color: '17365D' })],
+          spacing: { before: 180, after: 80 },
+          children: [new TextRun({ text: 'NOTAS DE CONTROL', bold: true, size: 16, color: '1F4E78' })],
         }),
         new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { after: 160 },
-          children: [new TextRun({ text: `${meta.name.toUpperCase()} · NIT: ${meta.nit || '-'} · VIGENCIA ${meta.year} · CORTE ${meta.cutoff}`, bold: true, size: 16 })],
-        }),
-        closingSummaryTable,
-        new Paragraph({
-          spacing: { before: 220, after: 80 },
-          children: [new TextRun({ text: 'NOTAS DE CONTROL', bold: true, size: 18, color: '1F4E78' })],
-        }),
-        new Paragraph({
-          spacing: { after: 50 },
           children: [new TextRun({
-            text: '• Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente, activos sin ubicación y ajustes contables al final.',
+            text: 'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente, activos sin ubicación y ajustes contables al final.',
             size: 14,
           })],
         }),
         new Paragraph({
-          spacing: { after: 50 },
           children: [new TextRun({
-            text: '• Los ajustes contables no se cuentan como unidades físicas y su efecto sí se incorpora al valor neto contable.',
+            text: 'Los ajustes contables no se cuentan como unidades físicas y su efecto sí se incorpora al valor neto contable. Valores expresados en pesos colombianos (COP).',
             size: 14,
           })],
         }),
         new Paragraph({
-          spacing: { after: 50 },
+          spacing: { after: 420 },
           children: [new TextRun({
-            text: '• Valores expresados en pesos colombianos (COP).',
-            size: 14,
-          })],
-        }),
-        new Paragraph({
-          spacing: { after: 520 },
-          children: [new TextRun({
-            text: '• Conservar este inventario junto con los soportes de adquisición, depreciación, traslado y baja.',
+            text: 'Conservar este inventario junto con los soportes de adquisición, depreciación, traslado y baja.',
             size: 14,
           })],
         }),
