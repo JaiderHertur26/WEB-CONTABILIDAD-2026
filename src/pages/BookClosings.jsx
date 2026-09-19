@@ -1,3 +1,4 @@
+import { parseAccountingDate, getAccountingYear, accountingDateValue } from '@/lib/accountingDate';
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
@@ -86,7 +87,7 @@ const BookClosings = () => {
 
 
     const availableYears = React.useMemo(() => {
-        const years = new Set((transactions || []).filter(isRelevantCompany).map(t => new Date(t.date).getFullYear()));
+        const years = new Set((transactions || []).filter(isRelevantCompany).map(t => parseAccountingDate(t.date).getFullYear()));
         const current = new Date().getFullYear();
         years.add(current);
         return Array.from(years).sort((a, b) => b - a).map(String);
@@ -157,7 +158,7 @@ const BookClosings = () => {
 
         const allRelevantBase = transactions.filter(t => {
             if (!isRelevantCompany(t)) return false;
-            const dateObj = new Date(t.date);
+            const dateObj = parseAccountingDate(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const isValidStatus = !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(String(t.status || '').toLowerCase());
@@ -165,7 +166,7 @@ const BookClosings = () => {
         });
         const allRelevant = expandTransactionsByAllocation(allRelevantBase);
 
-        allRelevant.sort((a, b) => new Date(a.date) - new Date(b.date));
+        allRelevant.sort((a, b) => accountingDateValue(a.date) - accountingDateValue(b.date));
 
         let totalIncome = 0;
         let totalExpense = 0;
@@ -192,7 +193,7 @@ const BookClosings = () => {
 
             const amount = parseFloat(t.amount || 0);
             
-            const dateObj = new Date(t.date);
+            const dateObj = parseAccountingDate(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const mIndex = adjustedDate.getMonth();
@@ -484,7 +485,7 @@ const BookClosings = () => {
         ];
 
         const detailRows = (report.transactions || []).map(t => {
-            const dateObj = new Date(t.date);
+            const dateObj = parseAccountingDate(t.date);
             const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
             const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
             const amount = Number(t.amount || 0);
@@ -958,7 +959,7 @@ const BookClosings = () => {
         const allAccounts = Array.from(new Map((accounts || []).filter(a => a?.name).map(a => [String(a.name).trim(), a])).values());
 
         const getAccountCreationYear = (accountId, defaultDate) => {
-            if (defaultDate && isValid(parseISO(defaultDate))) return new Date(defaultDate).getFullYear();
+            if (defaultDate && isValid(parseISO(defaultDate))) return getAccountingYear(defaultDate);
             const accountTransactions = validTransactions.filter(t =>
                 t.destination?.startsWith(accountId) ||
                 t.fromAccount?.startsWith(accountId) ||
@@ -968,7 +969,7 @@ const BookClosings = () => {
             );
             if (accountTransactions.length > 0) {
                 const oldestDate = accountTransactions.reduce((min, t) => t.date < min ? t.date : min, accountTransactions[0].date);
-                return new Date(oldestDate).getFullYear();
+                return getAccountingYear(oldestDate);
             }
             return currentYear;
         };

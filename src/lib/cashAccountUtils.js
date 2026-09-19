@@ -1,3 +1,5 @@
+import { parseAccountingDate } from '@/lib/accountingDate';
+
 export const getDynamicCashAccounts = (cashAccounts, transactions, selectedYear) => {
   if (!cashAccounts || !transactions) return [];
 
@@ -19,7 +21,7 @@ export const getDynamicCashAccounts = (cashAccounts, transactions, selectedYear)
           
           // Date check (Accumulated up to end of selected year)
           if (!t.date) return;
-          const tDate = new Date(t.date);
+          const tDate = parseAccountingDate(t.date);
           if (tDate.getFullYear() > parseInt(selectedYear)) return;
           
           // Account check (Transaction belongs to this cash account)

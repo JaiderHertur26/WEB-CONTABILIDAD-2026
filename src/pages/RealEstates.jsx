@@ -1,3 +1,4 @@
+import { getAccountingYear } from '@/lib/accountingDate';
 import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
@@ -56,12 +57,12 @@ const RealEstates = () => {
     // Calculador automático de consecutivo
     const getNextVoucherNumber = (type, dateStr) => {
         if (!transactions) return 1;
-        const year = new Date(dateStr).getFullYear().toString();
+        const year = getAccountingYear(dateStr).toString();
         
         const typeTransactions = transactions.filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
-            const tYear = new Date(t.date).getFullYear().toString();
+            const tYear = getAccountingYear(t.date).toString();
             return tType === type && tYear === year;
         });
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { format } from 'date-fns';
+import { parseAccountingDate } from '@/lib/accountingDate';
 import { es } from 'date-fns/locale';
 
 const TrackingSheetVoucher = React.forwardRef(({ item, type }, ref) => {
@@ -39,7 +40,7 @@ const TrackingSheetVoucher = React.forwardRef(({ item, type }, ref) => {
                     <td className="font-bold p-2 border border-black w-1/4 bg-gray-50">{entityLabel}</td>
                     <td className="p-2 border border-black">{entityName}</td>
                     <td className="font-bold p-2 border border-black w-1/4 bg-gray-50">FECHA EMISIÓN:</td>
-                    <td className="p-2 border border-black">{format(new Date(item.issueDate), 'dd/MM/yyyy', { locale: es })}</td>
+                    <td className="p-2 border border-black">{format(parseAccountingDate(item.issueDate), 'dd/MM/yyyy', { locale: es })}</td>
                 </tr>
                 <tr>
                     <td className="font-bold p-2 border border-black bg-gray-50">DESCRIPCIÓN:</td>
@@ -65,7 +66,7 @@ const TrackingSheetVoucher = React.forwardRef(({ item, type }, ref) => {
                     ) : (
                         internalPayments.map((payment, idx) => (
                             <tr key={idx}>
-                                <td className="p-2 border border-black">{format(new Date(payment.date), 'dd/MM/yyyy', { locale: es })}</td>
+                                <td className="p-2 border border-black">{format(parseAccountingDate(payment.date), 'dd/MM/yyyy', { locale: es })}</td>
                                 <td className="p-2 border border-black">{payment.note || 'Abono parcial'}</td>
                                 <td className="p-2 border border-black text-right font-mono">${parseFloat(payment.amount).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</td>
                             </tr>

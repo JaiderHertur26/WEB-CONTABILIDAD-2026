@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogC
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { exportToExcel } from '@/lib/excel';
+import { parseAccountingDate, getAccountingYear, accountingDateValue } from '@/lib/accountingDate';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import TrackingSheetVoucher from '@/components/transactions/TrackingSheetVoucher';
@@ -133,7 +134,7 @@ const AccountsPayable = () => {
         const typeTransactions = transactions.filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
-            const tYear = new Date(t.date).getFullYear().toString();
+            const tYear = getAccountingYear(t.date).toString();
             return tType === type && tYear === year;
         });
         const maxNum = typeTransactions.reduce((max, t) => {
@@ -317,7 +318,7 @@ const AccountsPayable = () => {
     const filteredPayables = (payables || []).filter(p =>
         p.supplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.description.toLowerCase().includes(searchTerm.toLowerCase())
-    ).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    ).sort((a, b) => accountingDateValue(a.dueDate) - accountingDateValue(b.dueDate));
 
     return (
         <>
@@ -345,7 +346,7 @@ const AccountsPayable = () => {
                     <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
                         <thead className="bg-slate-50"><tr>{['Proveedor', 'Descripción', 'Vencimiento', 'Monto', 'Estado', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
                         <tbody className="divide-y">{filteredPayables.map(p => (<tr key={p.id} className={`hover:bg-slate-50 ${p.status === 'Pagado' ? 'text-slate-400' : ''}`}>
-                            <td className="p-3 font-medium">{p.supplier}</td><td className="p-3">{p.description}</td><td className="p-3">{format(new Date(p.dueDate), 'dd/MM/yyyy', { locale: es })}</td><td className="p-3 font-mono">${parseFloat(p.amount).toLocaleString('es-ES')}</td>
+                            <td className="p-3 font-medium">{p.supplier}</td><td className="p-3">{p.description}</td><td className="p-3">{format(parseAccountingDate(p.dueDate), 'dd/MM/yyyy', { locale: es })}</td><td className="p-3 font-mono">${parseFloat(p.amount).toLocaleString('es-ES')}</td>
                             <td className="p-3"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${p.status === 'Pagado' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{p.status}</span></td>
                             <td className="p-3"><div className="flex gap-1">
                                 {p.status === 'Pendiente' && (
@@ -462,7 +463,7 @@ const TrackingSheetDialog = ({ open, onOpenChange, onSave, payable, type, onPrin
                                     {internalPayments.map((payment) => (
                                         <div key={payment.id} className="flex justify-between items-center p-2 bg-white border rounded text-sm">
                                             <div>
-                                                <span className="font-medium">{format(new Date(payment.date), 'dd/MM/yyyy', { locale: es })}</span>
+                                                <span className="font-medium">{format(parseAccountingDate(payment.date), 'dd/MM/yyyy', { locale: es })}</span>
                                                 {payment.note && <span className="text-slate-500 ml-2">- {payment.note}</span>}
                                             </div>
                                             <span className="font-mono font-semibold">${parseFloat(payment.amount).toLocaleString('es-ES')}</span>

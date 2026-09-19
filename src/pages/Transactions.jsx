@@ -1,3 +1,4 @@
+import { parseAccountingDate, getAccountingYear, accountingDateValue, toAccountingDateInput } from '@/lib/accountingDate';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -198,7 +199,7 @@ const Transactions = () => {
         const years = new Set(filteredTrans.map(t => {
             return (typeof t.date === 'string' && t.date.includes('-')) 
                 ? t.date.split('-')[0] 
-                : new Date(t.date).getFullYear().toString();
+                : getAccountingYear(t.date).toString();
         }));
         const currentYear = new Date().getFullYear().toString();
         years.add(currentYear);
@@ -509,7 +510,7 @@ const Transactions = () => {
         const yearTx = processedTransactions.filter(t => {
             const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
                 ? t.date.split('-')[0] 
-                : new Date(t.date).getFullYear().toString();
+                : getAccountingYear(t.date).toString();
             return tYear === selectedYear;
         });
 
@@ -677,7 +678,7 @@ const Transactions = () => {
         const typeTransactions = transactions.filter(isRelevant).filter(t => {
             const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
                 ? t.date.split('-')[0] 
-                : new Date(t.date).getFullYear().toString();
+                : getAccountingYear(t.date).toString();
                 
             if (tYear !== year) return false;
             const computed = getTransactionTypeAndPrefix(t);
@@ -902,7 +903,7 @@ const Transactions = () => {
         }
 
         if (transactionData.type === 'expense' && transactionData.isFixedAsset) {
-            const assetPayload = { date: transactionData.date, name: transactionData.description, value: parseFloat(transactionData.amount), year: new Date(transactionData.date).getFullYear().toString(), transactionId: transactionId };
+            const assetPayload = { date: transactionData.date, name: transactionData.description, value: parseFloat(transactionData.amount), year: getAccountingYear(transactionData.date).toString(), transactionId: transactionId };
             updatedAssets.push({ ...assetPayload, id: `asset-${transactionId}`, status: 'Bueno', quantity: 1, company_id: activeCompany?.id, companyId: activeCompany?.id });
             saveFixedAssets(updatedAssets);
         }
@@ -1027,7 +1028,7 @@ const Transactions = () => {
                     date: transferData.date,
                     name: transferData.description, 
                     value: parseFloat(transferData.amount),
-                    year: new Date(transferData.date).getFullYear().toString(),
+                    year: getAccountingYear(transferData.date).toString(),
                     transactionId: transactionId
                 };
 
@@ -1377,7 +1378,7 @@ const Transactions = () => {
             if (codeCompare !== 0) return codeCompare;
             if (a._openingOnly && !b._openingOnly) return -1;
             if (!a._openingOnly && b._openingOnly) return 1;
-            return new Date(a.date) - new Date(b.date);
+            return accountingDateValue(a.date) - accountingDateValue(b.date);
         });
 
         const runningBalances = {};
@@ -1565,7 +1566,7 @@ const Transactions = () => {
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
         // 🚀 Validación Legal: Máximo 31 días
-        const diffDays = differenceInDays(new Date(effectiveEndDate), new Date(startDate));
+        const diffDays = differenceInDays(parseAccountingDate(effectiveEndDate), parseAccountingDate(startDate));
         if (diffDays > 31 || diffDays < 0) {
             toast({ variant: 'destructive', title: "Rango Inválido", description: "El Libro Diario no puede generarse por un periodo mayor a 31 días continuos según normativa." });
             setIsPrinting(false);
@@ -2108,7 +2109,7 @@ const Transactions = () => {
             
             const tDate = typeof t.date === 'string'
                 ? (t.date.includes('T') ? t.date.split('T')[0] : t.date.slice(0, 10))
-                : format(new Date(t.date), 'yyyy-MM-dd');
+                : toAccountingDateInput(t.date);
             const accountingRows = resolveAccountingRows(t);
             const isClaseResultados = accountingRows.some(row => {
                 const code = String(row.account?.code || '');
@@ -3398,7 +3399,7 @@ const Transactions = () => {
                                                 if (codeCompare !== 0) return codeCompare;
                                                 if (a._openingOnly && !b._openingOnly) return -1;
                                                 if (!a._openingOnly && b._openingOnly) return 1;
-                                                return new Date(a.date) - new Date(b.date);
+                                                return accountingDateValue(a.date) - accountingDateValue(b.date);
                                             });
 
                                             // 3. Renderizar calculando el saldo continuo por cuenta.
@@ -3705,7 +3706,7 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                 const diffAmount = Math.abs(dbAmount - finalAmount);
                 if (diffAmount > 1) return false; 
 
-                const tDate = new Date(t.date);
+                const tDate = parseAccountingDate(t.date);
                 const diffDays = Math.abs(differenceInDays(parsedDate, tDate));
                 if (diffDays > 3) return false; 
 
@@ -3776,7 +3777,7 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
 
             const year = (typeof row.date === 'string' && row.date.includes('-')) 
                 ? row.date.split('-')[0] 
-                : new Date(row.date).getFullYear().toString();
+                : getAccountingYear(row.date).toString();
                 
             const typeKey = `${row.type}-${year}`;
 
@@ -3786,7 +3787,7 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                     let tType = computed.type;
                     const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
                         ? t.date.split('-')[0] 
-                        : new Date(t.date).getFullYear().toString();
+                        : getAccountingYear(t.date).toString();
                     return tType === row.type && tYear === year;
                 });
                 const maxNum = typeTransactions.reduce((max, t) => {

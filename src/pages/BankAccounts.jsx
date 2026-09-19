@@ -1,3 +1,4 @@
+import { getAccountingYear } from '@/lib/accountingDate';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
@@ -107,11 +108,11 @@ const BankAccounts = () => {
     };
 
     const getNextVoucherNumber = (type, date) => {
-        const year = new Date(date).getFullYear().toString();
+        const year = getAccountingYear(date).toString();
         const typeTransactions = (transactions || []).filter(t => {
             let tType = t.type;
             if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
-            const tYear = new Date(t.date).getFullYear().toString();
+            const tYear = getAccountingYear(t.date).toString();
             return tType === type && tYear === year;
         });
 

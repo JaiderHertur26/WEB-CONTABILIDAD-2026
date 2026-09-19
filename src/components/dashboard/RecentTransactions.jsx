@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { getTransactionCategoryLabel } from '@/lib/transactionAllocations';
+import { accountingDateValue, formatAccountingDate } from '@/lib/accountingDate';
 
 const RecentTransactions = () => {
   const [transactionsData] = useCompanyData('transactions');
@@ -12,7 +13,7 @@ const RecentTransactions = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const sorted = [...(transactionsData || [])].sort((a,b) => new Date(b.date) - new Date(a.date));
+    const sorted = [...(transactionsData || [])].sort((a,b) => accountingDateValue(b.date) - accountingDateValue(a.date));
     setRecentTransactions(sorted.slice(0, 5));
   }, [transactionsData]);
 
@@ -69,7 +70,7 @@ const RecentTransactions = () => {
                   {transaction.type === 'income' ? '+' : '-'}${parseFloat(transaction.amount).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
                 </p>
                 <p className="text-sm text-slate-500">
-                  {new Date(transaction.date).toLocaleDateString('es-ES')}
+                  {formatAccountingDate(transaction.date, 'es-ES')}
                 </p>
               </div>
             </motion.div>

@@ -2,37 +2,180 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { storage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
-import {
-  SYNC_META_VERSION,
-  syncMetaKey,
-  parseStoredData,
-  parseTime,
-  sameData,
-  isIdArray,
-  dedupeById,
-  diffArrayById,
-  mergeRemoteWithLocalChanges,
-  reconcileLegacyCopies,
-  defaultSyncMeta,
-} from '@/lib/syncReconciliation';
 
-const asCompanyId = (company) => String(company?.id ?? '');
+const SYNC_META_VERSION = 3;
+const syncMetaKey = (storageKey) => `${storageKey}.__sync_meta_v3`;
 
-const tagRowsForCompany = (rows, company, activeCompany) => {
-  if (!Array.isArray(rows)) return [];
-  return rows.map(item => ({
-    ...item,
-    _companyId: company.id,
-    _companyName: company.name,
-    _isConsolidated: company.id !== activeCompany.id,
-  }));
+const normalizeForCompare = (value) => {
+  if (Array.isArray(value)) return value.map(normalizeForCompare);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((result, key) => {
+      result[key] = normalizeForCompare(value[key]);
+      return result;
+    }, {});
+  }
+  return value;
 };
+
+const stableStringify = (value) => JSON.stringify(normalizeForCompare(value));
+const isSameData = (a, b) => stableStringify(a) === stableStringify(b);
+
+const parseStoredValue = (value) => {
+  if (value == null) return undefined;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return undefined; }
+};
+
+const timestamp = (value) => {
+  const parsed = value ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const hasStableIds = (value) =>
+  Array.isArray(value) &&
+  value.every(item => item && item.id !== undefined && item.id !== null);
+
+const dedupeById = (value = []) => {
+  if (!hasStableIds(value)) return value;
+  return Array.from(new Map(value.map(item => [String(item.id), item])).values());
+};
+
+const diffById = (previous = [], next = []) => {
+  if (!hasStableIds(previous) || !hasStableIds(next)) {
+    return { changedIds: [], deletedIds: [], mergeable: false };
+  }
+
+  const previousMap = new Map(previous.map(item => [String(item.id), item]));
+  const nextMap = new Map(next.map(item => [String(item.id), item]));
+  const changedIds = [];
+  const deletedIds = [];
+
+  nextMap.forEach((item, id) => {
+    if (!previousMap.has(id) || !isSameData(previousMap.get(id), item)) changedIds.push(id);
+  });
+  previousMap.forEach((item, id) => {
+    if (!nextMap.has(id)) deletedIds.push(id);
+  });
+
+  return { changedIds, deletedIds, mergeable: true };
+};
+
+const mergeRemoteWithLocalChanges = ({
+  remote = [],
+  local = [],
+  changedIds = [],
+  deletedIds = [],
+}) => {
+  if (!hasStableIds(remote) || !hasStableIds(local)) return local;
+
+  const localMap = new Map(local.map(item => [String(item.id), item]));
+  const changed = new Set(changedIds.map(String));
+  const deleted = new Set(deletedIds.map(String));
+  const merged = [];
+
+  remote.forEach(item => {
+    const id = String(item.id);
+    if (deleted.has(id)) return;
+    merged.push(changed.has(id) && localMap.has(id) ? localMap.get(id) : item);
+  });
+
+  const present = new Set(merged.map(item => String(item.id)));
+  local.forEach(item => {
+    const id = String(item.id);
+    if (!present.has(id) && !deleted.has(id)) {
+      merged.push(item);
+      present.add(id);
+    }
+  });
+
+  return dedupeById(merged);
+};
+
+const resolveLegacyData = (local, cloud) => {
+  const hasLocal = local != null;
+  const hasCloud = cloud != null;
+
+  if (!hasLocal) return { data: cloud, source: 'cloud-only', repairCloud: false, ambiguous: false };
+  if (!hasCloud) return { data: local, source: 'local-only', repairCloud: true, ambiguous: false };
+  if (isSameData(local, cloud)) {
+    return { data: local, source: 'equal', repairCloud: false, ambiguous: false };
+  }
+
+  if (hasStableIds(local) && hasStableIds(cloud)) {
+    const localMap = new Map(local.map(item => [String(item.id), item]));
+    const cloudMap = new Map(cloud.map(item => [String(item.id), item]));
+    const localOnly = [...localMap.keys()].filter(id => !cloudMap.has(id));
+    const cloudOnly = [...cloudMap.keys()].filter(id => !localMap.has(id));
+    const conflicts = [...localMap.keys()].filter(
+      id => cloudMap.has(id) && !isSameData(localMap.get(id), cloudMap.get(id))
+    );
+
+    if (localOnly.length > 0 && cloudOnly.length === 0) {
+      return {
+        data: dedupeById(local),
+        source: 'local-superset',
+        repairCloud: true,
+        ambiguous: conflicts.length > 0,
+      };
+    }
+    if (cloudOnly.length > 0 && localOnly.length === 0 && conflicts.length === 0) {
+      return {
+        data: dedupeById(cloud),
+        source: 'cloud-superset',
+        repairCloud: false,
+        ambiguous: true,
+      };
+    }
+
+    const unionMap = new Map(cloud.map(item => [String(item.id), item]));
+    local.forEach(item => unionMap.set(String(item.id), item));
+    return {
+      data: Array.from(unionMap.values()),
+      source: 'legacy-union',
+      repairCloud: false,
+      ambiguous: true,
+      localOnly,
+      cloudOnly,
+      conflicts,
+    };
+  }
+
+  return {
+    data: local,
+    source: 'legacy-local-preferred',
+    repairCloud: false,
+    ambiguous: true,
+  };
+};
+
+const defaultSyncMeta = () => ({
+  version: SYNC_META_VERSION,
+  dirty: false,
+  lastCloudUpdatedAt: null,
+  localUpdatedAt: null,
+  pendingChangedIds: [],
+  pendingDeletedIds: [],
+  status: 'uninitialized',
+});
+
+const getCompanyId = (company) => String(company?.id ?? '');
+
+const tagConsolidatedData = (value, company, activeCompany) =>
+  Array.isArray(value)
+    ? value.map(item => ({
+        ...item,
+        _companyId: company.id,
+        _companyName: company.name,
+        _isConsolidated: company.id !== activeCompany.id,
+      }))
+    : [];
+
 export function useCompanyData(key) {
   const { activeCompany, companies, isConsolidated } = useCompany();
   const [data, setData] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const mounted = useRef(true);
-  const latestDataRef = useRef([]);
+  const dataRef = useRef([]);
   const saveQueueRef = useRef(Promise.resolve());
 
   useEffect(() => {
@@ -41,80 +184,81 @@ export function useCompanyData(key) {
   }, []);
 
   useEffect(() => {
-    latestDataRef.current = data;
+    dataRef.current = data;
   }, [data]);
 
-  const readMeta = useCallback(async (storageKey) => {
+  const readSyncMeta = useCallback(async (storageKey) => {
     const raw = await storage.getItem(syncMetaKey(storageKey));
-    const parsed = parseStoredData(raw);
-    if (parsed?.version === SYNC_META_VERSION) {
-      return { ...defaultSyncMeta(), ...parsed };
-    }
-    return null;
+    const parsed = parseStoredValue(raw);
+    return parsed?.version === SYNC_META_VERSION
+      ? { ...defaultSyncMeta(), ...parsed }
+      : null;
   }, []);
 
-  const writeMeta = useCallback(async (storageKey, meta) => {
-    await storage.setItem(syncMetaKey(storageKey), JSON.stringify({
-      ...defaultSyncMeta(),
-      ...meta,
-      version: SYNC_META_VERSION,
-    }));
+  const writeSyncMeta = useCallback(async (storageKey, meta) => {
+    await storage.setItem(
+      syncMetaKey(storageKey),
+      JSON.stringify({ ...defaultSyncMeta(), ...meta, version: SYNC_META_VERSION })
+    );
   }, []);
-  const writeCloud = useCallback(async (companyId, payload) => {
-    const requestedAt = new Date().toISOString();
+
+  const uploadCloud = useCallback(async (companyId, value) => {
+    const now = new Date().toISOString();
     const { data: row, error } = await supabase
       .from('app_data_sync')
       .upsert({
         company_id: String(companyId),
         storage_key: key,
-        data: payload,
-        updated_at: requestedAt,
+        data: value,
+        updated_at: now,
       })
       .select('updated_at')
       .maybeSingle();
 
     if (error) throw error;
-    return row?.updated_at || requestedAt;
+    return row?.updated_at || now;
   }, [key]);
 
-  const reconcileCompany = useCallback(async (company) => {
-    const companyId = asCompanyId(company);
+  const loadSingleCompany = useCallback(async (company) => {
+    const companyId = getCompanyId(company);
     const storageKey = `${companyId}-${key}`;
-    const localRaw = await storage.getItem(storageKey);
-    let localData = parseStoredData(localRaw);
-    let meta = await readMeta(storageKey);
-    const hadSyncMeta = Boolean(meta);
+    const rawLocal = await storage.getItem(storageKey);
+    let localData = parseStoredValue(rawLocal);
+    let meta = await readSyncMeta(storageKey);
+    const hadV3Meta = !!meta;
     meta = meta || defaultSyncMeta();
 
     let cloudRow = null;
     try {
-      const { data: fetched, error } = await supabase
+      const { data: row, error } = await supabase
         .from('app_data_sync')
         .select('data, updated_at')
         .eq('company_id', companyId)
         .eq('storage_key', key)
         .maybeSingle();
+
       if (error) throw error;
-      cloudRow = fetched;
-    } catch (error) {
+      cloudRow = row;
+    } catch {
       const fallback = localData ?? [];
       meta.status = 'offline-local';
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
       return fallback;
     }
+
     const cloudData = cloudRow?.data;
     const cloudUpdatedAt = cloudRow?.updated_at || null;
 
     if (!cloudRow) {
-      const fallback = localData ?? [];
+      const baseData = localData ?? [];
       if (localData !== undefined) {
         try {
-          const repairedAt = await writeCloud(companyId, fallback);
+          const uploadedAt = await uploadCloud(companyId, baseData);
           meta = {
             ...meta,
             dirty: false,
             needsReview: false,
-            lastCloudUpdatedAt: repairedAt,
+            lastCloudUpdatedAt: uploadedAt,
             status: 'cloud-created-from-local',
             pendingChangedIds: [],
             pendingDeletedIds: [],
@@ -125,71 +269,70 @@ export function useCompanyData(key) {
       } else {
         meta = { ...meta, lastCloudUpdatedAt: null, status: 'empty' };
       }
-      await storage.setItem(storageKey, JSON.stringify(fallback));
-      await writeMeta(storageKey, meta);
-      return fallback;
+
+      await storage.setItem(storageKey, JSON.stringify(baseData));
+      await writeSyncMeta(storageKey, meta);
+      return baseData;
     }
 
     if (meta.dirty && localData !== undefined) {
       const changedIds = meta.pendingChangedIds || [];
       const deletedIds = meta.pendingDeletedIds || [];
-      const resolved = (
-        isIdArray(cloudData) &&
-        isIdArray(localData) &&
+      const recoveredData =
+        hasStableIds(cloudData) &&
+        hasStableIds(localData) &&
         (changedIds.length > 0 || deletedIds.length > 0)
-      )
-        ? mergeRemoteWithLocalChanges({
-            remote: cloudData,
-            local: localData,
-            changedIds,
-            deletedIds,
-          })
-        : localData;
+          ? mergeRemoteWithLocalChanges({
+              remote: cloudData,
+              local: localData,
+              changedIds,
+              deletedIds,
+            })
+          : localData;
+
       try {
-        const syncedAt = await writeCloud(companyId, resolved);
+        const uploadedAt = await uploadCloud(companyId, recoveredData);
         meta = {
           ...meta,
           dirty: false,
           needsReview: false,
-          lastCloudUpdatedAt: syncedAt,
+          lastCloudUpdatedAt: uploadedAt,
           localUpdatedAt: new Date().toISOString(),
           pendingChangedIds: [],
           pendingDeletedIds: [],
           status: 'pending-local-recovered',
         };
-        localData = resolved;
+        localData = recoveredData;
         await storage.setItem(storageKey, JSON.stringify(localData));
-        await writeMeta(storageKey, meta);
+        await writeSyncMeta(storageKey, meta);
         return localData;
       } catch {
         meta.status = 'pending-local';
-        await writeMeta(storageKey, meta);
+        await writeSyncMeta(storageKey, meta);
         return localData;
       }
     }
 
-    if (!hadSyncMeta) {
-      const legacy = reconcileLegacyCopies(localData, cloudData);
-      const resolved = legacy.data ?? [];
-      const historicalDifference =
-        !sameData(localData, cloudData) &&
+    if (!hadV3Meta) {
+      const resolution = resolveLegacyData(localData, cloudData);
+      const selectedData = resolution.data ?? [];
+      const differs =
+        !isSameData(localData, cloudData) &&
         localData !== undefined &&
         cloudData !== undefined;
 
       meta = {
         ...meta,
         dirty: false,
-        needsReview: historicalDifference || Boolean(legacy.ambiguous),
+        needsReview: differs || !!resolution.ambiguous,
         lastCloudUpdatedAt: cloudUpdatedAt,
         localUpdatedAt: new Date().toISOString(),
-        status: historicalDifference
-          ? `legacy-${legacy.source}-review`
-          : legacy.source,
+        status: differs ? `legacy-${resolution.source}-review` : resolution.source,
       };
 
-      await storage.setItem(storageKey, JSON.stringify(resolved));
-      await writeMeta(storageKey, meta);
-      return resolved;
+      await storage.setItem(storageKey, JSON.stringify(selectedData));
+      await writeSyncMeta(storageKey, meta);
+      return selectedData;
     }
 
     if (localData === undefined) {
@@ -203,40 +346,37 @@ export function useCompanyData(key) {
         status: 'cloud-restored-local',
       };
       await storage.setItem(storageKey, JSON.stringify(localData));
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
       return localData;
     }
 
-    if (sameData(localData, cloudData)) {
+    if (isSameData(localData, cloudData)) {
       meta = {
         ...meta,
         dirty: false,
         lastCloudUpdatedAt: cloudUpdatedAt,
         status: 'in-sync',
       };
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
       return localData;
     }
 
-    const cloudAdvanced =
-      parseTime(cloudUpdatedAt) > parseTime(meta.lastCloudUpdatedAt);
-
+    const remoteAdvanced = timestamp(cloudUpdatedAt) > timestamp(meta.lastCloudUpdatedAt);
     if (meta.needsReview) {
-      const legacy = reconcileLegacyCopies(localData, cloudData);
-      localData = legacy.data ?? localData;
+      localData = resolveLegacyData(localData, cloudData).data ?? localData;
       meta = {
         ...meta,
         lastCloudUpdatedAt: cloudUpdatedAt,
         localUpdatedAt: new Date().toISOString(),
         needsReview: true,
-        status: cloudAdvanced ? 'review-remote-advanced' : 'review-required',
+        status: remoteAdvanced ? 'review-remote-advanced' : 'review-required',
       };
       await storage.setItem(storageKey, JSON.stringify(localData));
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
       return localData;
     }
 
-    if (cloudAdvanced) {
+    if (remoteAdvanced) {
       localData = cloudData ?? [];
       meta = {
         ...meta,
@@ -247,14 +387,14 @@ export function useCompanyData(key) {
         status: 'cloud-newer',
       };
       await storage.setItem(storageKey, JSON.stringify(localData));
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
       return localData;
     }
 
-    const legacy = reconcileLegacyCopies(localData, cloudData);
-    localData = legacy.data ?? localData;
+    const resolution = resolveLegacyData(localData, cloudData);
+    localData = resolution.data ?? localData;
 
-    if (legacy.repairCloud || legacy.ambiguous) {
+    if (resolution.repairCloud || resolution.ambiguous) {
       meta = {
         ...meta,
         dirty: false,
@@ -268,19 +408,20 @@ export function useCompanyData(key) {
         ...meta,
         needsReview: false,
         lastCloudUpdatedAt: cloudUpdatedAt,
-        status: legacy.source,
+        status: resolution.source,
       };
     }
+
     await storage.setItem(storageKey, JSON.stringify(localData));
-    await writeMeta(storageKey, meta);
+    await writeSyncMeta(storageKey, meta);
     return localData;
-  }, [key, readMeta, writeMeta, writeCloud]);
+  }, [key, readSyncMeta, writeSyncMeta, uploadCloud]);
 
   const loadData = useCallback(async () => {
     if (!activeCompany) {
       if (mounted.current) {
         setData([]);
-        latestDataRef.current = [];
+        dataRef.current = [];
         setIsLoaded(true);
       }
       return;
@@ -292,50 +433,55 @@ export function useCompanyData(key) {
       let loadedData;
 
       if (isConsolidated && Array.isArray(companies) && companies.length > 0) {
-        const relevant = companies.filter(c =>
-          c && (c.id === activeCompany.id || c.parentId === activeCompany.id)
+        const relevant = companies.filter(
+          company =>
+            company &&
+            (company.id === activeCompany.id || company.parentId === activeCompany.id)
         );
         const uniqueCompanies = Array.from(
-          new Map(relevant.map(c => [String(c.id), c])).values()
+          new Map(relevant.map(company => [String(company.id), company])).values()
         );
+        const combined = [];
 
-        const parts = [];
         for (const company of uniqueCompanies) {
-          const companyData = await reconcileCompany(company);
-          parts.push(...tagRowsForCompany(companyData, company, activeCompany));
+          const companyData = await loadSingleCompany(company);
+          combined.push(...tagConsolidatedData(companyData, company, activeCompany));
         }
 
         loadedData = Array.from(
-          new Map(parts.map(item => [
-            `${item._companyId}:${item.id ?? JSON.stringify(item)}`,
-            item,
-          ])).values()
+          new Map(
+            combined.map(item => [
+              `${item._companyId}:${item.id ?? JSON.stringify(item)}`,
+              item,
+            ])
+          ).values()
         );
       } else {
-        loadedData = await reconcileCompany(activeCompany);
-        if (Array.isArray(loadedData) && isIdArray(loadedData)) {
+        loadedData = await loadSingleCompany(activeCompany);
+        if (Array.isArray(loadedData) && hasStableIds(loadedData)) {
           loadedData = dedupeById(loadedData);
         }
       }
+
       if (mounted.current) {
-        const safeValue = loadedData ?? (Array.isArray(data) ? [] : {});
-        setData(safeValue);
-        latestDataRef.current = safeValue;
+        const nextData = loadedData ?? (Array.isArray(dataRef.current) ? [] : {});
+        setData(nextData);
+        dataRef.current = nextData;
         setIsLoaded(true);
       }
     } catch (error) {
       console.error('[Sync] Error protegido en loadData:', error);
       if (mounted.current) setIsLoaded(true);
     }
-  }, [activeCompany, companies, isConsolidated, key, reconcileCompany]);
+  }, [activeCompany, companies, isConsolidated, loadSingleCompany]);
 
   useEffect(() => {
-    let isActive = true;
+    let active = true;
     const channels = [];
 
     const safeLoad = async () => {
       try {
-        if (isActive) await loadData();
+        if (active) await loadData();
       } catch (error) {
         console.error('[Sync] Error atrapado en safeLoad:', error);
       }
@@ -345,14 +491,16 @@ export function useCompanyData(key) {
 
     try {
       if (activeCompany && typeof supabase.channel === 'function') {
-        const relevant = isConsolidated && Array.isArray(companies)
-          ? companies.filter(c =>
-              c && (c.id === activeCompany.id || c.parentId === activeCompany.id)
-            )
-          : [activeCompany];
+        const relevant =
+          isConsolidated && Array.isArray(companies)
+            ? companies.filter(
+                company =>
+                  company &&
+                  (company.id === activeCompany.id || company.parentId === activeCompany.id)
+              )
+            : [activeCompany];
 
-        const uniqueIds = [...new Set(relevant.map(c => String(c.id)))];
-        uniqueIds.forEach(companyId => {
+        [...new Set(relevant.map(company => String(company.id)))].forEach(companyId => {
           const channel = supabase
             .channel(`sync-v3-${companyId}-${key}`)
             .on(
@@ -363,9 +511,9 @@ export function useCompanyData(key) {
                 table: 'app_data_sync',
                 filter: `company_id=eq.${companyId}`,
               },
-              (payload) => {
+              payload => {
                 if (
-                  isActive &&
+                  active &&
                   (payload.new?.storage_key === key || payload.old?.storage_key === key)
                 ) {
                   safeLoad();
@@ -373,6 +521,7 @@ export function useCompanyData(key) {
               }
             )
             .subscribe();
+
           channels.push(channel);
         });
       }
@@ -380,20 +529,23 @@ export function useCompanyData(key) {
       console.warn('[Sync] Tiempo real no disponible; continúa sincronización normal.');
     }
 
-    const handleStorageUpdate = (event) => {
-      const activeKey = `${activeCompany?.id}-${key}`;
+    const handleStorageUpdate = event => {
+      const storageKey = `${activeCompany?.id}-${key}`;
       if (
-        event.detail?.key === activeKey ||
+        event.detail?.key === storageKey ||
         event.detail?.key === 'all-data-update'
-      ) safeLoad();
+      ) {
+        safeLoad();
+      }
     };
 
     const handleOnline = () => safeLoad();
+
     window.addEventListener('storage-updated', handleStorageUpdate);
     window.addEventListener('online', handleOnline);
 
     return () => {
-      isActive = false;
+      active = false;
       window.removeEventListener('storage-updated', handleStorageUpdate);
       window.removeEventListener('online', handleOnline);
       channels.forEach(channel => {
@@ -401,7 +553,8 @@ export function useCompanyData(key) {
       });
     };
   }, [loadData, activeCompany, companies, key, isConsolidated]);
-  const persistData = useCallback(async (newData, baseData) => {
+
+  const persistData = useCallback(async (newData, previousData) => {
     if (!activeCompany || isConsolidated) {
       if (isConsolidated) {
         console.warn('[Sync] Escritura bloqueada en vista consolidada.');
@@ -412,12 +565,12 @@ export function useCompanyData(key) {
     const companyId = String(activeCompany.id);
     const storageKey = `${companyId}-${key}`;
     const now = new Date().toISOString();
-    const diff = diffArrayById(
-      Array.isArray(baseData) ? baseData : [],
+    const diff = diffById(
+      Array.isArray(previousData) ? previousData : [],
       Array.isArray(newData) ? newData : []
     );
 
-    let meta = (await readMeta(storageKey)) || defaultSyncMeta();
+    let meta = await readSyncMeta(storageKey) || defaultSyncMeta();
     meta = {
       ...meta,
       dirty: true,
@@ -428,34 +581,33 @@ export function useCompanyData(key) {
     };
 
     await storage.setItem(storageKey, JSON.stringify(newData));
-    await writeMeta(storageKey, meta);
+    await writeSyncMeta(storageKey, meta);
 
     let cloudRow = null;
     try {
-      const { data: fetched, error } = await supabase
+      const { data: row, error } = await supabase
         .from('app_data_sync')
         .select('data, updated_at')
         .eq('company_id', companyId)
         .eq('storage_key', key)
         .maybeSingle();
+
       if (error) throw error;
-      cloudRow = fetched;
+      cloudRow = row;
     } catch {
       meta.status = 'pending-offline';
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
       return;
     }
+
     let finalData = newData;
-    const remoteAdvanced =
+    if (
       cloudRow &&
       meta.lastCloudUpdatedAt &&
-      parseTime(cloudRow.updated_at) > parseTime(meta.lastCloudUpdatedAt);
-
-    if (
-      remoteAdvanced &&
+      timestamp(cloudRow.updated_at) > timestamp(meta.lastCloudUpdatedAt) &&
       diff.mergeable &&
-      isIdArray(cloudRow.data) &&
-      isIdArray(newData)
+      hasStableIds(cloudRow.data) &&
+      hasStableIds(newData)
     ) {
       finalData = mergeRemoteWithLocalChanges({
         remote: cloudRow.data,
@@ -466,12 +618,12 @@ export function useCompanyData(key) {
     }
 
     try {
-      const syncedAt = await writeCloud(companyId, finalData);
+      const uploadedAt = await uploadCloud(companyId, finalData);
       meta = {
         ...meta,
         dirty: false,
         needsReview: false,
-        lastCloudUpdatedAt: syncedAt,
+        lastCloudUpdatedAt: uploadedAt,
         localUpdatedAt: new Date().toISOString(),
         pendingChangedIds: [],
         pendingDeletedIds: [],
@@ -479,37 +631,55 @@ export function useCompanyData(key) {
       };
 
       await storage.setItem(storageKey, JSON.stringify(finalData));
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
 
       if (mounted.current) {
         setData(finalData);
-        latestDataRef.current = finalData;
+        dataRef.current = finalData;
       }
 
-      window.dispatchEvent(new CustomEvent('storage-updated', {
-        detail: { key: storageKey, source: 'sync-v3' },
-      }));
-      window.dispatchEvent(new CustomEvent('sync-status-changed', {
-        detail: { companyId, key, status: 'in-sync', updatedAt: syncedAt },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('storage-updated', {
+          detail: { key: storageKey, source: 'sync-v3' },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent('sync-status-changed', {
+          detail: {
+            companyId,
+            key,
+            status: 'in-sync',
+            updatedAt: uploadedAt,
+          },
+        })
+      );
     } catch (error) {
       meta.status = 'pending-upload';
-      await writeMeta(storageKey, meta);
+      await writeSyncMeta(storageKey, meta);
       console.error('[Sync] Pendiente de subir a Supabase:', error);
     }
-  }, [activeCompany, isConsolidated, key, readMeta, writeMeta, writeCloud]);
+  }, [
+    activeCompany,
+    isConsolidated,
+    key,
+    readSyncMeta,
+    writeSyncMeta,
+    uploadCloud,
+  ]);
+
   const saveData = useCallback((newData) => {
     if (!activeCompany) return Promise.resolve();
 
-    const baseData = latestDataRef.current;
+    const previousData = dataRef.current;
+
     if (!isConsolidated && mounted.current) {
       setData(newData);
-      latestDataRef.current = newData;
+      dataRef.current = newData;
     }
 
     saveQueueRef.current = saveQueueRef.current
-      .catch(() => undefined)
-      .then(() => persistData(newData, baseData));
+      .catch(() => {})
+      .then(() => persistData(newData, previousData));
 
     return saveQueueRef.current;
   }, [activeCompany, isConsolidated, persistData]);

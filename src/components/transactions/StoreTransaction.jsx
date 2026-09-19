@@ -1,3 +1,4 @@
+import { getAccountingYear } from '@/lib/accountingDate';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -287,7 +288,7 @@ const StoreTransaction = ({ open, onOpenChange }) => {
             }
             const transactionYear = String(t.date || '').includes('-')
                 ? String(t.date).split('-')[0]
-                : String(new Date(t.date).getFullYear());
+                : String(getAccountingYear(t.date));
             return transactionType === type && transactionYear === year;
         });
 

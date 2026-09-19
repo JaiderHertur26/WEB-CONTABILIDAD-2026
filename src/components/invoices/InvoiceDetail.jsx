@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Download, Printer, BadgeInfo } from 'lucide-react';
 import { format } from 'date-fns';
+import { parseAccountingDate } from '@/lib/accountingDate';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { exportToExcel } from '@/lib/excel';
@@ -61,7 +62,7 @@ const InvoiceDetail = ({ invoice, company }) => {
     const handleExportExcel = () => {
         const data = invoice.items.map(item => ({
             'Documento': invoice.invoiceNumber,
-            'Fecha': format(new Date(item.date), 'dd/MM/yyyy'),
+            'Fecha': format(parseAccountingDate(item.date), 'dd/MM/yyyy'),
             'Producto/Servicio': item.productName || item.description,
             'Cantidad': item.productQuantity || 1,
             'Precio Unitario': ((parseFloat(item.amount) / (item.productQuantity || 1))).toLocaleString('es-CO'),
@@ -153,7 +154,7 @@ const InvoiceDetail = ({ invoice, company }) => {
                             
                             return (
                                 <tr key={index}>
-                                    <td className="py-3 text-slate-600">{format(new Date(item.date), 'dd/MM/yyyy')}</td>
+                                    <td className="py-3 text-slate-600">{format(parseAccountingDate(item.date), 'dd/MM/yyyy')}</td>
                                     <td className="py-3 font-medium text-slate-800">{item.productName || item.description}</td>
                                     <td className="py-3 text-center text-slate-600">{qty}</td>
                                     <td className="py-3 text-right text-slate-600 font-mono">${unitPrice.toLocaleString('es-CO', {minimumFractionDigits: 0})}</td>

@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { usePermission } from '@/hooks/usePermission';
 import ContactSelector from '@/components/transactions/ContactSelector';
 import { format } from 'date-fns';
+import { parseAccountingDate, toAccountingDateInput } from '@/lib/accountingDate';
 
 // Utility component for highlighting text
 const Highlight = ({ text, highlight }) => {
@@ -110,7 +111,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
 
       setFormData({
         ...transaction,
-        date: new Date(transaction.date).toISOString().split('T')[0],
+        date: toAccountingDateInput(transaction.date),
         destination: transaction.destination || 'caja_principal|CAJA PRINCIPAL',
         allocations: existingAllocations,
       });
@@ -253,7 +254,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
                 })),
                 total: dataToSave.amount,
                 status: 'issued',
-                dateRange: format(new Date(dataToSave.date), 'dd/MM/yyyy')
+                dateRange: format(parseAccountingDate(dataToSave.date), 'dd/MM/yyyy')
             };
             
             saveTarget([...(targetCollection || []), newInvoice]);

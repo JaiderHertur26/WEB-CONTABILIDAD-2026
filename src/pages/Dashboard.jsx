@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
+import { parseAccountingDate, getAccountingYear } from '@/lib/accountingDate';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const Dashboard = () => {
@@ -53,8 +54,7 @@ const Dashboard = () => {
   };
 
   const handleDateRangeChange = (e, field) => {
-    const newDate = new Date(e.target.value);
-    const adjustedDate = new Date(newDate.getTime() + newDate.getTimezoneOffset() * 60000);
+    const adjustedDate = parseAccountingDate(e.target.value);
     setDateRange(prev => ({ ...prev, [field]: adjustedDate }));
   };
   
@@ -80,7 +80,7 @@ const Dashboard = () => {
       if (typeof dateStr === 'string' && dateStr.includes('-')) {
           return parseInt(dateStr.split('-')[0], 10);
       }
-      return new Date(dateStr).getFullYear();
+      return getAccountingYear(dateStr);
   };
 
   // 🚀 FILTRO MAESTRO DE CONSOLIDACIÓN
@@ -135,8 +135,7 @@ const Dashboard = () => {
 
     const transactionsInPeriod = expandedValidTransactions.filter(t => {
         if (!t.date) return false;
-        const tDate = new Date(t.date);
-        const comparisonDate = new Date(tDate.getUTCFullYear(), tDate.getUTCMonth(), tDate.getUTCDate());
+        const comparisonDate = parseAccountingDate(t.date);
         return comparisonDate >= pickerStart && comparisonDate <= pickerEnd;
     });
 
@@ -380,8 +379,7 @@ const Dashboard = () => {
     const months = monthsInInterval.map(monthStart => ({ name: format(monthStart, 'MMM yyyy'), ingresos: 0, gastos: 0 }));
 
     transactions.forEach(t => {
-      const tDate = new Date(t.date);
-      const transactionDate = new Date(tDate.getUTCFullYear(), tDate.getUTCMonth(), tDate.getUTCDate());
+      const transactionDate = parseAccountingDate(t.date);
 
       if (transactionDate >= start && transactionDate <= end) {
         const monthName = format(startOfMonth(transactionDate), 'MMM yyyy');

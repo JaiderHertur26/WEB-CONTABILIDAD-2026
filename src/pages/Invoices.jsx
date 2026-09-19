@@ -1,3 +1,4 @@
+import { parseAccountingDate, accountingDateValue } from '@/lib/accountingDate';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
@@ -67,7 +68,7 @@ const Invoices = () => {
         const end = endOfDay(parseISO(dateTo));
         sales = sales.filter(t => isWithinInterval(parseISO(t.date), { start, end }));
     }
-    return sales.sort((a, b) => new Date(b.date) - new Date(a.date));
+    return sales.sort((a, b) => accountingDateValue(b.date) - accountingDateValue(a.date));
   }, [transactions, filterContactId, dateFrom, dateTo]);
 
   const filteredHistorySales = useMemo(() => {
@@ -110,7 +111,7 @@ const Invoices = () => {
       const contact = contacts?.find(c => c.id === firstSale.contactId);
       const totalAmount = salesToInvoice.reduce((sum, s) => sum + parseFloat(s.amount || 0), 0);
       
-      const dates = salesToInvoice.map(s => new Date(s.date));
+      const dates = salesToInvoice.map(s => parseAccountingDate(s.date));
       const minDate = new Date(Math.min.apply(null, dates));
       const maxDate = new Date(Math.max.apply(null, dates));
       const dateRangeStr = `${format(minDate, 'dd/MM/yyyy')} - ${format(maxDate, 'dd/MM/yyyy')}`;
@@ -159,7 +160,7 @@ const Invoices = () => {
           const end = endOfDay(parseISO(dateToPurchase));
           purchases = purchases.filter(t => isWithinInterval(parseISO(t.date), { start, end }));
       }
-      return purchases.sort((a, b) => new Date(b.date) - new Date(a.date));
+      return purchases.sort((a, b) => accountingDateValue(b.date) - accountingDateValue(a.date));
   }, [transactions, filterSupplierId, dateFromPurchase, dateToPurchase]);
 
   const filteredHistoryPurchases = useMemo(() => {
@@ -202,7 +203,7 @@ const Invoices = () => {
       const supplier = contacts?.find(c => c.id === firstPurchase.contactId);
       const totalAmount = purchasesToInvoice.reduce((sum, s) => sum + parseFloat(s.amount || 0), 0);
       
-      const dates = purchasesToInvoice.map(s => new Date(s.date));
+      const dates = purchasesToInvoice.map(s => parseAccountingDate(s.date));
       const minDate = new Date(Math.min.apply(null, dates));
       const maxDate = new Date(Math.max.apply(null, dates));
       const dateRangeStr = `${format(minDate, 'dd/MM/yyyy')} - ${format(maxDate, 'dd/MM/yyyy')}`;
