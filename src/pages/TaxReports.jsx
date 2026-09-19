@@ -13,6 +13,7 @@ import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import ContractTaxAlert from '@/components/contracts/ContractTaxAlert';
+import { getRetentionDueDate } from '@/lib/contractTaxEngine';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -28,6 +29,7 @@ const TaxReports = () => {
     const [initialBalance, , isInitialBalanceLoaded] = useCompanyData('initialBalance');
     const [cashAccounts, , isCashAccountsLoaded] = useCompanyData('cash_accounts');
     const [inventory, , isInventoryLoaded] = useCompanyData('inventory');
+    const [contracts] = useCompanyData('contracts');
 
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const { toast } = useToast();
@@ -75,6 +77,31 @@ const TaxReports = () => {
         return Array.from(years).sort((a, b) => b - a).map(String);
     }, [transactions, filterByCompany]);
     
+    const contractTaxRows = useMemo(() => (contracts || []).flatMap(contract => (contract.acts || [])
+        .filter(act => String(act.date || '').startsWith(selectedYear) && Number(act.tax?.totalWithholdings || 0) > 0)
+        .map(act => ({
+            contract: contract.number,
+            contractor: contract.contractorName,
+            act: act.number,
+            date: act.date,
+            base: Number(act.tax?.base || act.grossValue || 0),
+            retefuente: Number(act.tax?.incomeWithholding || 0),
+            reteiva: Number(act.tax?.reteIva || 0),
+            reteica: Number(act.tax?.reteIca || 0),
+            total: Number(act.tax?.totalWithholdings || 0),
+            dueDate: getRetentionDueDate(act.date, activeCompany?.doc),
+            status: act.taxStatus === 'paid' ? 'Declarada / pagada' : 'Pendiente'
+        }))), [contracts, selectedYear, activeCompany]);
+
+    const handleExportContractTaxes = () => {
+        if (!contractTaxRows.length) { toast({ variant: 'destructive', title: 'Sin retenciones contractuales', description: 'No hay registros para el año seleccionado.' }); return; }
+        exportToExcel(contractTaxRows.map(r => ({
+            'Contrato': r.contract, 'Contratista': r.contractor, 'Acta': r.act, 'Fecha': r.date,
+            'Base': r.base, 'Retefuente': r.retefuente, 'ReteIVA': r.reteiva, 'ReteICA': r.reteica,
+            'Total Retenido': r.total, 'Vencimiento DIAN': r.dueDate || '', 'Estado': r.status
+        })), 'Retenciones_Contratos_' + selectedYear);
+    };
+
     const safeParseFloat = (value) => { const parsed = parseFloat(value); return isNaN(parsed) ? 0 : parsed; };
 
     // ============================================================================
@@ -513,6 +540,14 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center"><div><h1 className="text-4xl font-bold text-slate-900">Reportes Tributarios</h1><p className="text-slate-600">Genera tus reportes fiscales.</p></div><div className="flex items-center space-x-2"><Calendar className="w-5 h-5 text-slate-500" /><Label htmlFor="year-select">Año Fiscal:</Label><Select value={selectedYear} onValueChange={setSelectedYear}><SelectTrigger id="year-select" className="w-[120px]"><SelectValue placeholder="Año" /></SelectTrigger><SelectContent>{availableYears.map(year => (<SelectItem key={year} value={year}>{year}</SelectItem>))}</SelectContent></Select></div></motion.div>
 
                 <ContractTaxAlert compact />
+
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-lg border">
+                    <div className="p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        <div><div className="flex items-center"><FileText className="w-6 h-6 mr-3 text-amber-600" /><h2 className="text-xl font-bold text-slate-900">Retenciones originadas en Contratos</h2></div><p className="text-sm text-slate-500 mt-1">Cruce por contrato, acta, concepto, vencimiento y estado.</p></div>
+                        <Button onClick={handleExportContractTaxes} variant="outline"><Download className="w-4 h-4 mr-2"/>Exportar Excel</Button>
+                    </div>
+                    <div className="p-6">{contractTaxRows.length===0?<div className="text-center py-8 text-slate-500">No hay retenciones contractuales en {selectedYear}.</div>:<div className="overflow-x-auto rounded-lg border max-h-80"><table className="w-full text-sm"><thead className="bg-slate-50 sticky top-0"><tr><th className="p-3 text-left">Contrato / Acta</th><th className="p-3 text-left">Contratista</th><th className="p-3 text-right">Base</th><th className="p-3 text-right">Renta</th><th className="p-3 text-right">ReteIVA</th><th className="p-3 text-right">ReteICA</th><th className="p-3 text-left">Vencimiento</th><th className="p-3 text-left">Estado</th></tr></thead><tbody className="divide-y">{contractTaxRows.map((r,i)=><tr key={r.contract+'-'+r.act+'-'+i}><td className="p-3 font-semibold">{r.contract}<div className="text-xs text-slate-500">{r.act} · {r.date}</div></td><td className="p-3">{r.contractor}</td><td className="p-3 text-right">{r.base.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.retefuente.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.reteiva.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.reteica.toLocaleString('es-CO')}</td><td className="p-3">{r.dueDate||'—'}</td><td className={"p-3 font-semibold "+(r.status==='Pendiente'?'text-amber-700':'text-green-700')}>{r.status}</td></tr>)}</tbody></table></div>}</div>
+                </motion.div>
 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg border"><div className="p-6 border-b flex justify-between items-center"><div className="flex items-center"><FileText className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-slate-900">Pagos a Terceros (Exógena)</h2></div><Button onClick={handleExportExogena}><Download className="w-4 h-4 mr-2"/> Exportar Reporte</Button></div><div className="p-6">{!areAllDataLoaded ? <p>Cargando datos...</p> : generateExogenaData.length === 0 ? (<div className="text-center py-10"><Search className="w-12 h-12 text-slate-300 mx-auto mb-4" /><p className="text-slate-500">No se encontraron pagos a terceros.</p></div>) : (<div className="overflow-x-auto rounded-lg border max-h-72"><table className="w-full"><thead className="bg-slate-50 sticky top-0"><tr><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Nombre o Razón Social</th><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Dirección</th><th className="px-6 py-3 text-right text-sm font-semibold text-slate-800">Pago o Abono en Cuenta</th></tr></thead><tbody className="divide-y divide-slate-200">{generateExogenaData.map((row, index) => (<tr key={index} className="hover:bg-slate-50"><td className="px-6 py-4 text-sm font-medium text-slate-900">{row['Nombre o Razón Social']}</td><td className="px-6 py-4 text-sm text-slate-600">{row['Dirección']}</td><td className="px-6 py-4 text-sm font-mono text-right text-red-600">${parseFloat(row['Pago o Abono en Cuenta'] || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td ></tr>))}</tbody></table></div>)}</div></motion.div>
                 

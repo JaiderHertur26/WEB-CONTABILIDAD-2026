@@ -7,10 +7,12 @@ export const CONTRACT_TYPES = [
   { key: 'professional', label: 'Servicios profesionales / Honorarios', taxConcept: 'honorarios', retentionDeclarant: 11, retentionNonDeclarant: 10, minUVT: 0, vatMode: 'full', accountPrefix: '5110', accountName: 'HONORARIOS' },
   { key: 'consulting', label: 'Consultoría / Interventoría', taxConcept: 'honorarios', retentionDeclarant: 11, retentionNonDeclarant: 10, minUVT: 0, vatMode: 'full', accountPrefix: '5110', accountName: 'HONORARIOS' },
   { key: 'supply', label: 'Suministro / Compra de bienes', taxConcept: 'purchases', retentionDeclarant: 2.5, retentionNonDeclarant: 3.5, minUVT: 27, vatMode: 'full', accountPrefix: '14', accountName: 'INVENTARIOS / SUMINISTROS' },
-  { key: 'lease', label: 'Arrendamiento de inmueble', taxConcept: 'lease', retentionDeclarant: 3.5, retentionNonDeclarant: 3.5, minUVT: 0, vatMode: 'manual', accountPrefix: '5120', accountName: 'ARRENDAMIENTOS' },
+  { key: 'lease', label: 'Arrendamiento de inmueble', taxConcept: 'lease', retentionDeclarant: 3.5, retentionNonDeclarant: 3.5, minUVT: 27, vatMode: 'manual', accountPrefix: '5120', accountName: 'ARRENDAMIENTOS' },
   { key: 'cleaning_security', label: 'Aseo / Vigilancia', taxConcept: 'cleaning-security', retentionDeclarant: 2, retentionNonDeclarant: 2, minUVT: 4, vatMode: 'aiu', accountPrefix: '5135', accountName: 'SERVICIOS' },
   { key: 'technology', label: 'Tecnología / Soporte', taxConcept: 'services', retentionDeclarant: 4, retentionNonDeclarant: 6, minUVT: 4, vatMode: 'full', accountPrefix: '51', accountName: 'SERVICIOS' },
-  { key: 'transport', label: 'Transporte / Logística', taxConcept: 'services', retentionDeclarant: 4, retentionNonDeclarant: 6, minUVT: 4, vatMode: 'manual', accountPrefix: '5135', accountName: 'SERVICIOS' },
+  { key: 'transport_passenger', label: 'Transporte de pasajeros', taxConcept: 'transport-passenger', retentionDeclarant: 3.5, retentionNonDeclarant: 3.5, minUVT: 27, vatMode: 'manual', accountPrefix: '5135', accountName: 'SERVICIOS DE TRANSPORTE' },
+  { key: 'transport_cargo', label: 'Transporte terrestre de carga', taxConcept: 'transport-cargo', retentionDeclarant: 1, retentionNonDeclarant: 1, minUVT: 4, vatMode: 'manual', accountPrefix: '5135', accountName: 'SERVICIOS DE TRANSPORTE' },
+  { key: 'transport', label: 'Transporte / Logística (definir modalidad)', taxConcept: 'manual-review', retentionDeclarant: 0, retentionNonDeclarant: 0, minUVT: 0, vatMode: 'manual', accountPrefix: '5135', accountName: 'SERVICIOS DE TRANSPORTE' },
   { key: 'other', label: 'Otro contrato', taxConcept: 'other', retentionDeclarant: 2.5, retentionNonDeclarant: 3.5, minUVT: 27, vatMode: 'manual', accountPrefix: '5', accountName: 'GASTOS' },
 ];export const getContractType = (key) =>
   CONTRACT_TYPES.find(item => item.key === key) || CONTRACT_TYPES[CONTRACT_TYPES.length - 1];
