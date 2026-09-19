@@ -202,6 +202,7 @@ const Contracts = () => {
   const [transactions, saveTransactions] = useCompanyData('transactions'); const [accountsPayable, saveAccountsPayable] = useCompanyData('accountsPayable');
   const [contacts] = useCompanyData('contacts'); const [accounts] = useCompanyData('accounts');
   const [bankAccounts] = useCompanyData('bankAccounts'); const [cashAccounts] = useCompanyData('cash_accounts');
+  const [realEstates, saveRealEstates] = useCompanyData('realEstates');
   const [contractOpen, setContractOpen] = useState(false); const [actOpen, setActOpen] = useState(false); const [addendumOpen, setAddendumOpen] = useState(false); const [guaranteeOpen, setGuaranteeOpen] = useState(false); const [selectedId, setSelectedId] = useState(null);
   const [advanceSource, setAdvanceSource] = useState('caja_principal|CAJA PRINCIPAL');
   const selected = (contracts||[]).find(c=>c.id===selectedId) || null;
@@ -212,6 +213,12 @@ const Contracts = () => {
   const remainingAdvance = selected ? Math.max(0, Number(selected.advanceValue||0)-Number(selected.amortizedAdvance||0)) : 0;
   const selectedPayables = (accountsPayable||[]).filter(p=>p.contractId===selectedId);
   const pendingPayables = selectedPayables.filter(p=>p.status!=='Pagado');
+  const contractExecutionBalance = selected ? (transactions||[]).filter(t=>t.contractId===selected.id).reduce((sum,t)=>{
+    const amount=Number(t.amount)||0; const debit=String(t.debitAccount?.code||''); const credit=String(t.creditAccount?.code||''); const execution=String(selected.executionAccountCode||'');
+    if(execution && debit===execution) sum+=amount;
+    if(execution && credit===execution) sum-=amount;
+    return sum;
+  },0) : 0;
   const pendingTaxActs = selectedActs.filter(a=>Number(a.tax?.totalWithholdings||0)>0&&a.taxStatus!=='paid');
   const hasFinalAct = selectedActs.some(a=>a.type==='final_delivery');
   const requiresCapitalization = !!selected && getContractType(selected.type).capitalizable;
@@ -285,7 +292,11 @@ const Contracts = () => {
 
   const saveAddendum = data => {
     if(!selected)return;
-    const amendment={...data,id:idNow('addendum'),createdAt:new Date().toISOString()};
+    let amountChange=Number(data.amountChange)||0;
+    if(data.kind==='reduction'&&amountChange>0) amountChange=-amountChange;
+    if(data.kind==='addition'&&amountChange<0) amountChange=Math.abs(amountChange);
+    if(effectiveContractValue(selected)+amountChange<totals.executed){toast({variant:'destructive',title:'Modificación inválida',description:'El valor vigente no puede quedar por debajo de lo ya ejecutado.'});return;}
+    const amendment={...data,amountChange,id:idNow('addendum'),createdAt:new Date().toISOString()};
     const nextStatus=data.kind==='suspension'?'Suspendido':data.kind==='restart'?'Vigente':selected.status;
     saveContracts((contracts||[]).map(c=>c.id===selected.id?{...c,amendments:[...(c.amendments||[]),amendment],status:nextStatus,statusHistory:nextStatus!==c.status?[...(c.statusHistory||[]),{status:nextStatus,date:new Date().toISOString(),note:'Otrosí '+data.number}]:c.statusHistory}:c));
     setAddendumOpen(false); toast({title:'Otrosí registrado',description:'La modificación quedó incorporada al expediente sin alterar el valor original del contrato.'});
@@ -299,12 +310,15 @@ const Contracts = () => {
   };
 
   const capitalize = () => {
-    if(!selected||!getContractType(selected.type).capitalizable||totals.executed<=0||selected.status==='Liquidado')return;
+    if(!selected||!getContractType(selected.type).capitalizable||contractExecutionBalance<=0||selected.status==='Liquidado')return;
     if(!hasFinalAct){toast({variant:'destructive',title:'Falta acta final',description:'Para capitalizar la obra registra primero el Acta de Recibo / Entrega Final.'});return;}
-    const date=todayIso(); const voucherNumber=nextTransferVoucher(date);
-    const txn=createAccountingTransaction({date,amount:totals.executed,actId:null,description:'Capitalización / cierre Contrato '+selected.number+': '+selected.object,debit:{code:selected.completionAccountCode,name:selected.completionAccountName},credit:{code:selected.executionAccountCode,name:selected.executionAccountName}},voucherNumber);
-    saveTransactions([...(transactions||[]),txn]); saveContracts((contracts||[]).map(c=>c.id===selected.id?{...c,status:c.status==='Liquidado'?'Liquidado':'Terminado',capitalizedAt:new Date().toISOString(),capitalizationTransactionId:txn.id,statusHistory:[...(c.statusHistory||[]),{status:c.status==='Liquidado'?'Liquidado':'Terminado',date:new Date().toISOString(),note:'Activo capitalizado'}]}:c));
-    toast({title:'Contrato capitalizado',description:'Se generó el comprobante T-'+String(voucherNumber).padStart(4,'0')+' y el cruce hacia el activo definitivo. El contrato queda listo para liquidación cuando complete el cierre.'});
+    if((realEstates||[]).some(e=>e.sourceContractId===selected.id)){toast({variant:'destructive',title:'Activo ya creado',description:'Este contrato ya originó una propiedad. No se duplicará la capitalización.'});return;}
+    const date=todayIso(); const voucherNumber=nextTransferVoucher(date); const estateId=idNow('estate-contract');
+    const txn={...createAccountingTransaction({date,amount:contractExecutionBalance,actId:null,description:'Capitalización / cierre Contrato '+selected.number+': '+selected.object,debit:{code:selected.completionAccountCode,name:selected.completionAccountName},credit:{code:selected.executionAccountCode,name:selected.executionAccountName}},voucherNumber),estateId};
+    const estate={id:estateId,name:selected.object||('Obra '+selected.number),address:selected.executionPlace||activeCompany?.address||'',value:contractExecutionBalance,date,status:'Activo',accumulatedDepreciation:0,contractManaged:true,sourceContractId:selected.id,sourceContractNumber:selected.number,capitalizationTransactionId:txn.id,notes:'Activo originado por capitalización del contrato '+selected.number+'.'};
+    saveTransactions([...(transactions||[]),txn]); saveRealEstates([...(realEstates||[]),estate]);
+    saveContracts((contracts||[]).map(c=>c.id===selected.id?{...c,status:c.status==='Liquidado'?'Liquidado':'Terminado',capitalizedAt:new Date().toISOString(),capitalizationTransactionId:txn.id,capitalizedEstateId:estateId,capitalizedValue:contractExecutionBalance,statusHistory:[...(c.statusHistory||[]),{status:c.status==='Liquidado'?'Liquidado':'Terminado',date:new Date().toISOString(),note:'Activo capitalizado por '+money(contractExecutionBalance)}]}:c));
+    toast({title:'Obra capitalizada',description:'Comprobante T-'+String(voucherNumber).padStart(4,'0')+' por '+money(contractExecutionBalance)+' y nueva propiedad creada en Propiedades/Inmuebles.'});
   };
 
   const markTaxPaid = actId => {

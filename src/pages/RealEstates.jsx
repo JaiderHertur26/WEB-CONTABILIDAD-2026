@@ -139,6 +139,11 @@ const RealEstates = () => {
 
     const handleDeleteEstate = (id) => {
         if (!canDelete) return;
+        const target = (realEstates || []).find(estate => estate.id === id);
+        if (target?.contractManaged) {
+            toast({ variant: 'destructive', title: 'Propiedad protegida', description: 'Este activo fue generado por Contratos. Su eliminación debe resolverse desde el expediente contractual para conservar la trazabilidad contable.' });
+            return;
+        }
         saveRealEstates(realEstates.filter(estate => estate.id !== id));
         
         // Si borran la propiedad, borramos el comprobante de Patrimonio para evitar saldos falsos
@@ -278,8 +283,7 @@ const RealEstates = () => {
                                     <td className="p-3 font-mono text-red-600">${acumDepr.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
                                     <td className="p-3 font-mono font-bold text-blue-600">${netVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td>
                                     <td className="p-3"><div className="flex gap-1">
-                                        {canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                                        {canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}
+                                        {estate.contractManaged ? <span title={'Generada por contrato '+(estate.sourceContractNumber||'')} className="inline-flex items-center px-2 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700"><Lock className="w-3 h-3 mr-1"/>Contrato {estate.sourceContractNumber||''}</span> : <>{canEdit && <Button size="icon" variant="ghost" onClick={() => { setEditingEstate(estate); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}{canDelete && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeleteEstate(estate.id)}><Trash2 className="w-4 h-4" /></Button>}</>}
                                     </div></td>
                                 </tr>
                             );
