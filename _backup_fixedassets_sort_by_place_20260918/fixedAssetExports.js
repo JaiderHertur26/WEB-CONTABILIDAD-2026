@@ -43,14 +43,6 @@ const placePriority = (value) => {
   return 2;
 };
 
-const displayPlace = (value) => {
-  const normalized = normalizePlace(value);
-  if (normalized === 'TEMPLO') return 'TEMPLO';
-  if (normalized === 'SACRISTIA') return 'SACRISTÍA';
-  if (!normalized) return 'SIN UBICACIÓN';
-  return String(value || '').trim().toLocaleUpperCase('es-CO');
-};
-
 const sortAssetsByPlace = (assets = []) =>
   [...assets]
     .map((asset, originalIndex) => ({ asset, originalIndex }))
@@ -95,7 +87,7 @@ const assetSnapshot = (assets = []) => {
       Categoria: asset.category || '',
       Uso: asset.usage || '',
       Estado: asset.status || '',
-      Lugar: displayPlace(asset.location),
+      Lugar: asset.location || '',
       ValorOriginal: originalValue,
       Depreciacion: accumulated,
       ValorLibros: netBookValue,
@@ -200,7 +192,6 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
       }],
       notes: [
         'Valores expresados en pesos colombianos (COP).',
-        'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente y activos sin ubicación al final.',
         'Los activos dados de baja conservan su valor histórico para trazabilidad y se presentan con valor en libros igual a cero.',
         'Conservar este inventario junto con soportes de adquisición, depreciación, traslado y baja.',
       ],
@@ -348,9 +339,8 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
   doc.setFontSize(7.5);
   doc.setTextColor(80, 80, 80);
   doc.text('Notas de control:', 14, y);
-  doc.text('• Orden: Templo, Sacristía, demás lugares alfabéticamente y Sin ubicación al final.', 14, y + 5);
-  doc.text('• Valores en COP. Los activos dados de baja conservan trazabilidad histórica y valor en libros $0.', 14, y + 10);
-  doc.text('• Conservar con soportes de adquisición, depreciación, traslado y baja.', 14, y + 15);
+  doc.text('• Valores expresados en COP. Los activos dados de baja conservan trazabilidad histórica y valor en libros $0.', 14, y + 5);
+  doc.text('• Conservar con soportes de adquisición, depreciación, traslado y baja.', 14, y + 10);
 
   y += 26;
   doc.setTextColor(30, 30, 30);
@@ -521,12 +511,6 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         new Paragraph({
           spacing: { before: 180, after: 80 },
           children: [new TextRun({ text: 'NOTAS DE CONTROL', bold: true, size: 16, color: '1F4E78' })],
-        }),
-        new Paragraph({
-          children: [new TextRun({
-            text: 'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente y activos sin ubicación al final.',
-            size: 14,
-          })],
         }),
         new Paragraph({
           children: [new TextRun({
