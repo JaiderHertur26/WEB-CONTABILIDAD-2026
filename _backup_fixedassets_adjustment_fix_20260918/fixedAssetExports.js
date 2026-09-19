@@ -35,15 +35,8 @@ const normalizePlace = (value) =>
     .replace(/\s+/g, ' ')
     .toUpperCase();
 
-const isAccountingAdjustment = (asset) => {
-  const category = normalizePlace(asset?.category);
-  const name = normalizePlace(asset?.name);
-  return category.includes('AJUSTE CONTABLE') || name.includes('DEPRECIACION HISTORICA ACUMULADA');
-};
-
-const placePriority = (asset) => {
-  if (isAccountingAdjustment(asset)) return 4;
-  const place = normalizePlace(asset?.location);
+const placePriority = (value) => {
+  const place = normalizePlace(value);
   if (place === 'TEMPLO') return 0;
   if (place === 'SACRISTIA') return 1;
   if (!place) return 3;
@@ -64,8 +57,8 @@ const sortAssetsByPlace = (assets = []) =>
     .sort((a, b) => {
       const placeA = normalizePlace(a.asset?.location);
       const placeB = normalizePlace(b.asset?.location);
-      const priorityA = placePriority(a.asset);
-      const priorityB = placePriority(b.asset);
+      const priorityA = placePriority(placeA);
+      const priorityB = placePriority(placeB);
 
       if (priorityA !== priorityB) return priorityA - priorityB;
 
@@ -88,28 +81,26 @@ const assetSnapshot = (assets = []) => {
     const originalValue = Math.max(0, Number(asset.value) || 0);
     const accumulated = Math.max(0, Number(asset.accumulatedDepreciation) || 0);
     const retired = String(asset.status || '').toLowerCase() === 'dado de baja';
-    const accountingAdjustment = isAccountingAdjustment(asset);
     const savedNet = Number(asset.netBookValue);
-    const calculatedNet = accountingAdjustment
-      ? (originalValue - accumulated)
-      : (Number.isFinite(savedNet) ? Math.max(0, savedNet) : Math.max(0, originalValue - accumulated));
+    const calculatedNet = Number.isFinite(savedNet)
+      ? Math.max(0, savedNet)
+      : Math.max(0, originalValue - accumulated);
     const netBookValue = retired ? 0 : calculatedNet;
 
     return {
       No: index + 1,
-      Cantidad: accountingAdjustment ? 0 : (Number(asset.quantity) || 1),
+      Cantidad: Number(asset.quantity) || 1,
       Activo: asset.name || 'Activo sin nombre',
       Identificacion: asset.model || '',
       Categoria: asset.category || '',
       Uso: asset.usage || '',
       Estado: asset.status || '',
-      Lugar: accountingAdjustment ? 'AJUSTE CONTABLE' : displayPlace(asset.location),
+      Lugar: displayPlace(asset.location),
       ValorOriginal: originalValue,
       Depreciacion: accumulated,
       ValorLibros: netBookValue,
       Observaciones: asset.notes || '',
       Retirado: retired,
-      EsAjusteContable: accountingAdjustment,
     };
   });
   const totals = rows.reduce((sum, row) => {
@@ -117,14 +108,13 @@ const assetSnapshot = (assets = []) => {
     sum.original += row.ValorOriginal;
     sum.depreciation += row.Depreciacion;
     sum.net += row.ValorLibros;
-    if (row.EsAjusteContable) sum.adjustments += 1;
-    else if (row.Retirado) sum.retired += 1;
+    if (row.Retirado) sum.retired += 1;
     else sum.active += 1;
     return sum;
-  }, { quantity: 0, original: 0, depreciation: 0, net: 0, active: 0, retired: 0, adjustments: 0 });
+  }, { quantity: 0, original: 0, depreciation: 0, net: 0, active: 0, retired: 0 });
 
   const categoryMap = new Map();
-  rows.filter(row => !row.EsAjusteContable).forEach((row) => {
+  rows.forEach((row) => {
     const key = row.Categoria || 'Sin categoría';
     const current = categoryMap.get(key) || {
       Categoria: key, Activos: 0, Cantidad: 0, ValorOriginal: 0, Depreciacion: 0, ValorLibros: 0,
@@ -137,13 +127,7 @@ const assetSnapshot = (assets = []) => {
     categoryMap.set(key, current);
   });
 
-  return {
-    rows,
-    totals,
-    categories: [...categoryMap.values()],
-    retiredRows: rows.filter(r => r.Retirado && !r.EsAjusteContable),
-    adjustmentRows: rows.filter(r => r.EsAjusteContable),
-  };
+  return { rows, totals, categories: [...categoryMap.values()], retiredRows: rows.filter(r => r.Retirado) };
 };
 
 const companyMeta = (company, year) => ({
@@ -155,7 +139,7 @@ const companyMeta = (company, year) => ({
   cutoff: new Date().toLocaleDateString('es-CO'),
 });
 export const exportFixedAssetsExcel = ({ assets, company, year }) => {
-  const { rows, totals, categories, retiredRows, adjustmentRows } = assetSnapshot(assets);
+  const { rows, totals, categories, retiredRows } = assetSnapshot(assets);
   const meta = companyMeta(company, year);
 
   const inventoryRows = rows.map((row) => ({
@@ -190,9 +174,8 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
 
   const summaryRows = [
     { Indicador: 'ACTIVOS VIGENTES', Valor: totals.active },
-    { Indicador: 'AJUSTES CONTABLES', Valor: totals.adjustments },
     { Indicador: 'ACTIVOS DADOS DE BAJA', Valor: totals.retired },
-    { Indicador: 'UNIDADES FÍSICAS INVENTARIADAS', Valor: totals.quantity },
+    { Indicador: 'UNIDADES INVENTARIADAS', Valor: totals.quantity },
     { Indicador: 'VALOR ORIGINAL REGISTRADO', ValorCOP: totals.original, __style: 'subtotal' },
     { Indicador: 'DEPRECIACIÓN ACUMULADA', ValorCOP: totals.depreciation, __style: 'subtotal' },
     { Indicador: 'VALOR TOTAL EN LIBROS', ValorCOP: totals.net, __style: 'total' },
@@ -217,8 +200,7 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
       }],
       notes: [
         'Valores expresados en pesos colombianos (COP).',
-        'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente, Sin ubicación y ajustes contables al final.',
-        'Los ajustes contables no se cuentan como unidades físicas y su efecto sí se incorpora al valor neto contable.',
+        'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente y activos sin ubicación al final.',
         'Los activos dados de baja conservan su valor histórico para trazabilidad y se presentan con valor en libros igual a cero.',
         'Conservar este inventario junto con soportes de adquisición, depreciación, traslado y baja.',
       ],
@@ -313,7 +295,7 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
   doc.line(14, 27, 283, 27);
 
   doc.setFontSize(8);
-  doc.text(`Activos vigentes: ${totals.active}   |   Ajustes contables: ${totals.adjustments}   |   Dados de baja: ${totals.retired}   |   Unidades físicas: ${totals.quantity}`, 14, 32);
+  doc.text(`Activos vigentes: ${totals.active}   |   Dados de baja: ${totals.retired}   |   Unidades: ${totals.quantity}`, 14, 32);
   doc.text(`Valor original: ${money(totals.original)}   |   Depreciación acumulada: ${money(totals.depreciation)}   |   Valor en libros: ${money(totals.net)}`, 14, 37);
   autoTable(doc, {
     startY: 42,
@@ -366,9 +348,9 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
   doc.setFontSize(7.5);
   doc.setTextColor(80, 80, 80);
   doc.text('Notas de control:', 14, y);
-  doc.text('• Orden: Templo, Sacristía, demás lugares, Sin ubicación y Ajuste contable al final.', 14, y + 5);
-  doc.text('• Los ajustes contables no son unidades físicas; su efecto se incorpora al valor neto.', 14, y + 10);
-  doc.text('• Valores en COP. Conservar soportes de adquisición, depreciación, traslado y baja.', 14, y + 15);
+  doc.text('• Orden: Templo, Sacristía, demás lugares alfabéticamente y Sin ubicación al final.', 14, y + 5);
+  doc.text('• Valores en COP. Los activos dados de baja conservan trazabilidad histórica y valor en libros $0.', 14, y + 10);
+  doc.text('• Conservar con soportes de adquisición, depreciación, traslado y baja.', 14, y + 15);
 
   y += 26;
   doc.setTextColor(30, 30, 30);
@@ -433,18 +415,10 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
       new TableRow({ children: [
         wordCell('Activos vigentes', { bold: true, fill: 'D9EAF7' }),
         wordCell(totals.active, { align: AlignmentType.CENTER }),
-        wordCell('Ajustes contables', { bold: true, fill: 'D9EAF7' }),
-        wordCell(totals.adjustments, { align: AlignmentType.CENTER }),
         wordCell('Dados de baja', { bold: true, fill: 'D9EAF7' }),
         wordCell(totals.retired, { align: AlignmentType.CENTER }),
-      ]}),
-      new TableRow({ children: [
-        wordCell('Unidades físicas', { bold: true, fill: 'EEF5FB' }),
+        wordCell('Unidades', { bold: true, fill: 'D9EAF7' }),
         wordCell(totals.quantity, { align: AlignmentType.CENTER }),
-        wordCell('', { fill: 'EEF5FB' }),
-        wordCell('', { fill: 'EEF5FB' }),
-        wordCell('', { fill: 'EEF5FB' }),
-        wordCell('', { fill: 'EEF5FB' }),
       ]}),
       new TableRow({ children: [
         wordCell('Valor original', { bold: true, fill: 'EEF5FB' }),
@@ -550,13 +524,13 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         }),
         new Paragraph({
           children: [new TextRun({
-            text: 'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente, activos sin ubicación y ajustes contables al final.',
+            text: 'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente y activos sin ubicación al final.',
             size: 14,
           })],
         }),
         new Paragraph({
           children: [new TextRun({
-            text: 'Los ajustes contables no se cuentan como unidades físicas y su efecto sí se incorpora al valor neto contable. Valores expresados en pesos colombianos (COP).',
+            text: 'Valores expresados en pesos colombianos (COP). Los activos dados de baja conservan su valor histórico para trazabilidad y se presentan con valor en libros igual a cero.',
             size: 14,
           })],
         }),
