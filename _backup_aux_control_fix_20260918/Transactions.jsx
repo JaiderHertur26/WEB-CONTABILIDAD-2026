@@ -357,27 +357,21 @@ const Transactions = () => {
             relevantBankAccounts.filter(ba => Math.abs(parseFloat(ba.initialInvestmentBalance) || 0) > 0.0001)
         );
 
-        // Orden único para pantalla, saldos corridos y exportaciones:
-        // fecha → prefijo de comprobante → número → id.
-        // Así cada saldo mostrado corresponde exactamente a la fila que lo precede.
+        // 🚀 REGLA LÓGICA 1: Ordenamiento cronológico con desempate dinámico
         const sorted = [...transactions].filter(isRelevant).sort((a, b) => {
-            const dateA = normalizeDateKey(a.date);
-            const dateB = normalizeDateKey(b.date);
-            const dateCompare = dateA.localeCompare(dateB);
-            if (dateCompare !== 0) return dateCompare;
+            const dateA = new Date(a.date).getTime();
+            const dateB = new Date(b.date).getTime();
+            
+            if (dateA !== dateB) return dateA - dateB;
 
-            const computedA = getTransactionTypeAndPrefix(a);
-            const computedB = getTransactionTypeAndPrefix(b);
-            const prefixA = String(a.voucherPrefix || computedA.prefix || '').toUpperCase();
-            const prefixB = String(b.voucherPrefix || computedB.prefix || '').toUpperCase();
-            const prefixCompare = prefixA.localeCompare(prefixB, 'es', { sensitivity: 'base' });
-            if (prefixCompare !== 0) return prefixCompare;
+            // Desempate de mismo día: Los ingresos se suman a caja ANTES de procesar los egresos
+            const weightA = a.type === 'income' ? 1 : (a.type === 'transfer' ? 2 : 3);
+            const weightB = b.type === 'income' ? 1 : (b.type === 'transfer' ? 2 : 3);
+            
+            if (weightA !== weightB) return weightA - weightB;
 
-            const numberA = Number.isFinite(Number(a.voucherNumber)) ? Number(a.voucherNumber) : Number.MAX_SAFE_INTEGER;
-            const numberB = Number.isFinite(Number(b.voucherNumber)) ? Number(b.voucherNumber) : Number.MAX_SAFE_INTEGER;
-            if (numberA !== numberB) return numberA - numberB;
-
-            return String(a.id || '').localeCompare(String(b.id || ''));
+            // Último desempate utilizando el ID (que funciona como timestamp)
+            return String(a.id).localeCompare(String(b.id));
         });
 
         let runningCash = startCash;
@@ -1065,135 +1059,38 @@ const Transactions = () => {
 
     const handleExport = () => {
         if (filteredTransactions.length === 0) return;
-
-        const relevantInitialBalances = (initialBalances || []).filter(isRelevant);
-        const relevantBankAccounts = (bankAccounts || []).filter(isRelevant);
-        const openingCash = relevantInitialBalances.reduce((sum, item) => sum + (Number(item.balance) || 0), 0);
-        const openingBanks = relevantBankAccounts.reduce((sum, item) => sum + (Number(item.initialBalance) || 0), 0);
-        const openingAportes = relevantBankAccounts.reduce((sum, item) => sum + (Number(item.initialInvestmentBalance) || 0), 0);
-
-        const openingDates = [
-            ...relevantInitialBalances.map(item => String(item.date || '').slice(0, 10)),
-            ...relevantBankAccounts.map(item => String(item.date || '').slice(0, 10))
-        ].filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value)).sort();
-
-        let controlOpeningDate = `${selectedYear}-01-01`;
-        const latestOpeningDate = openingDates.at(-1);
-        if (latestOpeningDate) {
-            const openingDate = new Date(`${latestOpeningDate}T12:00:00`);
-            openingDate.setDate(openingDate.getDate() + 1);
-            controlOpeningDate = `${openingDate.getFullYear()}-${String(openingDate.getMonth() + 1).padStart(2, '0')}-${String(openingDate.getDate()).padStart(2, '0')}`;
-        }
-
-        const resolveControlAccount = (t) => {
-            const accountingRows = resolveAccountingRows(t);
-            const liquidityCode = (code) => {
-                const value = String(code || '');
-                return value.startsWith('1105') || value.startsWith('1110') || value.startsWith('1120');
-            };
-
-            if (t.isInternalTransfer) {
-                const debitTarget = accountingRows.find(row =>
-                    Number(row.debit) > 0 && String(row.account?.code || '').startsWith('1295')
-                );
-                if (debitTarget?.account?.code) return String(debitTarget.account.code);
-            }
-
-            if (t.type === 'income') {
-                const creditSide = accountingRows.find(row =>
-                    Number(row.credit) > 0 && !liquidityCode(row.account?.code)
-                );
-                if (creditSide?.account?.code) return String(creditSide.account.code);
-            }
-
-            if (t.type === 'expense') {
-                const debitSide = accountingRows.find(row =>
-                    Number(row.debit) > 0 && !liquidityCode(row.account?.code)
-                );
-                if (debitSide?.account?.code) return String(debitSide.account.code);
-            }
-
-            const nonLiquidity = accountingRows.find(row => !liquidityCode(row.account?.code));
-            return String(nonLiquidity?.account?.code || accountingRows[0]?.account?.code || 'N/A');
-        };
-
-        const rows = [{
-            Comprobante: 'SALDO',
-            Fecha: formatSafeDate(controlOpeningDate),
-            Descripción: 'SALDOS DE APERTURA DISPONIBLES PARA CONTROL',
-            Tipo: 'Saldo Inicial',
-            'Nº Cuenta': '-',
-            Categoría: 'APERTURA',
-            Monto: null,
-            Destino: '-',
-            'Saldo Caja': openingCash,
-            'Saldo Bancos': openingBanks,
-            'Saldo Aportes': openingAportes,
-            __style: 'subtotal'
-        }];
-
-        filteredTransactions.forEach(t => {
+        
+        const dataToExport = filteredTransactions.map(t => {
             let typeLabel = '';
             if (t._intelligentType === 'transfer') typeLabel = 'Cruce/Transferencia';
             else if (t._intelligentType === 'adjustment') typeLabel = 'Ajuste Contable';
             else typeLabel = t._intelligentType === 'income' ? 'Ingreso' : 'Egreso';
-
+            
             if (t._isPending) typeLabel += ' (Pendiente)';
-
-            const displayVoucher = t.voucherNumber
-                ? `${t.voucherPrefix || 'N/A'}-${String(t.voucherNumber).padStart(4, '0')}`
-                : 'N/A';
-
-            let amountValue = Number(t.amount) || 0;
+            let displayVoucher = t.voucherNumber ? `${t.voucherPrefix || 'N/A'}-${String(t.voucherNumber).padStart(4, '0')}` : 'N/A';
+            
+            let amountValue = parseFloat(t.amount) || 0;
             if (t.type === 'expense' && t.type !== 'transfer' && !t.debitAccount) {
-                amountValue = -Math.abs(amountValue);
+                amountValue = -Math.abs(amountValue); 
             }
 
-            rows.push({
-                Comprobante: displayVoucher,
-                Fecha: formatSafeDate(t.date),
-                Descripción: t.description || '',
-                Tipo: typeLabel,
-                'Nº Cuenta': resolveControlAccount(t),
-                Categoría: getTransactionCategoryLabel(t),
-                Monto: amountValue,
-                Destino: t._destName || '-',
-                'Saldo Caja': Number(t._calculatedCash) || 0,
-                'Saldo Bancos': Number(t._calculatedBanks) || 0,
-                'Saldo Aportes': Number(t._calculatedAportes) || 0
-            });
+            return { 
+                'Comprobante': displayVoucher, 
+                'Fecha': formatSafeDate(t.date), 
+                'Descripción': t.description, 
+                'Tipo': typeLabel, 
+                'Nº Cuenta': t._accountNumber || 'N/A', 
+                'Categoría': getTransactionCategoryLabel(t), 
+                'Monto': amountValue, 
+                'Destino': t._destName || '-', 
+                'Saldo Caja': parseFloat(t._calculatedCash) || 0, 
+                'Saldo Bancos': parseFloat(t._calculatedBanks) || 0, 
+                'Saldo Aportes': parseFloat(t._calculatedAportes) || 0 
+            }
         });
-
-        exportProfessionalTable({
-            fileName: `Transacciones_Control_${selectedYear}`,
-            companyName: cleanPrintedCompanyName(activeCompany?.name || 'ENTIDAD CONTABLE'),
-            nit: activeCompany?.doc || '',
-            title: `TRANSACCIONES CONTROL ${selectedYear}`,
-            period: `AÑO FISCAL ${selectedYear}`,
-            sheetName: 'Reporte',
-            orientation: 'landscape',
-            columns: [
-                { key: 'Comprobante', label: 'COMPROBANTE', width: 14, type: 'text' },
-                { key: 'Fecha', label: 'FECHA', width: 13, type: 'text' },
-                { key: 'Descripción', label: 'DESCRIPCIÓN', width: 42, type: 'text' },
-                { key: 'Tipo', label: 'TIPO', width: 18, type: 'text' },
-                { key: 'Nº Cuenta', label: 'Nº CUENTA', width: 15, type: 'text' },
-                { key: 'Categoría', label: 'CATEGORÍA', width: 34, type: 'text' },
-                { key: 'Monto', label: 'MONTO', width: 18, type: 'currency' },
-                { key: 'Destino', label: 'DESTINO', width: 30, type: 'text' },
-                { key: 'Saldo Caja', label: 'SALDO CAJA', width: 19, type: 'currency' },
-                { key: 'Saldo Bancos', label: 'SALDO BANCOS', width: 19, type: 'currency' },
-                { key: 'Saldo Aportes', label: 'SALDO APORTES', width: 19, type: 'currency' }
-            ],
-            rows,
-            notes: [
-                'Los saldos corridos se calculan en el mismo orden de las filas: fecha → prefijo → número de comprobante.',
-                'La cuenta PUC se obtiene del asiento contable resuelto, no de metadatos históricos heredados.',
-                'Este informe es de control operativo y debe conciliar con Libro Auxiliar, Libro Mayor, Balance y Flujo de Efectivo.'
-            ]
-        });
-
-        toast({ title: "Excel profesional generado", description: "Informe de Control exportado con saldos y cuentas PUC conciliadas." });
+        
+        exportToExcel(dataToExport, `Transacciones_Control_${selectedYear}`, {});
+        toast({ title: "¡Exportado!", description: "Informe de Control exportado a Excel." });
     };
 
     const handleExportAccounting = () => {
@@ -1318,40 +1215,16 @@ const Transactions = () => {
             });
         });
 
+        flatRows.sort((a, b) => {
+            const codeCompare = a.pCode.localeCompare(b.pCode);
+            if (codeCompare !== 0) return codeCompare;
+            return new Date(a.date) - new Date(b.date);
+        });
+
         const openingBalancesByCode = libroMayorData.reduce((map, acc) => {
             map[String(acc.code)] = Number(acc.saldoAnterior) || 0;
             return map;
         }, {});
-
-        // Incluir cuentas con saldo anterior aunque no tengan movimientos en el período
-        // (p. ej. Banco y Fondo Social). Un Auxiliar de “todas las cuentas” debe
-        // poder conciliar íntegramente con el Libro Mayor.
-        const movementCodes = new Set(flatRows.map(row => String(row.pCode)));
-        libroMayorData.forEach(acc => {
-            const code = String(acc.code || '');
-            const openingBalance = Number(acc.saldoAnterior) || 0;
-            const showRow = accountFilters.length === 0 || accountFilters.some(f => code.startsWith(f));
-            if (!showRow || !code || Math.abs(openingBalance) <= 0.01 || movementCodes.has(code)) return;
-
-            flatRows.push({
-                _openingOnly: true,
-                date: startDate,
-                vId: 'SALDO',
-                tercero: '-',
-                pCode: code,
-                pName: acc.name || '-',
-                isDebit: false,
-                val: 0
-            });
-        });
-
-        flatRows.sort((a, b) => {
-            const codeCompare = String(a.pCode).localeCompare(String(b.pCode));
-            if (codeCompare !== 0) return codeCompare;
-            if (a._openingOnly && !b._openingOnly) return -1;
-            if (!a._openingOnly && b._openingOnly) return 1;
-            return new Date(a.date) - new Date(b.date);
-        });
 
         const runningBalances = {};
         const rows = [];
@@ -1379,9 +1252,7 @@ const Transactions = () => {
                 }
             }
 
-            if (row._openingOnly) return;
-
-            const isDebitNature = isDebitNatureCode(row.pCode);
+            const isDebitNature = ['1', '5', '6', '8'].includes(row.pCode.charAt(0));
             if (row.isDebit) {
                 runningBalances[row.pCode] = (runningBalances[row.pCode] || 0) + (isDebitNature ? row.val : -row.val);
             } else {
@@ -3314,43 +3185,19 @@ const Transactions = () => {
                                                 });
                                             });
 
-                                            // 2. El saldo anterior viene del mismo Libro Mayor.
-                                            const openingBalancesByCode = libroMayorData.reduce((map, acc) => {
-                                                map[String(acc.code)] = Number(acc.saldoAnterior) || 0;
-                                                return map;
-                                            }, {});
-
-                                            // Incluir cuentas con saldo anterior aunque no tengan movimiento
-                                            // (Banco, Fondo Social u otras cuentas de apertura).
-                                            const movementCodes = new Set(flatRows.map(row => String(row.pCode)));
-                                            libroMayorData.forEach(acc => {
-                                                const code = String(acc.code || '');
-                                                const openingBalance = Number(acc.saldoAnterior) || 0;
-                                                const showRow = accountFilters.length === 0 || accountFilters.some(f => code.startsWith(f));
-                                                if (!showRow || !code || Math.abs(openingBalance) <= 0.01 || movementCodes.has(code)) return;
-
-                                                flatRows.push({
-                                                    _openingOnly: true,
-                                                    date: startDate,
-                                                    vId: 'SALDO',
-                                                    tercero: '-',
-                                                    pCode: code,
-                                                    pName: acc.name || '-',
-                                                    isDebit: false,
-                                                    val: 0
-                                                });
-                                            });
-
-                                            // Ordenar por Cuenta PUC y luego cronológicamente.
+                                            // 2. 🚀 Ordenar PRIMERO por Cuenta PUC, y SEGUNDO por Fecha
                                             flatRows.sort((a, b) => {
-                                                const codeCompare = String(a.pCode).localeCompare(String(b.pCode));
+                                                const codeCompare = a.pCode.localeCompare(b.pCode);
                                                 if (codeCompare !== 0) return codeCompare;
-                                                if (a._openingOnly && !b._openingOnly) return -1;
-                                                if (!a._openingOnly && b._openingOnly) return 1;
                                                 return new Date(a.date) - new Date(b.date);
                                             });
 
                                             // 3. Renderizar calculando el saldo continuo por cuenta.
+                                            // El saldo anterior viene del mismo Libro Mayor para que ambos libros concilien.
+                                            const openingBalancesByCode = libroMayorData.reduce((map, acc) => {
+                                                map[String(acc.code)] = Number(acc.saldoAnterior) || 0;
+                                                return map;
+                                            }, {});
                                             const runningBalances = {};
                                             const rowsToRender = [];
                                             let currentAccount = null;
@@ -3384,9 +3231,7 @@ const Transactions = () => {
                                                     }
                                                 }
 
-                                                if (row._openingOnly) return;
-
-                                                const isDebitNature = isDebitNatureCode(row.pCode);
+                                                const isDebitNature = ['1', '5', '6', '8'].includes(row.pCode.charAt(0));
                                                 
                                                 if (row.isDebit) {
                                                     runningBalances[row.pCode] = (runningBalances[row.pCode] || 0) + (isDebitNature ? row.val : -row.val);
@@ -3460,7 +3305,7 @@ const Transactions = () => {
                                                 </tr>
                                                 <tr className="font-black text-blue-900 text-sm bg-blue-50/50">
                                                     <td colSpan="5" className="py-3 px-2 text-right uppercase tracking-wider">
-                                                        Diferencia Débitos - Créditos del Filtro:
+                                                        Saldo Neto del Filtro:
                                                     </td>
                                                     <td colSpan="3" className="py-3 px-2 text-center text-lg">
                                                         {(() => {
