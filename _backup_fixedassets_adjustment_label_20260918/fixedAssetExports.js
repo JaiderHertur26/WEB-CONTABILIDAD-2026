@@ -84,10 +84,7 @@ const sortAssetsByPlace = (assets = []) =>
     .map(({ asset }) => asset);
 
 const assetSnapshot = (assets = []) => {
-  let physicalSequence = 0;
-  let adjustmentSequence = 0;
-
-  const rows = sortAssetsByPlace(assets).map((asset) => {
+  const rows = sortAssetsByPlace(assets).map((asset, index) => {
     const originalValue = Math.max(0, Number(asset.value) || 0);
     const accumulated = Math.max(0, Number(asset.accumulatedDepreciation) || 0);
     const retired = String(asset.status || '').toLowerCase() === 'dado de baja';
@@ -97,28 +94,20 @@ const assetSnapshot = (assets = []) => {
       ? (originalValue - accumulated)
       : (Number.isFinite(savedNet) ? Math.max(0, savedNet) : Math.max(0, originalValue - accumulated));
     const netBookValue = retired ? 0 : calculatedNet;
-    const sequence = accountingAdjustment
-      ? `AJ-${String(++adjustmentSequence).padStart(2, '0')}`
-      : ++physicalSequence;
-
-    const adjustmentNote = 'Registro contable no físico; no representa una unidad inventariable.';
-    const notes = accountingAdjustment
-      ? [adjustmentNote, asset.notes].filter(Boolean).join(' ')
-      : (asset.notes || '');
 
     return {
-      No: sequence,
-      Cantidad: accountingAdjustment ? null : (Number(asset.quantity) || 1),
+      No: index + 1,
+      Cantidad: accountingAdjustment ? 0 : (Number(asset.quantity) || 1),
       Activo: asset.name || 'Activo sin nombre',
       Identificacion: asset.model || '',
-      Categoria: accountingAdjustment ? 'AJUSTE CONTABLE' : (asset.category || ''),
-      Uso: accountingAdjustment ? '' : (asset.usage || ''),
-      Estado: accountingAdjustment ? '' : (asset.status || ''),
+      Categoria: asset.category || '',
+      Uso: asset.usage || '',
+      Estado: asset.status || '',
       Lugar: accountingAdjustment ? 'AJUSTE CONTABLE' : displayPlace(asset.location),
       ValorOriginal: originalValue,
       Depreciacion: accumulated,
       ValorLibros: netBookValue,
-      Observaciones: notes,
+      Observaciones: asset.notes || '',
       Retirado: retired,
       EsAjusteContable: accountingAdjustment,
     };
@@ -185,7 +174,7 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
   }));
 
   const columns = [
-    { key: 'N°', label: 'N°', width: 8, type: 'text' },
+    { key: 'N°', label: 'N°', width: 7, type: 'integer' },
     { key: 'Cant.', label: 'CANT.', width: 9, type: 'integer' },
     { key: 'Nombre del Activo', label: 'NOMBRE DEL ACTIVO', width: 30, type: 'text' },
     { key: 'Marca / Modelo / Serie', label: 'MARCA / MODELO / SERIE', width: 28, type: 'text' },
