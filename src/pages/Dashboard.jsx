@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
-import { parseAccountingDate, getAccountingYear } from '@/lib/accountingDate';
+import { parseAccountingDate, getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const Dashboard = () => {
@@ -41,13 +41,20 @@ const Dashboard = () => {
   const [categoryData, setCategoryData] = useState([]);
   
   // Year Selector State
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const today = new Date();
+  const todayDateKey = toAccountingDateInput(today);
+  const currentYear = today.getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear.toString());
 
-  // Configuración inicial de fechas
+  // Para la vigencia actual el Dashboard siempre corta en hoy; nunca proyecta
+  // movimientos futuros como si ya hubieran ocurrido.
   const [dateRange, setDateRange] = useState({
-    from: startOfYear(new Date()),
-    to: endOfYear(new Date()), 
+    from: startOfYear(today),
+    to: today,
   });
+  const selectedCutoffDate = Number(selectedYear) >= currentYear
+    ? todayDateKey
+    : `${selectedYear}-12-31`;
   
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#64748b', '#ec4899', '#14b8a6'];
 
@@ -56,8 +63,14 @@ const Dashboard = () => {
   };
 
   const handleDateRangeChange = (e, field) => {
-    const adjustedDate = parseAccountingDate(e.target.value);
-    setDateRange(prev => ({ ...prev, [field]: adjustedDate }));
+    const rawDate = String(e.target.value || '');
+    const safeDate = rawDate > todayDateKey ? todayDateKey : rawDate;
+    const adjustedDate = parseAccountingDate(safeDate);
+    setDateRange(prev => {
+      if (field === 'from' && adjustedDate > prev.to) return { from: adjustedDate, to: adjustedDate };
+      if (field === 'to' && adjustedDate < prev.from) return { from: adjustedDate, to: adjustedDate };
+      return { ...prev, [field]: adjustedDate };
+    });
   };
   
   const handleYearChange = (year) => {
@@ -66,7 +79,7 @@ const Dashboard = () => {
     
     setDateRange({
         from: startOfYear(date),
-        to: endOfYear(date),
+        to: parseInt(year, 10) >= currentYear ? today : endOfYear(date),
     });
   };
 
@@ -100,8 +113,12 @@ const Dashboard = () => {
       const validTransactions = filterByCompany(transactionsData || []).filter(t => 
         !['eliminado', 'anulado', 'cancelado', 'borrador'].includes(t.status?.toLowerCase())
       );
-      const years = new Set(validTransactions.map(t => getSafeYear(t.date)));
       const current = new Date().getFullYear();
+      const years = new Set(
+          validTransactions
+              .map(t => getSafeYear(t.date))
+              .filter(year => Number.isInteger(year) && year > 0 && year <= current)
+      );
       years.add(current);
       return Array.from(years).sort((a, b) => b - a).map(String);
   }, [transactionsData, filterByCompany]);
@@ -141,7 +158,10 @@ const Dashboard = () => {
         return comparisonDate >= pickerStart && comparisonDate <= pickerEnd;
     });
 
-    const bsTransactions = expandedValidTransactions.filter(t => getSafeYear(t.date) <= parseInt(selectedYear));
+    const bsTransactions = expandedValidTransactions.filter(t => {
+        const dateKey = toAccountingDateInput(t.date);
+        return dateKey && dateKey <= selectedCutoffDate;
+    });
 
     const getAccountPrefix = (categoryName) => {
         const account = allAccounts.find(a => a.name === categoryName);
@@ -214,7 +234,7 @@ const Dashboard = () => {
         bankAccounts: fBankAccounts,
         cashAccounts: fCashAccounts,
         accounts: allAccounts,
-        cutoffDate: selectedYear + '-12-31',
+        cutoffDate: selectedCutoffDate,
     });
 
     const cajaPrincipalBalance = liquidity.mainCash;
@@ -234,13 +254,16 @@ const Dashboard = () => {
         return assetYear === parseInt(selectedYear);
     }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
     
-    const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
+    const realEstatesValue = fRealEstates.filter(estate => {
+        const estateDate = toAccountingDateInput(estate.date);
+        return estateDate ? estateDate <= selectedCutoffDate : getSafeYear(estate.date) <= parseInt(selectedYear);
+    }).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
     
     const accountsReceivableValue = fAccountsReceivable.reduce((sum, r) => {
         const rDate = getOpenItemDate(r);
         const rYear = rDate ? getSafeYear(rDate) : (r.year ? parseInt(r.year) : parseInt(selectedYear));
         if (rYear > parseInt(selectedYear)) return sum;
-        return sum + getOutstandingBalance(r);
+        return sum + getOutstandingBalance(r, selectedCutoffDate);
     }, 0);
     
     let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, intangiblesValue = 0, depreciacionAcumuladaValue = 0;
@@ -302,7 +325,7 @@ const Dashboard = () => {
     const depreciacionesFuturasPropiedades = validTransactions.filter(t => {
         return t.category === 'Depreciación Acumulada Activos Fijos' && 
                String(t.description).includes('Edificaciones') && 
-               getSafeYear(t.date) > parseInt(selectedYear);
+               toAccountingDateInput(t.date) > selectedCutoffDate;
     }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
 
     const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
@@ -533,10 +556,10 @@ const Dashboard = () => {
         <ContractTaxAlert />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard title="Total Activos (Patrimonio)" value={`$${stats.generalBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={DollarSign} trend={stats.generalBalance >= 0 ? 'up' : 'down'} color="blue" tooltip="Caja + Cuentas Cobrar + Activos Fijos + Inventario + Construcciones" />
-          <StatCard title="Ingresos (P&L)" value={`$${stats.totalIncome.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingUp} trend="up" color="green" tooltip="Cuentas Clase 4" />
-          <StatCard title="Costos y Gastos (P&L)" value={`$${stats.totalExpenses.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingDown} trend="down" color="red" tooltip="Cuentas Clases 5, 6 y 7" />
-          <StatCard title="Caja Total (Disponible)" value={`$${stats.cashBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={PiggyBank} trend="static" color="purple" tooltip={`Saldo real acumulado al ${selectedYear}`} />
+          <StatCard title="Total Activos" value={`$${stats.generalBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={DollarSign} trend="static" color="blue" tooltip="Activos corrientes y no corrientes al corte seleccionado" caption={`Corte: ${selectedCutoffDate}`} />
+          <StatCard title="Ingresos (P&L)" value={`$${stats.totalIncome.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingUp} trend="static" color="green" tooltip="Ingresos de cuentas clase 4 en el rango seleccionado" caption={`${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`} />
+          <StatCard title="Costos y Gastos (P&L)" value={`$${stats.totalExpenses.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingDown} trend="static" color="red" tooltip="Costos y gastos de cuentas clases 5, 6 y 7 en el rango seleccionado" caption={`${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`} />
+          <StatCard title="Liquidez Total" value={`$${stats.cashBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={PiggyBank} trend="static" color="purple" tooltip="Caja principal + cajas auxiliares + bancos + aportes/inversiones" caption={`Corte: ${selectedCutoffDate}`} />
         </div>
 
         <div className="grid grid-cols-1 gap-6 items-start">
@@ -548,12 +571,12 @@ const Dashboard = () => {
               <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full lg:w-auto">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="startDate" className="text-xs font-medium text-slate-500 uppercase">Desde</Label>
-                  <input type="date" id="startDate" value={format(dateRange.from, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'from')} className="text-sm border border-slate-300 rounded-md pl-2 pr-2 py-1 focus:ring-2 focus:ring-blue-500 w-32 bg-white" />
+                  <input type="date" id="startDate" max={todayDateKey} value={format(dateRange.from, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'from')} className="text-sm border border-slate-300 rounded-md pl-2 pr-2 py-1 focus:ring-2 focus:ring-blue-500 w-32 bg-white" />
                 </div>
                 <div className="hidden sm:block w-px h-4 bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <Label htmlFor="endDate" className="text-xs font-medium text-slate-500 uppercase">Hasta</Label>
-                  <input type="date" id="endDate" value={format(dateRange.to, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'to')} className="text-sm border border-slate-300 rounded-md pl-2 pr-2 py-1 focus:ring-2 focus:ring-blue-500 w-32 bg-white" />
+                  <input type="date" id="endDate" max={todayDateKey} value={format(dateRange.to, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'to')} className="text-sm border border-slate-300 rounded-md pl-2 pr-2 py-1 focus:ring-2 focus:ring-blue-500 w-32 bg-white" />
                 </div>
               </div>
             </div>

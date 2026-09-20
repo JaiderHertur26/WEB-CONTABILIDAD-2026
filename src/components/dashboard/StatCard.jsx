@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 
-const StatCard = ({ title, value, icon: Icon, trend, color }) => {
+const StatCard = ({ title, value, icon: Icon, trend = 'static', color, tooltip = '', caption = '' }) => {
   const colorClasses = {
     blue: 'from-blue-500 to-blue-600',
     green: 'from-green-500 to-green-600',
@@ -10,7 +10,8 @@ const StatCard = ({ title, value, icon: Icon, trend, color }) => {
     purple: 'from-purple-500 to-purple-600',
   };
 
-  const TrendIcon = trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus;
+  const TrendIcon = caption ? Minus : (trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus);
+  const statusText = caption || (trend === 'up' ? 'Positivo' : trend === 'down' ? 'Negativo' : 'Estable');
 
   return (
     <motion.div
@@ -18,6 +19,7 @@ const StatCard = ({ title, value, icon: Icon, trend, color }) => {
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -5, transition: { duration: 0.2 } }}
       className={`bg-gradient-to-br ${colorClasses[color]} rounded-xl shadow-lg p-6 text-white relative overflow-hidden`}
+      title={tooltip || undefined}
     >
       <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-16 -mt-16" />
       <div className="relative z-10">
@@ -28,7 +30,7 @@ const StatCard = ({ title, value, icon: Icon, trend, color }) => {
         <p className="text-3xl font-bold mb-2">{value}</p>
         <div className="flex items-center text-sm">
           <TrendIcon className="w-4 h-4 mr-1" />
-          <span className="opacity-90">{trend === 'up' ? 'Positivo' : trend === 'down' ? 'Negativo' : 'Estable'}</span>
+          <span className="opacity-90">{statusText}</span>
         </div>
       </div>
     </motion.div>

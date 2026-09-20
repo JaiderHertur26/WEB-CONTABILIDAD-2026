@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Printer, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Heart, Activity, Trash2, Edit2, Loader2, BookOpen, Wallet, Search, ChevronDown } from 'lucide-react';
+import { Plus, Printer, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Heart, Activity, Trash2, Edit2, Loader2, BookOpen, Wallet, Search, ChevronDown, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogFooter } from '@/components/ui/dialog';
@@ -12,6 +12,8 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
 import { format, parseISO, addDays, subDays, addMonths, subMonths, addYears, subYears, isSameDay, isSameMonth, isSameYear, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import { resolveLiquidityAccount } from '@/lib/liquidityAccounts';
 
 const MassIntentions = () => {
     const { activeCompany } = useCompany();
@@ -23,6 +25,8 @@ const MassIntentions = () => {
     const [accounts] = useCompanyData('accounts');
     const [cashAccounts] = useCompanyData('cash_accounts');
     const [bankAccounts] = useCompanyData('bankAccounts');
+    const [fiscalYears] = useCompanyData('fiscal_years');
+    const [monthlyClosings] = useCompanyData('monthly_closings');
 
     const [currentDate, setCurrentDate] = useState(new Date());
     const [viewMode, setViewMode] = useState('day'); // 'day', 'month', 'year'
@@ -139,91 +143,237 @@ const MassIntentions = () => {
 
     const grandTotalControl = printGroups.reduce((sum, g) => sum + g.totalAmount, 0);
 
+    const periodLockReason = date =>
+        getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
+
     const getNextVoucherNumber = (dateStr) => {
         if (!transactions || transactions.length === 0) return 1;
         const year = (typeof dateStr === 'string' && dateStr.includes('-')) ? dateStr.split('-')[0] : new Date(dateStr).getFullYear().toString();
         const typeTransactions = transactions.filter(t => {
-            let tType = t.type;
-            if (t.isInternalTransfer || t.type === 'transfer') tType = 'transfer';
             const tYear = (typeof t.date === 'string' && t.date.includes('-')) ? t.date.split('-')[0] : new Date(t.date).getFullYear().toString();
-            return tType === 'income' && tYear === year;
+            return (t.voucherPrefix === 'I' || t.type === 'income') && tYear === year;
         });
         return typeTransactions.reduce((max, t) => (parseInt(t.voucherNumber, 10) > max ? parseInt(t.voucherNumber, 10) : max), 0) + 1;
     };
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (!canDelete) return toast({ variant: "destructive", title: "Acceso Denegado" });
-        if (!window.confirm("¿Seguro que deseas eliminar esta intención?")) return;
 
-        const intentionToDelete = intentions.find(i => i.id === id);
-        if (intentionToDelete?.transactionId && transactions) {
-            saveTransactions(transactions.filter(t => t.id !== intentionToDelete.transactionId));
+        const intentionToDelete = (intentions || []).find(i => i.id === id);
+        if (!intentionToDelete) return;
+
+        const linkedTransaction = intentionToDelete.transactionId
+            ? (transactions || []).find(t => String(t.id) === String(intentionToDelete.transactionId))
+            : null;
+
+        if (linkedTransaction) {
+            const lockReason = linkedTransaction.isLocked
+                ? 'El comprobante de esta ofrenda ya fue oficializado y es inalterable.'
+                : periodLockReason(linkedTransaction.date);
+
+            if (lockReason) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Intención protegida por cierre contable',
+                    description: lockReason
+                });
+                return;
+            }
         }
 
-        saveIntentions(intentions.filter(i => i.id !== id));
-        toast({ title: "Intención eliminada exitosamente" });
+        if (!window.confirm("¿Seguro que deseas eliminar esta intención?")) return;
+
+        try {
+            if (linkedTransaction) {
+                await saveTransactions((transactions || []).filter(t => String(t.id) !== String(linkedTransaction.id)));
+            }
+            await saveIntentions((intentions || []).filter(i => i.id !== id));
+            toast({ title: "Intención eliminada exitosamente" });
+        } catch (error) {
+            console.error('No fue posible eliminar la intención:', error);
+            toast({
+                variant: 'destructive',
+                title: 'No se pudo eliminar',
+                description: error?.message || 'La intención o su comprobante están protegidos.'
+            });
+        }
     };
 
-    const handleSaveIntention = (data) => {
-        if (!canAdd && !editingIntention) return;
+    const handleSaveIntention = async (data) => {
+        if (!editingIntention && !canAdd) return;
+        if (editingIntention && !canEdit) {
+            toast({ variant: 'destructive', title: 'Acceso denegado', description: 'Tu perfil no tiene permiso para editar intenciones.' });
+            return;
+        }
+
+        const amountNum = Number(data.amount || 0);
+        if (!Number.isFinite(amountNum) || amountNum < 0) {
+            toast({ variant: 'destructive', title: 'Ofrenda inválida', description: 'La ofrenda debe ser un valor numérico igual o mayor que cero.' });
+            return;
+        }
+        if (amountNum > 0 && (!data.destination || !data.category)) {
+            toast({ variant: 'destructive', title: 'Datos contables incompletos', description: 'Selecciona la clasificación PUC y la cuenta destino antes de guardar la ofrenda.' });
+            return;
+        }
 
         let updatedIntentions = [...(intentions || [])];
         let updatedTransactions = [...(transactions || [])];
         const now = Date.now().toString();
-
-        const amountNum = parseFloat(data.amount) || 0;
+        const intentionId = editingIntention ? editingIntention.id : `int-${now}`;
         let transactionId = editingIntention ? editingIntention.transactionId : null;
+        let linkedTransaction = transactionId
+            ? updatedTransactions.find(t => String(t.id) === String(transactionId))
+            : null;
+
+        if (transactionId && !linkedTransaction) transactionId = null;
+
+        if (linkedTransaction) {
+            const sourceLockReason = linkedTransaction.isLocked
+                ? 'El comprobante de esta ofrenda ya fue oficializado y es inalterable.'
+                : periodLockReason(linkedTransaction.date);
+            if (sourceLockReason) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Intención protegida por cierre contable',
+                    description: sourceLockReason
+                });
+                return;
+            }
+        }
+
+        const accountingDate = data.paymentDate || data.date;
+        if (amountNum > 0 && accountingDate > format(new Date(), 'yyyy-MM-dd')) {
+            toast({ variant: 'destructive', title: 'Fecha contable futura', description: 'La fecha de ingreso de la ofrenda no puede ser posterior a hoy.' });
+            return;
+        }
+        if (amountNum > 0) {
+            const targetLockReason = periodLockReason(accountingDate);
+            if (targetLockReason) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Período contable cerrado',
+                    description: targetLockReason
+                });
+                return;
+            }
+        }
 
         const typeLabels = { difunto: 'Difuntos', gracias: 'A. de Gracias', salud: 'Salud', otra: 'Otras Intenciones' };
         const descType = typeLabels[data.type] || 'Otras Intenciones';
-        
         const cleanName = (data.name || '').replace(/^[+✝]\s*/, '').trim();
 
-        if (amountNum > 0 && data.destination && data.category) {
+        if (!cleanName) {
+            toast({ variant: 'destructive', title: 'Nombre requerido', description: 'Indica por quién se ofrece la intención.' });
+            return;
+        }
+
+        const incomeAccount = amountNum > 0
+            ? (accounts || []).find(account =>
+                (data.categoryAccountCode && String(account.number) === String(data.categoryAccountCode)) ||
+                (!data.categoryAccountCode && account.name === data.category)
+            )
+            : null;
+        const liquidityAccount = amountNum > 0
+            ? resolveLiquidityAccount(data.destination, { bankAccounts, cashAccounts })
+            : null;
+
+        if (amountNum > 0 && (!incomeAccount || !String(incomeAccount.number || '').startsWith('4'))) {
+            toast({ variant: 'destructive', title: 'Cuenta de ingreso inválida', description: 'La ofrenda debe clasificarse en una cuenta PUC de ingresos (clase 4).' });
+            return;
+        }
+        if (amountNum > 0 && !liquidityAccount?.code) {
+            toast({ variant: 'destructive', title: 'Cuenta destino inválida', description: 'La caja o banco seleccionado no tiene una cuenta contable válida.' });
+            return;
+        }
+
+        if (amountNum > 0) {
             const financialDescription = `Intención Eucaristía (${descType}): ${cleanName}${data.offeredBy ? ` (Ofrece: ${data.offeredBy})` : ''}`;
+            const previousYear = linkedTransaction ? String(linkedTransaction.date || '').slice(0, 4) : '';
+            const targetYear = String(accountingDate || '').slice(0, 4);
+            const voucherNumber = linkedTransaction && previousYear === targetYear
+                ? linkedTransaction.voucherNumber
+                : getNextVoucherNumber(accountingDate);
 
             const txData = {
+                ...(linkedTransaction || {}),
                 id: transactionId || `tx-int-${now}`,
                 type: 'income',
-                date: data.date,
+                voucherPrefix: 'I',
+                voucherNumber,
+                date: accountingDate,
                 description: financialDescription,
                 amount: amountNum,
-                category: data.category,
+                category: incomeAccount.name,
                 destination: data.destination,
+                debitAccount: { code: String(liquidityAccount.code), name: liquidityAccount.name },
+                creditAccount: { code: String(incomeAccount.number), name: incomeAccount.name },
                 isInternalTransfer: false,
-                voucherNumber: transactionId ? updatedTransactions.find(t => t.id === transactionId)?.voucherNumber : getNextVoucherNumber(data.date)
+                sourceModule: 'mass_intentions',
+                massIntentionId: intentionId,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id
             };
 
-            if (transactionId) {
-                updatedTransactions = updatedTransactions.map(t => t.id === transactionId ? { ...t, ...txData } : t);
+            if (linkedTransaction) {
+                updatedTransactions = updatedTransactions.map(t => String(t.id) === String(linkedTransaction.id) ? txData : t);
             } else {
                 transactionId = txData.id;
                 updatedTransactions.push(txData);
             }
-        } else if (amountNum === 0 && transactionId) {
-            updatedTransactions = updatedTransactions.filter(t => t.id !== transactionId);
+        } else if (linkedTransaction) {
+            updatedTransactions = updatedTransactions.filter(t => String(t.id) !== String(linkedTransaction.id));
+            transactionId = null;
+        } else {
             transactionId = null;
         }
 
         const newIntention = {
             ...data,
+            amount: amountNum,
+            paymentDate: amountNum > 0 ? accountingDate : null,
+            category: amountNum > 0 ? incomeAccount.name : data.category,
+            categoryAccountCode: amountNum > 0 ? String(incomeAccount.number) : (data.categoryAccountCode || ''),
             name: cleanName,
-            id: editingIntention ? editingIntention.id : `int-${now}`,
-            transactionId: transactionId
+            id: intentionId,
+            transactionId
         };
 
         if (editingIntention) {
             updatedIntentions = updatedIntentions.map(i => i.id === editingIntention.id ? newIntention : i);
-            toast({ title: "Intención actualizada" });
         } else {
             updatedIntentions.push(newIntention);
-            toast({ title: "Intención guardada", description: amountNum > 0 ? "Comprobante de ingreso generado." : "" });
         }
 
-        saveTransactions(updatedTransactions);
-        saveIntentions(updatedIntentions);
-        setDialogOpen(false);
-        setEditingIntention(null);
+        try {
+            const transactionsChanged =
+                Boolean(linkedTransaction) ||
+                amountNum > 0 ||
+                Boolean(editingIntention?.transactionId);
+
+            if (transactionsChanged) {
+                await saveTransactions(updatedTransactions);
+            }
+            await saveIntentions(updatedIntentions);
+
+            const savedTransaction = transactionId
+                ? updatedTransactions.find(t => String(t.id) === String(transactionId))
+                : null;
+            toast({
+                title: editingIntention ? 'Intención actualizada' : 'Intención guardada',
+                description: amountNum > 0
+                    ? `Comprobante I-${String(savedTransaction?.voucherNumber || '').padStart(4, '0')} vinculado a la ofrenda.`
+                    : 'Registro pastoral guardado sin movimiento contable.'
+            });
+            setDialogOpen(false);
+            setEditingIntention(null);
+        } catch (error) {
+            console.error('No fue posible guardar la intención:', error);
+            toast({
+                variant: 'destructive',
+                title: 'No se pudo guardar',
+                description: error?.message || 'Revisa el período contable y los datos de la ofrenda.'
+            });
+        }
     };
 
     const handlePrintPdf = () => {
@@ -300,6 +450,13 @@ const MassIntentions = () => {
     const IntentionItem = ({ intention, icon, iconColor }) => {
         const cleanName = (intention.name || '').replace(/^[+✝]\s*/, '').trim();
         const prefix = intention.type === 'difunto' ? '✝ ' : '';
+        const linkedTransaction = intention.transactionId
+            ? (transactions || []).find(t => String(t.id) === String(intention.transactionId))
+            : null;
+        const isAccountingProtected = Boolean(linkedTransaction && (linkedTransaction.isLocked || periodLockReason(linkedTransaction.date)));
+        const voucherLabel = linkedTransaction?.voucherNumber
+            ? `${linkedTransaction.voucherPrefix || 'I'}-${String(linkedTransaction.voucherNumber).padStart(4, '0')}`
+            : '';
 
         return (
             <div className="flex items-center justify-between p-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors group">
@@ -308,7 +465,8 @@ const MassIntentions = () => {
                     <div className="truncate">
                         <p className="font-medium text-slate-800 truncate" title={`${prefix}${cleanName}`}>{prefix}{cleanName}</p>
                         {intention.offeredBy && <p className="text-[11px] text-slate-500 italic truncate" title={`Ofrece: ${intention.offeredBy}`}>Ofrece: {intention.offeredBy}</p>}
-                        {intention.amount > 0 && <p className="text-[11px] text-slate-400 mt-0.5 truncate">Ofrenda: ${parseFloat(intention.amount).toLocaleString('es-CO')} | <span className="font-semibold">{intention.category}</span></p>}
+                        {intention.amount > 0 && <p className="text-[11px] text-slate-400 mt-0.5 truncate">Ofrenda: ${parseFloat(intention.amount).toLocaleString('es-CO')} | <span className="font-semibold">{intention.category}</span>{voucherLabel ? ` | Comp. ${voucherLabel}` : ''}</p>}
+                        {isAccountingProtected && <p className="text-[10px] text-amber-700 font-semibold mt-0.5 flex items-center gap-1"><Lock className="w-3 h-3" /> Protegida por cierre contable</p>}
                     </div>
                 </div>
                 <div className="flex items-center gap-3 pl-2 shrink-0">
@@ -316,12 +474,12 @@ const MassIntentions = () => {
                         {formatDateTimeString(intention.date, intention.time)}
                     </span>
                     <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => { setEditingIntention(intention); setDialogOpen(true); }}>
+                        {canEdit && <Button disabled={isAccountingProtected} title={isAccountingProtected ? 'Protegida por cierre contable' : 'Editar intención'} variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:bg-blue-50 disabled:text-slate-300" onClick={() => { setEditingIntention(intention); setDialogOpen(true); }}>
                             <Edit2 className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-50" onClick={() => handleDelete(intention.id)}>
+                        </Button>}
+                        {canDelete && <Button disabled={isAccountingProtected} title={isAccountingProtected ? 'Protegida por cierre contable' : 'Eliminar intención'} variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:bg-red-50 disabled:text-slate-300" onClick={() => handleDelete(intention.id)}>
                             <Trash2 className="w-4 h-4" />
-                        </Button>
+                        </Button>}
                     </div>
                 </div>
             </div>
@@ -507,7 +665,7 @@ const MassIntentions = () => {
                                                     {getDisplayDate()}
                                                 </h2>
                                                 <div className="mt-2 bg-slate-50 border border-slate-200 py-1.5 px-4 inline-block rounded-lg">
-                                                    <span className="text-sm font-bold text-slate-700">TOTAL RECAUDADO: ${grandTotalControl.toLocaleString('es-CO')}</span>
+                                                    <span className="text-sm font-bold text-slate-700">TOTAL OFRENDAS ASOCIADAS: ${grandTotalControl.toLocaleString('es-CO')}</span>
                                                 </div>
                                                 <div className="flex justify-center mt-3 opacity-50">
                                                     <span className="w-16 h-px bg-black block mx-2 mt-2"></span>
@@ -583,12 +741,15 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
         date: format(currentDate, 'yyyy-MM-dd'),
         time: '07:00',
         amount: '',
-        category: '', 
+        paymentDate: format(new Date(), 'yyyy-MM-dd'),
+        category: '',
+        categoryAccountCode: '',
         destination: 'caja_principal|CAJA PRINCIPAL'
     });
     
     const [searchPuc, setSearchPuc] = useState('');
     const [isPucOpen, setIsPucOpen] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const pucRef = useRef(null);
 
     const incomeAccounts = useMemo(() => {
@@ -617,7 +778,10 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
     useEffect(() => {
         if (open) {
             if (intention) {
-                setFormData(intention);
+                setFormData({
+                    ...intention,
+                    paymentDate: intention.paymentDate || (intention.transactionId ? intention.date : format(new Date(), 'yyyy-MM-dd'))
+                });
             } else {
                 setFormData({
                     name: '',
@@ -626,19 +790,28 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
                     date: format(currentDate, 'yyyy-MM-dd'),
                     time: '07:00',
                     amount: '',
+                    paymentDate: format(new Date(), 'yyyy-MM-dd'),
                     category: '',
+                    categoryAccountCode: '',
                     destination: 'caja_principal|CAJA PRINCIPAL'
                 });
             }
             setSearchPuc('');
             setIsPucOpen(false);
+            setIsSaving(false);
         }
     }, [open, intention, currentDate]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
+        if (isSaving) return;
         if (!formData.name) return;
         
+        if (parseFloat(formData.amount) > 0 && !formData.paymentDate) {
+            toast({ variant: 'destructive', title: 'Falta fecha contable', description: 'Indica la fecha en que se recibió la ofrenda.' });
+            return;
+        }
+
         if (parseFloat(formData.amount) > 0 && !formData.category) {
             toast({ 
                 variant: 'destructive', 
@@ -648,7 +821,12 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
             return;
         }
 
-        onSave(formData);
+        setIsSaving(true);
+        try {
+            await onSave(formData);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -744,7 +922,19 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
 
                     {parseFloat(formData.amount) > 0 && (
                         <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200 mt-2">
-                            
+                            <div className="space-y-1.5">
+                                <Label className="text-amber-900 font-bold">Fecha de ingreso de la ofrenda</Label>
+                                <p className="text-xs text-amber-700">Es la fecha contable del comprobante I; puede ser distinta de la fecha en que se celebrará la misa.</p>
+                                <input
+                                    type="date"
+                                    required
+                                    max={format(new Date(), 'yyyy-MM-dd')}
+                                    value={formData.paymentDate || ''}
+                                    onChange={e => setFormData({...formData, paymentDate: e.target.value})}
+                                    className="w-full p-2 border border-amber-300 bg-white rounded-lg focus:ring-2 focus:ring-amber-500"
+                                />
+                            </div>
+
                             <div className="space-y-1.5" ref={pucRef}>
                                 <Label className="text-blue-900 font-bold flex items-center gap-2">
                                     <BookOpen className="w-4 h-4"/> Clasificación del Ingreso (PUC)
@@ -789,7 +979,7 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
                                                             <div 
                                                                 key={acc.id}
                                                                 onClick={() => {
-                                                                    setFormData({...formData, category: acc.name});
+                                                                    setFormData({...formData, category: acc.name, categoryAccountCode: String(acc.number)});
                                                                     setIsPucOpen(false);
                                                                     setSearchPuc('');
                                                                 }}
@@ -840,7 +1030,7 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
 
                     <DialogFooter className="pt-4 border-t border-slate-100 mt-6 pb-2">
                         <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
-                        <Button type="submit" className="bg-[#5c4a3d] hover:bg-[#4a3f35] text-white shadow-sm">Guardar Intención</Button>
+                        <Button type="submit" disabled={isSaving} className="bg-[#5c4a3d] hover:bg-[#4a3f35] text-white shadow-sm disabled:opacity-60">{isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}{isSaving ? 'Guardando...' : 'Guardar Intención'}</Button>
                     </DialogFooter>
                 </form>
             </DialogContent>
