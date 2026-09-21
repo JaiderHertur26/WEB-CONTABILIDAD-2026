@@ -6,7 +6,7 @@ import {
   Menu, X, Home, ArrowRightLeft, Building, Landmark, BookOpen,
   Settings, LogOut, Briefcase, FileBarChart2, ArrowDownCircle,
   ArrowUpCircle, Users, ShieldCheck, ShieldAlert, Network,
-  Wallet, Package, FileText, Heart, FileSignature
+  Wallet, Package, FileText, Heart, FileSignature, Church
 } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 
@@ -70,6 +70,33 @@ const AccessBadge = ({ level }) => {
   );
 };
 
+const OrganizationIdentity = ({ name }) => {
+  const displayName = String(name || '').trim();
+  const isParish = /^parroquia\b/i.test(displayName);
+  const cleanName = isParish
+    ? displayName.replace(/^parroquia\s+/i, '')
+    : displayName;
+
+  return (
+    <div className="relative mt-3 overflow-hidden rounded-xl border border-blue-400/20 bg-gradient-to-br from-slate-800 via-slate-800 to-blue-950/60 px-3.5 py-3 shadow-[0_10px_28px_rgba(2,6,23,0.32)]">
+      <div className="pointer-events-none absolute -right-6 -top-8 h-20 w-20 rounded-full bg-blue-500/10 blur-xl" />
+      <div className="relative flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-blue-400/20 bg-blue-500/10 shadow-inner">
+          <Church className="h-4.5 w-4.5 text-blue-300" strokeWidth={1.8} />
+        </div>
+        <div className="min-w-0">
+          <p className="mb-0.5 text-[9px] font-bold uppercase tracking-[0.22em] text-blue-300/90">
+            {isParish ? 'Parroquia' : 'Organización'}
+          </p>
+          <p className="text-[14px] font-bold leading-[1.15rem] tracking-[0.035em] text-white drop-shadow-sm">
+            {cleanName}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* =========================
    Sidebar (desktop)
 ========================= */
@@ -101,11 +128,7 @@ const Sidebar = ({ onLogout }) => {
             <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Sistema financiero</p>
           </div>
         </div>
-        {activeCompany && (
-          <p className="text-sm text-slate-400 truncate mt-1">
-            {activeCompany.name}
-          </p>
-        )}
+        {activeCompany && <OrganizationIdentity name={activeCompany.name} />}
         {isGeneralAdmin && (
           <p className="text-sm text-slate-400 mt-1">Admin General</p>
         )}
@@ -198,11 +221,7 @@ const MobileSidebar = ({ isOpen, setIsOpen, onLogout }) => {
                   <X className="w-6 h-6 text-slate-400 hover:text-white" />
                 </button>
               </div>
-              {activeCompany && (
-                <p className="text-sm text-slate-400 truncate mt-1">
-                  {activeCompany.name}
-                </p>
-              )}
+              {activeCompany && <OrganizationIdentity name={activeCompany.name} />}
               {isGeneralAdmin && (
                 <p className="text-sm text-slate-400 mt-1">Admin General</p>
               )}
