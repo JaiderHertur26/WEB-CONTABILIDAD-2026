@@ -249,7 +249,7 @@ const Login = () => {
 
   return (
     <>
-      <Helmet><title>Acceso y Registro - JaiderHerTur26</title></Helmet>
+      <Helmet><title>Acceso · HERTUR Contabilidad</title></Helmet>
       <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
              <div className="absolute -top-[30%] -left-[10%] w-[70%] h-[70%] rounded-full bg-blue-900/20 blur-3xl"></div>
@@ -267,21 +267,20 @@ const Login = () => {
         >
            <div className="bg-white p-8 text-center border-b border-slate-100 relative overflow-hidden">
                 <div className="flex flex-col items-center justify-center gap-3">
-                    <div className="relative w-16 h-16 flex items-center justify-center">
-                        <div className="absolute inset-0 bg-blue-600 rounded-2xl rotate-6 opacity-20"></div>
-                        <div className="absolute inset-0 bg-blue-600 rounded-2xl -rotate-6 opacity-20"></div>
-                        <div className="relative w-full h-full bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg text-white">
-                            <Network className="w-8 h-8" />
-                        </div>
-                        <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-1 shadow-sm border border-slate-100">
-                             <Shield className="w-4 h-4 text-indigo-600" />
-                        </div>
+                    <div className="relative">
+                        <div className="absolute inset-2 rounded-3xl bg-blue-500/20 blur-xl"></div>
+                        <img
+                            src="/hertur-contabilidad-mark.svg?v=20260921"
+                            alt="HERTUR Contabilidad"
+                            className="relative w-20 h-20 drop-shadow-xl"
+                        />
                     </div>
                     <div>
+                        <p className="text-[11px] font-extrabold text-blue-600 uppercase tracking-[0.34em] mb-1">HERTUR</p>
                         <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                            JaiderHerTur<span className="text-blue-600">26</span>
+                            Contabilidad
                         </h1>
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-widest mt-1">Sistema Contable & Financiero</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-widest mt-1">Sistema Contable &amp; Financiero</p>
                     </div>
                 </div>
            </div>

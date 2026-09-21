@@ -107,8 +107,9 @@ function App() {
   return (
     <>
       <Helmet>
-        <title>Sistema de Contabilidad</title>
-        <meta name="description" content="Gestiona tu contabilidad de forma profesional." />
+        <title>HERTUR · Contabilidad</title>
+        <meta name="description" content="Sistema contable y financiero HERTUR." />
+        <meta name="theme-color" content="#0F172A" />
       </Helmet>
 
       <LocalAuthProvider>

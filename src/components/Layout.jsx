@@ -87,8 +87,20 @@ const Sidebar = ({ onLogout }) => {
   return (
     <aside className="bg-slate-900 text-white w-64 flex flex-col h-screen">
       {/* Header */}
-      <div className="px-6 py-6 shrink-0">
-        <h2 className="text-2xl font-extrabold tracking-wider">JaiderHerTur26</h2>
+      <div className="px-5 py-5 shrink-0">
+        <div className="flex items-center gap-3 mb-3">
+          <img
+            src="/hertur-contabilidad-mark.svg?v=20260921"
+            alt=""
+            aria-hidden="true"
+            className="w-12 h-12 shrink-0 drop-shadow-lg"
+          />
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold tracking-[0.28em] text-blue-300 uppercase">HERTUR</p>
+            <h2 className="text-lg font-extrabold tracking-wide leading-tight text-white">Contabilidad</h2>
+            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Sistema financiero</p>
+          </div>
+        </div>
         {activeCompany && (
           <p className="text-sm text-slate-400 truncate mt-1">
             {activeCompany.name}
@@ -167,10 +179,22 @@ const MobileSidebar = ({ isOpen, setIsOpen, onLogout }) => {
             className="fixed inset-y-0 left-0 w-64 bg-slate-900 text-white z-50 flex flex-col"
           >
             {/* Header */}
-            <div className="px-6 py-6 shrink-0">
-              <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-extrabold">JaiderHerTur26</h2>
-                <button onClick={() => setIsOpen(false)}>
+            <div className="px-5 py-5 shrink-0">
+              <div className="flex justify-between items-start gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <img
+                    src="/hertur-contabilidad-mark.svg?v=20260921"
+                    alt=""
+                    aria-hidden="true"
+                    className="w-12 h-12 shrink-0 drop-shadow-lg"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold tracking-[0.28em] text-blue-300 uppercase">HERTUR</p>
+                    <h2 className="text-lg font-extrabold tracking-wide leading-tight text-white">Contabilidad</h2>
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Sistema financiero</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsOpen(false)} className="mt-1">
                   <X className="w-6 h-6 text-slate-400 hover:text-white" />
                 </button>
               </div>
@@ -242,10 +266,17 @@ const Layout = ({ children, onLogout }) => {
       />
 
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <div className="md:hidden p-4 bg-white border-b flex items-center">
-          <button onClick={() => setSidebarOpen(true)}>
+        <div className="md:hidden px-4 py-3 bg-white border-b flex items-center gap-3">
+          <button onClick={() => setSidebarOpen(true)} aria-label="Abrir menú">
             <Menu className="w-6 h-6 text-slate-600" />
           </button>
+          <div className="flex items-center gap-2">
+            <img src="/hertur-contabilidad-mark.svg?v=20260921" alt="" aria-hidden="true" className="w-8 h-8" />
+            <div className="leading-tight">
+              <p className="text-[9px] font-extrabold tracking-[0.24em] text-blue-600 uppercase">HERTUR</p>
+              <p className="text-sm font-bold text-slate-900">Contabilidad</p>
+            </div>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
