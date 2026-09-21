@@ -14,6 +14,7 @@ import { format, parseISO, addDays, subDays, addMonths, subMonths, addYears, sub
 import { es } from 'date-fns/locale';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { resolveLiquidityAccount } from '@/lib/liquidityAccounts';
+import ContactSelector from '@/components/transactions/ContactSelector';
 
 const MassIntentions = () => {
     const { activeCompany } = useCompany();
@@ -23,6 +24,7 @@ const MassIntentions = () => {
     const [intentions, saveIntentions] = useCompanyData('mass_intentions');
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
+    const [contacts] = useCompanyData('contacts');
     const [cashAccounts] = useCompanyData('cash_accounts');
     const [bankAccounts] = useCompanyData('bankAccounts');
     const [fiscalYears] = useCompanyData('fiscal_years');
@@ -261,6 +263,10 @@ const MassIntentions = () => {
         const typeLabels = { difunto: 'Difuntos', gracias: 'A. de Gracias', salud: 'Salud', otra: 'Otras Intenciones' };
         const descType = typeLabels[data.type] || 'Otras Intenciones';
         const cleanName = (data.name || '').replace(/^[+✝]\s*/, '').trim();
+        const selectedContact = data.contactId
+            ? (contacts || []).find(contact => String(contact.id) === String(data.contactId))
+            : null;
+        const contactName = selectedContact?.name || '';
 
         if (!cleanName) {
             toast({ variant: 'destructive', title: 'Nombre requerido', description: 'Indica por quién se ofrece la intención.' });
@@ -304,6 +310,8 @@ const MassIntentions = () => {
                 description: financialDescription,
                 amount: amountNum,
                 category: incomeAccount.name,
+                contactId: selectedContact?.id || '',
+                contact: contactName,
                 destination: data.destination,
                 debitAccount: { code: String(liquidityAccount.code), name: liquidityAccount.name },
                 creditAccount: { code: String(incomeAccount.number), name: incomeAccount.name },
@@ -333,6 +341,8 @@ const MassIntentions = () => {
             paymentDate: amountNum > 0 ? accountingDate : null,
             category: amountNum > 0 ? incomeAccount.name : data.category,
             categoryAccountCode: amountNum > 0 ? String(incomeAccount.number) : (data.categoryAccountCode || ''),
+            contactId: selectedContact?.id || '',
+            contact: contactName,
             name: cleanName,
             id: intentionId,
             transactionId
@@ -722,6 +732,7 @@ const MassIntentions = () => {
                 intention={editingIntention} 
                 onSave={handleSaveIntention}
                 accounts={accounts}
+                contacts={contacts}
                 cashAccounts={cashAccounts}
                 bankAccounts={bankAccounts}
                 currentDate={currentDate}
@@ -731,12 +742,13 @@ const MassIntentions = () => {
 };
 
 // COMPONENTE FORMULARIO DE INTENCIÓN
-const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cashAccounts, bankAccounts, currentDate }) => {
+const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, contacts, cashAccounts, bankAccounts, currentDate }) => {
     const { toast } = useToast();
     
     const [formData, setFormData] = useState({
         name: '',
-        offeredBy: '', 
+        offeredBy: '',
+        contactId: '',
         type: 'difunto',
         date: format(currentDate, 'yyyy-MM-dd'),
         time: '07:00',
@@ -780,12 +792,14 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
             if (intention) {
                 setFormData({
                     ...intention,
+                    contactId: intention.contactId || '',
                     paymentDate: intention.paymentDate || (intention.transactionId ? intention.date : format(new Date(), 'yyyy-MM-dd'))
                 });
             } else {
                 setFormData({
                     name: '',
-                    offeredBy: '', 
+                    offeredBy: '',
+                    contactId: '',
                     type: 'difunto',
                     date: format(currentDate, 'yyyy-MM-dd'),
                     time: '07:00',
@@ -865,6 +879,19 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cash
                             value={formData.offeredBy || ''} 
                             onChange={e => setFormData({...formData, offeredBy: e.target.value})} 
                             className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#8b6f4e] focus:border-[#8b6f4e] outline-none transition-all" 
+                        />
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <Label className="text-slate-700 font-bold flex items-center gap-1">
+                            Contacto <span className="text-[10px] font-normal text-slate-400">(Opcional)</span>
+                        </Label>
+                        <p className="text-xs text-slate-500">Vincula la persona registrada en Contactos, igual que en una Transacción.</p>
+                        <ContactSelector
+                            contacts={contacts || []}
+                            value={formData.contactId || ''}
+                            onChange={val => setFormData(prev => ({ ...prev, contactId: val }))}
+                            placeholder="Seleccionar contacto..."
                         />
                     </div>
 
