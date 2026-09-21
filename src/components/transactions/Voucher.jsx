@@ -149,7 +149,6 @@ const VoucherContent = ({ transaction }) => {
         <header className="flex justify-between items-start pb-2 mb-2 border-b-2 border-black">
           <div className="w-2/3 text-center">
             <h1 className="font-bold text-base uppercase">{company.name || 'NOMBRE EMPRESA'}</h1>
-            <p>{company.name || 'NOMBRE EMPRESA'}</p>
             <p>NIT: {company.nit || company.doc || 'NIT EMPRESA'}</p>
             <p>{company.address || 'DIRECCIÓN EMPRESA'} - Tel: {company.phone || 'TELÉFONO'}</p>
           </div>
