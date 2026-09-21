@@ -90,7 +90,7 @@ const Sidebar = ({ onLogout }) => {
       <div className="px-5 py-5 shrink-0">
         <div className="flex items-center gap-3 mb-3">
           <img
-            src="/hertur-contabilidad-mark.svg?v=20260921"
+            src="/hertur-contabilidad-mark.svg?v=20260921b"
             alt=""
             aria-hidden="true"
             className="w-12 h-12 shrink-0 drop-shadow-lg"
@@ -183,7 +183,7 @@ const MobileSidebar = ({ isOpen, setIsOpen, onLogout }) => {
               <div className="flex justify-between items-start gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <img
-                    src="/hertur-contabilidad-mark.svg?v=20260921"
+                    src="/hertur-contabilidad-mark.svg?v=20260921b"
                     alt=""
                     aria-hidden="true"
                     className="w-12 h-12 shrink-0 drop-shadow-lg"
@@ -271,7 +271,7 @@ const Layout = ({ children, onLogout }) => {
             <Menu className="w-6 h-6 text-slate-600" />
           </button>
           <div className="flex items-center gap-2">
-            <img src="/hertur-contabilidad-mark.svg?v=20260921" alt="" aria-hidden="true" className="w-8 h-8" />
+            <img src="/hertur-contabilidad-mark.svg?v=20260921b" alt="" aria-hidden="true" className="w-8 h-8" />
             <div className="leading-tight">
               <p className="text-[9px] font-extrabold tracking-[0.24em] text-blue-600 uppercase">HERTUR</p>
               <p className="text-sm font-bold text-slate-900">Contabilidad</p>

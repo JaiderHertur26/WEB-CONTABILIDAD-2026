@@ -1,1 +1,29 @@
-²ø1šYì
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+<title id="title">HERTUR Contabilidad</title>
+<desc id="desc">Monograma H con crecimiento financiero ascendente</desc>
+<defs>
+  <linearGradient id="bg" x1="28" y1="20" x2="228" y2="236" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#0F172A"/>
+    <stop offset=".56" stop-color="#172554"/>
+    <stop offset="1" stop-color="#1D4ED8"/>
+  </linearGradient>
+  <linearGradient id="gold" x1="62" y1="188" x2="205" y2="68" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#C9972E"/>
+    <stop offset=".48" stop-color="#F4CF72"/>
+    <stop offset="1" stop-color="#FFF1B8"/>
+  </linearGradient>
+  <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+    <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#020617" flood-opacity=".28"/>
+  </filter>
+</defs>
+<rect x="10" y="10" width="236" height="236" rx="58" fill="url(#bg)"/>
+<rect x="18" y="18" width="220" height="220" rx="50" fill="none" stroke="#60A5FA" stroke-opacity=".2" stroke-width="2"/>
+<g filter="url(#shadow)">
+  <path d="M62 61h26v53h80V61h26v134h-26v-56H88v56H62z" fill="#F8FAFC"/>
+  <path d="M47 184l38-38 29 22 40-45 20 15 34-47" fill="none" stroke="url(#gold)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M194 84l18 4-4 18" fill="none" stroke="#FFF1B8" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="84" cy="147" r="7" fill="#F4CF72"/>
+  <circle cx="114" cy="168" r="7" fill="#F4CF72"/>
+  <circle cx="154" cy="123" r="7" fill="#F4CF72"/>
+</g>
+</svg>

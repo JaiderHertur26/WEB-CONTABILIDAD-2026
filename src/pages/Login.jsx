@@ -270,7 +270,7 @@ const Login = () => {
                     <div className="relative">
                         <div className="absolute inset-2 rounded-3xl bg-blue-500/20 blur-xl"></div>
                         <img
-                            src="/hertur-contabilidad-mark.svg?v=20260921"
+                            src="/hertur-contabilidad-mark.svg?v=20260921b"
                             alt="HERTUR Contabilidad"
                             className="relative w-20 h-20 drop-shadow-xl"
                         />
