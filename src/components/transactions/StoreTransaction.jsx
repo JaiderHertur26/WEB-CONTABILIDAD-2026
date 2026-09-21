@@ -125,7 +125,7 @@ const AccountSelector = ({ accounts, value, onChange, placeholder, prefixFilter 
     };
 
     return (
-        <Popover open={open} onOpenChange={setOpen} modal={true}>
+        <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <Button variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between font-normal bg-white">
                     {displayValue ? (
@@ -136,7 +136,11 @@ const AccountSelector = ({ accounts, value, onChange, placeholder, prefixFilter 
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[350px] p-0 z-[50]" align="start">
+            <PopoverContent
+                className="w-[350px] p-0 z-[9999]"
+                align="start"
+                onCloseAutoFocus={(event) => event.preventDefault()}
+            >
                 <Command shouldFilter={false} className="w-full">
                     <CommandInput placeholder="Buscar cuenta..." value={searchQuery} onValueChange={setSearchQuery} />
                     <CommandList className="max-h-[300px]">

@@ -672,17 +672,32 @@ const Transactions = () => {
 
     const groupedBillingDocuments = useMemo(() => {
         if (!billingDocuments) return {};
-        const fBillingDocs = (billingDocuments || []).filter(isRelevant);
-        const yearDocs = fBillingDocs.filter(d => {
-            const y = (typeof d.date === 'string' && d.date.includes('-')) ? d.date.split('-')[0] : new Date(d.date).getFullYear().toString();
-            return y === selectedYear;
-        });
+
+        const lowerSearch = String(searchTerm || '').trim().toLowerCase();
+        const filteredDocs = (billingDocuments || [])
+            .filter(isRelevant)
+            .filter(doc => {
+                const dateKey = String(doc.date || '').slice(0, 10);
+                if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return false;
+                if (!dateKey.startsWith(selectedYear)) return false;
+                if (startDate && dateKey < startDate) return false;
+                if (effectiveEndDate && dateKey > effectiveEndDate) return false;
+
+                if (!lowerSearch) return true;
+                return [
+                    doc.beneficiary,
+                    doc.docNumber,
+                    doc.concept,
+                    doc.voucherNumber,
+                ].some(value => String(value || '').toLowerCase().includes(lowerSearch));
+            })
+            .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
         const grouped = {};
-        yearDocs.forEach(doc => {
-            const dateObj = parseISO(doc.date);
+        filteredDocs.forEach(doc => {
+            const dateObj = parseISO(String(doc.date).slice(0, 10));
             if (!isValid(dateObj)) return;
-            
+
             const month = format(dateObj, 'MMMM', { locale: es });
             const day = format(dateObj, 'dd');
 
@@ -691,7 +706,7 @@ const Transactions = () => {
             grouped[month][day].push(doc);
         });
         return grouped;
-    }, [billingDocuments, selectedYear, isRelevant]);
+    }, [billingDocuments, selectedYear, startDate, effectiveEndDate, searchTerm, isRelevant]);
 
     const getNextVoucherNumber = (desiredType, dateStr) => {
         if (!transactions || transactions.length === 0) return 1;
@@ -2834,7 +2849,7 @@ const Transactions = () => {
                                 <button onClick={() => setViewMode('balances')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'balances' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><TableIcon className="w-3 h-3 inline mr-1" /> Control</button>
                                 <button onClick={() => setViewMode('accounting')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'accounting' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BookOpen className="w-3 h-3 inline mr-1" /> Diario Oficial</button>
                                 <button onClick={() => setViewMode('mayor')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'mayor' ? 'bg-white shadow-sm text-purple-700' : 'text-slate-500 hover:text-purple-600'}`}><Filter className="w-3 h-3 inline mr-1" /> Mayor y Balances</button>
-                                <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`}><FileText className="w-3 h-3 inline mr-1" /> CxC</button>
+                                <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`} title="Cuentas de Cobro"><FileText className="w-3 h-3 inline mr-1" /> Ctas. de Cobro</button>
                             </div>
                             {canEdit && (
     <>
@@ -3104,7 +3119,7 @@ const Transactions = () => {
                                                                     </div>
                                                                     <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
                                                                         <span className="text-lg font-black text-slate-800">${parseFloat(doc.amount).toLocaleString('es-CO')}</span>
-                                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                                                             <Button size="sm" variant="outline" className="h-8 text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => { setBillingDocToPrint(doc); setPrintBillingOpen(true); }}>
                                                                                 <Printer className="w-4 h-4 mr-1"/> Ver
                                                                             </Button>
