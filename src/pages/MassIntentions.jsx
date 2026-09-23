@@ -500,11 +500,12 @@ const MassIntentions = () => {
         <>
             <Helmet><title>Libro Diario de Misa - {activeCompany?.name || 'Parroquia'}</title></Helmet>
             
-            <div className="max-w-[1400px] mx-auto space-y-6">
+            <div className="mx-auto max-w-[1520px] space-y-6">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h1 className="text-4xl font-serif font-bold text-slate-900 tracking-tight text-[#4a3f35]">Intenciones</h1>
-                        <p className="text-slate-500 italic mt-1 font-serif">"La Eucaristía es fuente y cumbre de toda la vida cristiana." <span className="text-xs text-slate-400">(Lumen Gentium 11)</span></p>
+                        <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-600">Libro diario de misa</p>
+                        <h1 className="text-4xl font-extrabold tracking-tight text-slate-950">Intenciones</h1>
+                        <p className="mt-2 max-w-2xl font-serif text-sm italic leading-6 text-slate-500">"La Eucaristía es fuente y cumbre de toda la vida cristiana." <span className="text-xs text-slate-400">(Lumen Gentium 11)</span></p>
                     </div>
                     <div className="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
                         <div className="bg-[#8b6f4e] text-white px-3 py-2 rounded-lg flex items-center font-semibold text-sm">
@@ -514,14 +515,14 @@ const MassIntentions = () => {
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
-                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                <div className="hertur-surface grid grid-cols-1 gap-3 rounded-2xl p-3 lg:grid-cols-2">
+                    <div className="flex w-fit max-w-full rounded-xl border border-slate-200/70 bg-slate-100/80 p-1">
                         <button onClick={() => setViewMode('day')} className={`px-6 py-2 text-sm font-semibold rounded-md transition-all ${viewMode === 'day' ? 'bg-[#5c4a3d] text-white shadow-md' : 'text-slate-600 hover:bg-slate-200'}`}>Día</button>
                         <button onClick={() => setViewMode('month')} className={`px-6 py-2 text-sm font-semibold rounded-md transition-all ${viewMode === 'month' ? 'bg-[#5c4a3d] text-white shadow-md' : 'text-slate-600 hover:bg-slate-200'}`}>Mes</button>
                         <button onClick={() => setViewMode('year')} className={`px-6 py-2 text-sm font-semibold rounded-md transition-all ${viewMode === 'year' ? 'bg-[#5c4a3d] text-white shadow-md' : 'text-slate-600 hover:bg-slate-200'}`}>Año</button>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1">
+                    <div className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-1 sm:w-auto lg:justify-self-end">
                         <Button variant="ghost" size="icon" onClick={handlePrev} className="hover:bg-white text-slate-600"><ChevronLeft className="w-5 h-5" /></Button>
                         <div className="px-4 py-1.5 font-bold text-slate-800 text-sm flex items-center min-w-[160px] justify-center">
                             <CalendarIcon className="w-4 h-4 mr-2 text-[#8b6f4e]" />
@@ -530,13 +531,13 @@ const MassIntentions = () => {
                         <Button variant="ghost" size="icon" onClick={handleNext} className="hover:bg-white text-slate-600"><ChevronRight className="w-5 h-5" /></Button>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2 lg:col-span-2 lg:justify-end">
                         {canAdd && (
-                            <Button onClick={() => { setEditingIntention(null); setDialogOpen(true); }} className="bg-[#5c4a3d] hover:bg-[#4a3f35] text-white font-medium shadow-md">
+                            <Button onClick={() => { setEditingIntention(null); setDialogOpen(true); }} className="bg-[#5c4a3d] text-white shadow-sm hover:bg-[#4a3f35]">
                                 <Plus className="w-4 h-4 mr-2" /> Nueva intención
                             </Button>
                         )}
-                        <Button variant="outline" onClick={handlePrintPdf} disabled={isPrinting || filteredIntentions.length === 0} className="border-slate-300 text-slate-700 bg-white hover:bg-slate-50">
+                        <Button variant="outline" onClick={handlePrintPdf} disabled={isPrinting || filteredIntentions.length === 0} className="border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
                             {isPrinting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Printer className="w-4 h-4 mr-2" />}
                             Imprimir / PDF
                         </Button>
