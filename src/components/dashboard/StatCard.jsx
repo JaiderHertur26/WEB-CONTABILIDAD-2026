@@ -1,37 +1,77 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-const StatCard = ({ title, value, icon: Icon, trend = 'static', color, tooltip = '', caption = '' }) => {
-  const colorClasses = {
-    blue: 'from-blue-500 to-blue-600',
-    green: 'from-green-500 to-green-600',
-    red: 'from-red-500 to-red-600',
-    purple: 'from-purple-500 to-purple-600',
-  };
+const palette = {
+  blue: {
+    icon: 'bg-blue-50 text-blue-700 ring-blue-100',
+    accent: 'bg-blue-600',
+    value: 'text-slate-950',
+  },
+  green: {
+    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    accent: 'bg-emerald-500',
+    value: 'text-slate-950',
+  },
+  red: {
+    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
+    accent: 'bg-rose-500',
+    value: 'text-slate-950',
+  },
+  purple: {
+    icon: 'bg-violet-50 text-violet-700 ring-violet-100',
+    accent: 'bg-violet-500',
+    value: 'text-slate-950',
+  },
+};
 
-  const TrendIcon = caption ? Minus : (trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus);
-  const statusText = caption || (trend === 'up' ? 'Positivo' : trend === 'down' ? 'Negativo' : 'Estable');
+const StatCard = ({
+  title,
+  value,
+  icon: Icon,
+  trend = 'static',
+  color = 'blue',
+  tooltip = '',
+  caption = '',
+}) => {
+  const styles = palette[color] || palette.blue;
+  const TrendIcon = caption
+    ? Minus
+    : (trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus);
+  const statusText = caption
+    || (trend === 'up' ? 'Positivo' : trend === 'down' ? 'Negativo' : 'Estable');
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -5, transition: { duration: 0.2 } }}
-      className={`bg-gradient-to-br ${colorClasses[color]} rounded-xl shadow-lg p-6 text-white relative overflow-hidden`}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.2 }}
+      className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.025),0_12px_28px_rgba(15,23,42,0.045)]"
       title={tooltip || undefined}
     >
-      <div className="absolute top-0 right-0 w-32 h-32 bg-white opacity-10 rounded-full -mr-16 -mt-16" />
-      <div className="relative z-10">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-sm opacity-90">{title}</p>
-          <Icon className="w-8 h-8 opacity-80" />
+      <div className={cn('absolute inset-x-0 top-0 h-[3px]', styles.accent)} />
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-slate-400">
+            {title}
+          </p>
+          <p className={cn('mt-3 truncate text-[1.65rem] font-extrabold tracking-[-0.045em]', styles.value)}>
+            {value}
+          </p>
         </div>
-        <p className="text-3xl font-bold mb-2">{value}</p>
-        <div className="flex items-center text-sm">
-          <TrendIcon className="w-4 h-4 mr-1" />
-          <span className="opacity-90">{statusText}</span>
+        <div className={cn(
+          'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 transition-transform duration-200 group-hover:scale-[1.03]',
+          styles.icon
+        )}>
+          <Icon className="h-5 w-5" strokeWidth={1.8} />
         </div>
+      </div>
+
+      <div className="mt-4 flex min-w-0 items-center gap-1.5 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+        <TrendIcon className="h-3.5 w-3.5 shrink-0 text-slate-400" strokeWidth={1.8} />
+        <span className="truncate">{statusText}</span>
       </div>
     </motion.div>
   );

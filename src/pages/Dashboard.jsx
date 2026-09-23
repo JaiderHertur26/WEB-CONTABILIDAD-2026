@@ -496,23 +496,24 @@ const Dashboard = () => {
   return (
     <>
       <Helmet>
-        <title>Dashboard - JaiderHerTur26</title>
+        <title>Dashboard · HERTUR Contabilidad</title>
       </Helmet>
 
-      <div className="space-y-8">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+      <div className="space-y-6 lg:space-y-7">
+        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="hertur-surface rounded-2xl p-5 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-                <div className="flex items-center gap-2">
-                    <h1 className="text-4xl font-bold text-slate-900 mb-2">Dashboard</h1>
-                    {isConsolidated && <span className="bg-purple-100 text-purple-800 text-xs font-bold px-2 py-1 rounded-full border border-purple-200 animate-pulse">CONSOLIDADO</span>}
+                <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-600">Visión ejecutiva</p>
+                <div className="flex flex-wrap items-center gap-2.5">
+                    <h1 className="text-4xl font-bold text-slate-900">Dashboard financiero</h1>
+                    {isConsolidated && <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-violet-700">Consolidado</span>}
                 </div>
-                <p className="text-slate-600">Resumen general de tu contabilidad</p>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Una lectura clara de la posición financiera, la liquidez y el comportamiento del período.</p>
             </div>
             
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                 <Select value={selectedYear} onValueChange={handleYearChange}>
-                    <SelectTrigger className="w-full sm:w-[130px] bg-white shadow-sm border-slate-200">
+                    <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white shadow-sm sm:w-[132px]">
                         <Calendar className="w-4 h-4 mr-2 text-slate-500" />
                         <SelectValue placeholder="Año" />
                     </SelectTrigger>
@@ -524,7 +525,7 @@ const Dashboard = () => {
                 </Select>
 
                 {hasSubCompanies && (
-                    <div className="flex items-center space-x-3 bg-white p-2.5 rounded-xl border shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center space-x-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 shadow-sm transition-colors hover:bg-white">
                         <Switch 
                             id="consolidation-mode"
                             checked={isConsolidated}
@@ -547,7 +548,7 @@ const Dashboard = () => {
         </motion.div>
         
         {isConsolidated && (
-            <div className="bg-purple-50 border border-purple-200 p-3 rounded-lg flex gap-3 text-purple-800 text-sm items-center">
+            <div className="flex items-center gap-3 rounded-2xl border border-violet-200/80 bg-violet-50/70 px-4 py-3 text-sm text-violet-800 shadow-sm">
                 <Info className="w-5 h-5 flex-shrink-0" />
                 Estás viendo la información combinada de tu empresa y todas sus sub-empresas vinculadas. Para editar datos, se recomienda cambiar a Vista Individual.
             </div>
@@ -555,7 +556,7 @@ const Dashboard = () => {
 
         <ContractTaxAlert />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard title="Total Activos" value={`$${stats.generalBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={DollarSign} trend="static" color="blue" tooltip="Activos corrientes y no corrientes al corte seleccionado" caption={`Corte: ${selectedCutoffDate}`} />
           <StatCard title="Ingresos (P&L)" value={`$${stats.totalIncome.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingUp} trend="static" color="green" tooltip="Ingresos de cuentas clase 4 en el rango seleccionado" caption={`${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`} />
           <StatCard title="Costos y Gastos (P&L)" value={`$${stats.totalExpenses.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingDown} trend="static" color="red" tooltip="Costos y gastos de cuentas clases 5, 6 y 7 en el rango seleccionado" caption={`${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`} />
@@ -563,7 +564,7 @@ const Dashboard = () => {
         </div>
 
         <div className="grid grid-cols-1 gap-6 items-start">
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.2 }} className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 w-full">
+          <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.12 }} className="hertur-surface w-full rounded-2xl p-5 sm:p-6">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
               <h3 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
                   Ingresos vs Gastos <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-1 rounded-full">P&L</span>
@@ -595,7 +596,7 @@ const Dashboard = () => {
             </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 h-full w-full flex flex-col">
+          <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.18 }} className="hertur-surface flex h-full w-full flex-col rounded-2xl p-5 sm:p-6">
             <h3 className="text-xl font-semibold text-slate-900 mb-4">Gastos por Categoría</h3>
             {categoryData.length > 0 ? (
                 <div className="flex flex-col flex-1 min-h-[350px]">

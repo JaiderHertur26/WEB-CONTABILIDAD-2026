@@ -4,43 +4,169 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 216 33% 97%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 217 82% 51%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 214 32% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 214 32% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 214 32% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    --border: 214 29% 90%;
+    --input: 214 29% 90%;
+    --ring: 217 82% 51%;
+    --radius: 0.75rem;
+    --hertur-navy: #0b1220;
+    --hertur-navy-soft: #111b2e;
+    --hertur-blue: #2563eb;
+    --hertur-canvas: #f5f7fb;
   }
 }
 
+html {
+  min-height: 100%;
+  background: var(--hertur-canvas);
+}
+
 body {
-  @apply bg-slate-50 text-slate-900;
+  @apply text-slate-900;
+  min-height: 100%;
+  margin: 0;
+  background: var(--hertur-canvas);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 * {
   @apply border-border;
 }
 
-@media print {
-  body {
-    background-color: white;
+::selection {
+  background: rgba(37, 99, 235, 0.16);
+  color: #0f172a;
+}
+
+.app-shell {
+  background: #f5f7fb;
+}
+
+.app-sidebar {
+  color: #fff;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(37, 99, 235, 0.15), transparent 28%),
+    linear-gradient(180deg, #0b1220 0%, #0b1324 48%, #090f1b 100%);
+  box-shadow: 18px 0 50px rgba(15, 23, 42, 0.08);
+}
+
+.app-topbar {
+  position: relative;
+  z-index: 20;
+  background: rgba(250, 252, 255, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.app-workspace {
+  background:
+    radial-gradient(circle at 88% 0%, rgba(37, 99, 235, 0.055), transparent 24rem),
+    radial-gradient(circle at 14% 16%, rgba(14, 165, 233, 0.035), transparent 20rem),
+    #f5f7fb;
+}
+
+.app-workspace h1 {
+  color: #0f172a !important;
+  font-size: clamp(1.85rem, 2.2vw, 2.35rem) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.035em !important;
+  line-height: 1.05 !important;
+}
+
+.app-workspace h2,
+.app-workspace h3 {
+  letter-spacing: -0.02em;
+}
+
+.app-workspace .bg-white.rounded-xl {
+  border-color: rgba(203, 213, 225, 0.78) !important;
+}
+
+.app-workspace .shadow-lg {
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.025),
+    0 12px 30px rgba(15, 23, 42, 0.055) !important;
+}
+
+.app-workspace input,
+.app-workspace textarea,
+.app-workspace select {
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.app-workspace input:focus,
+.app-workspace textarea:focus,
+.app-workspace select:focus {
+  outline: none;
+}
+
+.hertur-surface {
+  border: 1px solid rgba(203, 213, 225, 0.78);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.025),
+    0 10px 28px rgba(15, 23, 42, 0.045);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.42) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar--webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.34);
+  background-clip: padding-box;
+}
+
+.custom-scrollbar--webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.5);
+  background-clip: padding-box;
+}
+
+@media (max-width: 767px) {
+  .app-workspace h1 {
+    font-size: 1.7rem !important;
   }
+}
+
+@media print {
+  body,
+  .app-workspace {
+    background: white !important;
+  }
+
+  .app-topbar,
+  .app-sidebar,
   .no-print {
-    display: none;
+    display: none !important;
   }
 }
