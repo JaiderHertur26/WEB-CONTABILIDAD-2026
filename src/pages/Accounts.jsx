@@ -416,7 +416,49 @@ const Accounts = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+            <div className="md:hidden divide-y divide-slate-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                {displayRows.length === 0 ? (
+                    <div className="p-12 text-center text-slate-400"><BookOpen className="w-12 h-12 mx-auto mb-3 opacity-20"/><p>No se encontraron cuentas</p></div>
+                ) : displayRows.map((row) => {
+                    const { level, label, indent } = getLevelInfo(row.number);
+                    let textClass = 'text-slate-600';
+                    let icon = <FileText className="w-4 h-4 text-slate-300" />;
+                    if (level === 0) {
+                        textClass = 'font-bold text-slate-800';
+                        icon = <FolderOpen className="w-4 h-4 text-slate-400" />;
+                        if (ACCOUNT_CLASSES[row.number[0]]) textClass = cn('font-bold', ACCOUNT_CLASSES[row.number[0]].color);
+                    } else if (level === 1) {
+                        textClass = 'font-semibold text-slate-700';
+                        icon = <Folder className="w-4 h-4 text-blue-300" />;
+                    }
+                    return (
+                        <article key={row.id} className="px-4 py-3 bg-white">
+                            <div className="flex items-center gap-3" style={{ paddingLeft: `${Math.min(indent, 4) * 0.65}rem` }}>
+                                {row.hasChildren ? (
+                                    <button onClick={() => toggleExpand(row.number)} className="shrink-0 rounded-lg bg-slate-100 text-slate-500">
+                                        {row.isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                    </button>
+                                ) : <span className="w-11 shrink-0" />}
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={cn("font-mono text-sm", textClass)}>{row.number}</span>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-500 font-medium uppercase border border-slate-200">{label}</span>
+                                    </div>
+                                    <div className={cn("mt-1 flex items-center gap-2 text-sm", textClass)}>{icon}<span className="break-words">{row.name}</span></div>
+                                </div>
+                                {(canEdit || canDelete) && (
+                                    <div className="flex shrink-0">
+                                        {canEdit && <Button variant="ghost" size="icon" onClick={() => { setEditingAccount(row); setDialogOpen(true); }}><Edit2 className="w-4 h-4 text-blue-500" /></Button>}
+                                        {canDelete && <Button variant="ghost" size="icon" onClick={() => handleDeleteAccount(row.id)}><Trash2 className="w-4 h-4 text-red-500" /></Button>}
+                                    </div>
+                                )}
+                            </div>
+                        </article>
+                    );
+                })}
+            </div>
+            <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="grid min-w-[720px] grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 <div className="col-span-6 sm:col-span-4">Código / Cuenta</div>
                 <div className="col-span-3 sm:col-span-6">Nombre</div>
@@ -460,6 +502,7 @@ const Accounts = () => {
                        );
                    })
                )}
+            </div>
             </div>
         </div>
       </div>

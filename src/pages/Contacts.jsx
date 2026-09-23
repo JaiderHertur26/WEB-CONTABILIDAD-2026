@@ -562,7 +562,37 @@ const Contacts = () => {
             </div>
           </div>
 
-          <div className="overflow-x-auto overscroll-x-contain touch-pan-x rounded-lg border" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <div className="md:hidden space-y-3">
+            {filteredContacts.length === 0 ? (
+              <div className="rounded-xl border bg-white p-8 text-center text-slate-400">No se encontraron contactos.</div>
+            ) : filteredContacts.map(contact => (
+              <article key={contact.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className={`w-11 h-11 shrink-0 rounded-xl flex items-center justify-center ${contact.type === 'person' ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600'}`}>
+                    {contact.type === 'person' ? <User className="w-5 h-5" /> : <Building className="w-5 h-5" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-bold text-slate-900 break-words">{contact.name}</h3>
+                    <div className="mt-1">{getCategoryBadge(contact.category)}</div>
+                    <div className="mt-2 text-xs text-slate-500 space-y-1">
+                      {contact.docNumber && <div><span className="font-semibold">{contact.docType || 'Doc.'}:</span> {contact.docNumber}</div>}
+                      {contact.phone && <div><span className="font-semibold">Tel:</span> {contact.phone}</div>}
+                      {contact.email && <div className="break-all"><span className="font-semibold">Email:</span> {contact.email}</div>}
+                      {contact.address && <div><span className="font-semibold">Dir:</span> {contact.address}</div>}
+                    </div>
+                  </div>
+                </div>
+                {(canEdit || canDelete) && (
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    {canEdit && <Button variant="outline" onClick={() => openDialogForEdit(contact)}><Edit2 className="w-4 h-4 mr-2 text-blue-600" />Editar</Button>}
+                    {canDelete && <Button variant="outline" onClick={() => handleDeleteContact(contact.id)} className="text-red-600 border-red-200"><Trash2 className="w-4 h-4 mr-2" />Eliminar</Button>}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+
+          <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x rounded-lg border" style={{ WebkitOverflowScrolling: 'touch' }}>
              <table className="w-full min-w-[900px] text-sm text-left">
                  <thead className="bg-slate-50 text-slate-700 font-semibold border-b">
                      <tr>

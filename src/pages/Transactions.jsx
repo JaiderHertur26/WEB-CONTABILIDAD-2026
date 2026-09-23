@@ -2976,7 +2976,80 @@ const Transactions = () => {
 
                 <motion.div layout className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
                     {viewMode === 'balances' ? (
-                        <div className="overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+                        <>
+                        <div className="md:hidden divide-y divide-slate-100">
+                            {displayTransactions.length === 0 ? (
+                                <div className="p-8 text-center text-slate-400">No hay transacciones</div>
+                            ) : displayTransactions.map((t) => {
+                                const voucher = t.voucherNumber ? `${t.voucherPrefix || 'N/A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+                                const amountText = t._mergedAmount
+                                    ? t._mergedAmount
+                                    : ((t.type === 'income' || t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? '' : '-') + parseFloat(t.amount).toLocaleString('es-CO', { minimumFractionDigits: 0 }));
+                                return (
+                                    <article key={t.id} className="p-4 space-y-3 bg-white">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-xs font-semibold text-slate-500">{formatSafeDate(t.date)}</span>
+                                                    <span className="font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md">{voucher}</span>
+                                                    {t._isPending && <span className="text-[11px] bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pendiente</span>}
+                                                </div>
+                                                <h3 className="mt-2 text-sm font-bold text-slate-900 break-words">{t.description || 'Sin descripción'}</h3>
+                                                <p className="mt-1 text-xs text-slate-500">{t._categoryLabel || getTransactionCategoryLabel(t)}{t._destName ? ` · ${t._destName}` : ''}</p>
+                                            </div>
+                                            <div className={`text-right shrink-0 font-mono font-bold ${t.type === 'income' ? 'text-emerald-700' : t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'text-slate-800' : 'text-red-600'}`}>
+                                                ${amountText}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-2 text-center">
+                                            <div className="rounded-lg bg-blue-50 p-2">
+                                                <div className="text-[10px] uppercase tracking-wide text-blue-600">Caja</div>
+                                                <div className="mt-1 text-xs font-bold font-mono text-slate-800">${t._calculatedCash.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
+                                            </div>
+                                            <div className="rounded-lg bg-purple-50 p-2">
+                                                <div className="text-[10px] uppercase tracking-wide text-purple-600">Bancos</div>
+                                                <div className="mt-1 text-xs font-bold font-mono text-slate-800">${t._calculatedBanks.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
+                                            </div>
+                                            <div className="rounded-lg bg-emerald-50 p-2">
+                                                <div className="text-[10px] uppercase tracking-wide text-emerald-700">Aportes</div>
+                                                <div className="mt-1 text-xs font-bold font-mono text-slate-800">${t._calculatedAportes.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                                            <Button variant="outline" size="sm" className="flex-1 min-w-[92px]" onClick={() => handlePrint(t)}>
+                                                <Printer className="w-4 h-4 mr-1.5 text-blue-600" /> Comprobante
+                                            </Button>
+                                            {t.type === 'expense' && !t.isInternalTransfer && !t.debitAccount && (
+                                                <Button variant="outline" size="sm" className="flex-1 min-w-[92px] text-emerald-700" onClick={() => handleGenerateBillingDoc(t)}>
+                                                    <FileText className="w-4 h-4 mr-1.5" /> Cuenta cobro
+                                                </Button>
+                                            )}
+                                            {t.type === 'income' && !t.isInternalTransfer && !t.debitAccount && (
+                                                <Button variant="outline" size="sm" className="flex-1 min-w-[92px] text-indigo-700" onClick={() => handleGenerateReceipt(t)}>
+                                                    <FileCheck className="w-4 h-4 mr-1.5" /> Recibo
+                                                </Button>
+                                            )}
+                                            {!t.isLocked && (canEdit || canAdd) && !isSystemManagedTransaction(t) && !invoicedTransactionIds.has(t.id) && (
+                                                <Button variant="outline" size="sm" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }}>
+                                                    <Edit2 className="w-4 h-4 mr-1.5" /> Editar
+                                                </Button>
+                                            )}
+                                            {!t.isLocked && canDelete && (
+                                                <Button variant="outline" size="sm" className="text-red-600 border-red-200" onClick={() => handleDelete(t.id)}>
+                                                    <Trash2 className="w-4 h-4 mr-1.5" /> Eliminar
+                                                </Button>
+                                            )}
+                                            {(t.isLocked || isSystemManagedTransaction(t) || invoicedTransactionIds.has(t.id)) && (
+                                                <span className="inline-flex items-center text-xs text-slate-400 px-2"><Lock className="w-3.5 h-3.5 mr-1" /> Protegida</span>
+                                            )}
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                        <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
                             <table className="w-full min-w-[1180px] text-sm text-left">
                                 <thead className="bg-slate-50 text-slate-700 font-medium border-b"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Monto</th><th className="px-4 py-3 text-right bg-blue-50/50">Saldo Caja</th><th className="px-4 py-3 text-right bg-purple-50/50">Saldo Bancos</th><th className="px-4 py-3 text-right bg-green-50/50">Saldo Aportes</th><th className="px-3 py-3 text-center min-w-[168px] whitespace-nowrap">Acciones</th></tr></thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -3039,6 +3112,7 @@ const Transactions = () => {
                                 </tbody>
                             </table>
                         </div>
+                        </>
                     ) : viewMode === 'accounting' ? (
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">

@@ -337,13 +337,42 @@ const Invoices = () => {
                         </motion.div>
 
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                            <div className="p-4 border-b flex justify-between items-center bg-blue-50/30">
+                            <div className="p-4 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-blue-50/30">
                                 <div className="text-sm text-slate-500">Mostrando {filteredSales.length} ventas encontradas</div>
-                                <Button onClick={handleOpenGenerateModal} disabled={!canAdd || selectedSales.length === 0} className="bg-blue-600 hover:bg-blue-700">
+                                <Button onClick={handleOpenGenerateModal} disabled={!canAdd || selectedSales.length === 0} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
                                     <FileText className="w-4 h-4 mr-2" /> Generar Factura ({selectedSales.length})
                                 </Button>
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="md:hidden divide-y divide-slate-100">
+                                {filteredSales.length === 0 ? (
+                                    <div className="p-8 text-center text-slate-400">No se encontraron ventas pendientes.</div>
+                                ) : filteredSales.map(sale => {
+                                    const isSelected = selectedSales.includes(sale.id);
+                                    const contactName = contacts?.find(c => c.id === sale.contactId)?.name || 'Desconocido';
+                                    return (
+                                        <button type="button" key={sale.id} onClick={() => toggleSaleSelection(sale.id)} className={`w-full text-left p-4 transition-colors ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
+                                            <div className="flex items-start gap-3">
+                                                <div className="mt-0.5 shrink-0">{isSelected ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-slate-300"/>}</div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <div className="text-xs text-slate-500">{format(parseISO(sale.date), 'dd/MM/yyyy')}</div>
+                                                            <div className="mt-1 font-bold text-slate-900">{contactName}</div>
+                                                        </div>
+                                                        <div className="shrink-0 font-mono font-bold text-blue-700">${parseFloat(sale.amount).toLocaleString('es-CO')}</div>
+                                                    </div>
+                                                    <div className="mt-2 text-sm text-slate-700">{sale.productName || sale.description}</div>
+                                                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                                                        {sale.productQuantity != null && <span>Cant. {sale.productQuantity}</span>}
+                                                        {sale.productSku && <span className="font-mono text-blue-600">{sale.productSku}</span>}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-white text-slate-600 font-semibold border-b">
                                         <tr>
@@ -395,7 +424,30 @@ const Invoices = () => {
                         </div>
 
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                            <div className="overflow-x-auto">
+                            <div className="md:hidden divide-y divide-slate-100">
+                                {filteredHistorySales.length === 0 ? (
+                                    <div className="p-8 text-center text-slate-400">No hay documentos generados.</div>
+                                ) : filteredHistorySales.map(inv => (
+                                    <article key={inv.id} className="p-4 bg-white space-y-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div className="font-bold text-blue-600">{inv.invoiceNumber}</div>
+                                                <div className="mt-1 text-xs text-slate-500">{format(new Date(inv.createdAt), 'dd/MM/yyyy')}</div>
+                                            </div>
+                                            <div className="font-mono font-bold text-slate-900">${parseFloat(inv.total).toLocaleString('es-CO')}</div>
+                                        </div>
+                                        <div className="text-sm font-semibold text-slate-800">{inv.clientData?.name || 'Cliente'}</div>
+                                        <div>
+                                            {inv.documentOrigin === 'store' ? <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">Tienda</Badge> : inv.sourceType === 'transaction' ? <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">Transacción</Badge> : <Badge variant="outline" className="text-slate-500">Venta Directa</Badge>}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <Button variant="outline" onClick={() => openInvoiceDetail(inv)} className="text-blue-600"><Eye className="w-4 h-4 mr-2" /> Ver</Button>
+                                            {canDelete && <Button variant="outline" onClick={() => confirmDelete(inv)} className="text-red-600 border-red-200"><Trash2 className="w-4 h-4 mr-2" /> Eliminar</Button>}
+                                        </div>
+                                    </article>
+                                ))}
+                            </div>
+                            <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-50 text-slate-700 font-semibold border-b">
                                         <tr>
@@ -472,13 +524,42 @@ const Invoices = () => {
                         </motion.div>
 
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                            <div className="p-4 border-b flex justify-between items-center bg-orange-50/30">
+                            <div className="p-4 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-orange-50/30">
                                 <div className="text-sm text-slate-500">Mostrando {filteredPurchases.length} compras encontradas</div>
-                                <Button onClick={handleOpenGeneratePurchaseModal} disabled={!canAdd || selectedPurchases.length === 0} className="bg-orange-600 hover:bg-orange-700">
+                                <Button onClick={handleOpenGeneratePurchaseModal} disabled={!canAdd || selectedPurchases.length === 0} className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700">
                                     <FileText className="w-4 h-4 mr-2" /> Generar Documento ({selectedPurchases.length})
                                 </Button>
                             </div>
-                            <div className="overflow-x-auto">
+                            <div className="md:hidden divide-y divide-slate-100">
+                                {filteredPurchases.length === 0 ? (
+                                    <div className="p-8 text-center text-slate-400">No se encontraron compras pendientes.</div>
+                                ) : filteredPurchases.map(pur => {
+                                    const isSelected = selectedPurchases.includes(pur.id);
+                                    const contactName = contacts?.find(c => c.id === pur.contactId)?.name || 'Desconocido';
+                                    return (
+                                        <button type="button" key={pur.id} onClick={() => togglePurchaseSelection(pur.id)} className={`w-full text-left p-4 transition-colors ${isSelected ? 'bg-orange-50' : 'bg-white'}`}>
+                                            <div className="flex items-start gap-3">
+                                                <div className="mt-0.5 shrink-0">{isSelected ? <CheckSquare className="w-5 h-5 text-orange-600"/> : <Square className="w-5 h-5 text-slate-300"/>}</div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <div className="text-xs text-slate-500">{format(parseISO(pur.date), 'dd/MM/yyyy')}</div>
+                                                            <div className="mt-1 font-bold text-slate-900">{contactName}</div>
+                                                        </div>
+                                                        <div className="shrink-0 font-mono font-bold text-orange-700">${parseFloat(pur.amount).toLocaleString('es-CO')}</div>
+                                                    </div>
+                                                    <div className="mt-2 text-sm text-slate-700">{pur.productName || pur.description}</div>
+                                                    <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                                                        {pur.productQuantity != null && <span>Cant. {pur.productQuantity}</span>}
+                                                        {pur.productSku && <span className="font-mono text-orange-600">{pur.productSku}</span>}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-white text-slate-600 font-semibold border-b">
                                         <tr>
@@ -529,7 +610,30 @@ const Invoices = () => {
                             </Select>
                         </div>
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-                            <div className="overflow-x-auto">
+                            <div className="md:hidden divide-y divide-slate-100">
+                                {filteredHistoryPurchases.length === 0 ? (
+                                    <div className="p-8 text-center text-slate-400">No hay documentos de compra generados.</div>
+                                ) : filteredHistoryPurchases.map(inv => (
+                                    <article key={inv.id} className="p-4 bg-white space-y-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div className="font-bold text-orange-600">{inv.invoiceNumber}</div>
+                                                <div className="mt-1 text-xs text-slate-500">{format(new Date(inv.createdAt), 'dd/MM/yyyy')}</div>
+                                            </div>
+                                            <div className="font-mono font-bold text-slate-900">${parseFloat(inv.total).toLocaleString('es-CO')}</div>
+                                        </div>
+                                        <div className="text-sm font-semibold text-slate-800">{inv.supplierData?.name || 'Proveedor'}</div>
+                                        <div>
+                                            {inv.documentOrigin === 'store' ? <Badge variant="secondary" className="bg-orange-100 text-orange-700">Tienda</Badge> : inv.sourceType === 'transaction' ? <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">Transacción</Badge> : <Badge variant="outline" className="text-slate-500">Compra Directa</Badge>}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <Button variant="outline" onClick={() => openInvoiceDetail(inv)} className="text-orange-600"><Eye className="w-4 h-4 mr-2" /> Ver</Button>
+                                            {canDelete && <Button variant="outline" onClick={() => confirmDelete(inv)} className="text-red-600 border-red-200"><Trash2 className="w-4 h-4 mr-2" /> Eliminar</Button>}
+                                        </div>
+                                    </article>
+                                ))}
+                            </div>
+                            <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-sm text-left">
                                     <thead className="bg-slate-50 text-slate-700 font-semibold border-b">
                                         <tr>

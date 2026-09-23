@@ -554,10 +554,66 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
                         <div><div className="flex items-center"><FileText className="w-6 h-6 mr-3 text-amber-600" /><h2 className="text-xl font-bold text-slate-900">Retenciones originadas en Contratos</h2></div><p className="text-sm text-slate-500 mt-1">Cruce por contrato, acta, concepto, vencimiento y estado.</p></div>
                         <Button onClick={handleExportContractTaxes} variant="outline"><Download className="w-4 h-4 mr-2"/>Exportar Excel</Button>
                     </div>
-                    <div className="p-6">{contractTaxRows.length===0?<div className="text-center py-8 text-slate-500">No hay retenciones contractuales en {selectedYear}.</div>:<div className="overflow-x-auto rounded-lg border max-h-80"><table className="w-full text-sm"><thead className="bg-slate-50 sticky top-0"><tr><th className="p-3 text-left">Contrato / Acta</th><th className="p-3 text-left">Contratista</th><th className="p-3 text-right">Base</th><th className="p-3 text-right">Renta</th><th className="p-3 text-right">ReteIVA</th><th className="p-3 text-right">ReteICA</th><th className="p-3 text-left">Vencimiento</th><th className="p-3 text-left">Estado</th></tr></thead><tbody className="divide-y">{contractTaxRows.map((r,i)=><tr key={r.contract+'-'+r.act+'-'+i}><td className="p-3 font-semibold">{r.contract}<div className="text-xs text-slate-500">{r.act} · {r.date}</div></td><td className="p-3">{r.contractor}</td><td className="p-3 text-right">{r.base.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.retefuente.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.reteiva.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.reteica.toLocaleString('es-CO')}</td><td className="p-3">{r.dueDate||'—'}</td><td className={"p-3 font-semibold "+(r.status==='Pendiente'?'text-amber-700':'text-green-700')}>{r.status}</td></tr>)}</tbody></table></div>}</div>
+                    <div className="p-6">
+                        {contractTaxRows.length === 0 ? (
+                            <div className="text-center py-8 text-slate-500">No hay retenciones contractuales en {selectedYear}.</div>
+                        ) : (
+                            <>
+                                <div className="md:hidden space-y-3">
+                                    {contractTaxRows.map((r, i) => (
+                                        <article key={r.contract + '-' + r.act + '-' + i} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <h3 className="font-bold text-slate-900">{r.contract}</h3>
+                                                    <p className="mt-1 text-xs text-slate-500">{r.act} · {r.date}</p>
+                                                    <p className="mt-2 text-sm text-slate-700 break-words">{r.contractor}</p>
+                                                </div>
+                                                <span className={`shrink-0 text-xs font-bold px-2 py-1 rounded-full ${r.status === 'Pendiente' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{r.status}</span>
+                                            </div>
+                                            <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                                                <div className="rounded-lg bg-white p-2 border"><span className="text-slate-500">Base</span><div className="mt-1 font-mono font-bold">${Number(r.base || 0).toLocaleString('es-CO')}</div></div>
+                                                <div className="rounded-lg bg-white p-2 border"><span className="text-slate-500">Renta</span><div className="mt-1 font-mono font-bold">${Number(r.retefuente || 0).toLocaleString('es-CO')}</div></div>
+                                                <div className="rounded-lg bg-white p-2 border"><span className="text-slate-500">ReteIVA</span><div className="mt-1 font-mono font-bold">${Number(r.reteiva || 0).toLocaleString('es-CO')}</div></div>
+                                                <div className="rounded-lg bg-white p-2 border"><span className="text-slate-500">ReteICA</span><div className="mt-1 font-mono font-bold">${Number(r.reteica || 0).toLocaleString('es-CO')}</div></div>
+                                            </div>
+                                            {r.dueDate && <div className="mt-3 text-xs text-slate-500"><span className="font-semibold">Vencimiento:</span> {r.dueDate}</div>}
+                                        </article>
+                                    ))}
+                                </div>
+                                <div className="hidden md:block overflow-x-auto rounded-lg border max-h-80">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-slate-50 sticky top-0"><tr><th className="p-3 text-left">Contrato / Acta</th><th className="p-3 text-left">Contratista</th><th className="p-3 text-right">Base</th><th className="p-3 text-right">Renta</th><th className="p-3 text-right">ReteIVA</th><th className="p-3 text-right">ReteICA</th><th className="p-3 text-left">Vencimiento</th><th className="p-3 text-left">Estado</th></tr></thead>
+                                        <tbody className="divide-y">{contractTaxRows.map((r,i)=><tr key={r.contract+'-'+r.act+'-'+i}><td className="p-3 font-semibold">{r.contract}<div className="text-xs text-slate-500">{r.act} · {r.date}</div></td><td className="p-3">{r.contractor}</td><td className="p-3 text-right">{r.base.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.retefuente.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.reteiva.toLocaleString('es-CO')}</td><td className="p-3 text-right">{r.reteica.toLocaleString('es-CO')}</td><td className="p-3">{r.dueDate||'—'}</td><td className={"p-3 font-semibold "+(r.status==='Pendiente'?'text-amber-700':'text-green-700')}>{r.status}</td></tr>)}</tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </motion.div>
 
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg border"><div className="p-6 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div className="flex items-center"><FileText className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-slate-900">Pagos a Terceros (Exógena)</h2></div><Button onClick={handleExportExogena} className="w-full sm:w-auto"><Download className="w-4 h-4 mr-2"/> Exportar Reporte</Button></div><div className="p-6">{!areAllDataLoaded ? <p>Cargando datos...</p> : generateExogenaData.length === 0 ? (<div className="text-center py-10"><Search className="w-12 h-12 text-slate-300 mx-auto mb-4" /><p className="text-slate-500">No se encontraron pagos a terceros.</p></div>) : (<div className="overflow-x-auto rounded-lg border max-h-72"><table className="w-full"><thead className="bg-slate-50 sticky top-0"><tr><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Nombre o Razón Social</th><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Dirección</th><th className="px-6 py-3 text-right text-sm font-semibold text-slate-800">Pago o Abono en Cuenta</th></tr></thead><tbody className="divide-y divide-slate-200">{generateExogenaData.map((row, index) => (<tr key={index} className="hover:bg-slate-50"><td className="px-6 py-4 text-sm font-medium text-slate-900">{row['Nombre o Razón Social']}</td><td className="px-6 py-4 text-sm text-slate-600">{row['Dirección']}</td><td className="px-6 py-4 text-sm font-mono text-right text-red-600">${parseFloat(row['Pago o Abono en Cuenta'] || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td ></tr>))}</tbody></table></div>)}</div></motion.div>
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg border"><div className="p-6 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div className="flex items-center"><FileText className="w-6 h-6 mr-3 text-blue-600" /><h2 className="text-xl font-bold text-slate-900">Pagos a Terceros (Exógena)</h2></div><Button onClick={handleExportExogena} className="w-full sm:w-auto"><Download className="w-4 h-4 mr-2"/> Exportar Reporte</Button></div><div className="p-6">{!areAllDataLoaded ? <p>Cargando datos...</p> : generateExogenaData.length === 0 ? (<div className="text-center py-10"><Search className="w-12 h-12 text-slate-300 mx-auto mb-4" /><p className="text-slate-500">No se encontraron pagos a terceros.</p></div>) : (
+                    <>
+                        <div className="md:hidden space-y-3">
+                            {generateExogenaData.map((row, index) => (
+                                <article key={index} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <h3 className="font-bold text-slate-900 break-words">{row['Nombre o Razón Social']}</h3>
+                                            {row['Dirección'] && <p className="mt-2 text-xs text-slate-500 break-words">{row['Dirección']}</p>}
+                                        </div>
+                                        <div className="shrink-0 text-right">
+                                            <div className="text-[10px] uppercase tracking-wide text-slate-400">Pago</div>
+                                            <div className="mt-1 font-mono font-bold text-red-600">${parseFloat(row['Pago o Abono en Cuenta'] || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                        </div>
+                                    </div>
+                                </article>
+                            ))}
+                        </div>
+                        <div className="hidden md:block overflow-x-auto rounded-lg border max-h-72">
+                            <table className="w-full"><thead className="bg-slate-50 sticky top-0"><tr><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Nombre o Razón Social</th><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Dirección</th><th className="px-6 py-3 text-right text-sm font-semibold text-slate-800">Pago o Abono en Cuenta</th></tr></thead><tbody className="divide-y divide-slate-200">{generateExogenaData.map((row, index) => (<tr key={index} className="hover:bg-slate-50"><td className="px-6 py-4 text-sm font-medium text-slate-900">{row['Nombre o Razón Social']}</td><td className="px-6 py-4 text-sm text-slate-600">{row['Dirección']}</td><td className="px-6 py-4 text-sm font-mono text-right text-red-600">${parseFloat(row['Pago o Abono en Cuenta'] || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td ></tr>))}</tbody></table>
+                        </div>
+                    </>
+                )}</div></motion.div>
                 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-lg border">
                     <div className="p-6 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -565,7 +621,25 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
                         <Button onClick={handleExportRenta} variant="outline" className="w-full sm:w-auto text-emerald-700 border-emerald-300 hover:bg-emerald-50"><Download className="w-4 h-4 mr-2"/> Exportar Reporte</Button>
                     </div>
                     <div className="p-6">
-                        <div className="overflow-x-auto rounded-lg border">
+                        <div className="md:hidden space-y-2">
+                            {!areAllDataLoaded ? <p className="p-4">Cargando...</p> : generateRentaData.map((row, index) => {
+                                if (row.isSpacer) return <div key={index} className="h-2" />;
+                                const rawValue = row.Valor == null ? null : parseFloat(row.Valor);
+                                const isDepr = (row.Concepto || '').toLowerCase().includes('depreciación') || (rawValue != null && rawValue < 0);
+                                const absVal = rawValue == null ? null : Math.abs(rawValue);
+                                const formatted = absVal == null ? '' : absVal.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                const valueText = rawValue == null ? '' : rawValue === 0 ? '$ 0,00' : isDepr ? `$ (${formatted})` : `$ ${formatted}`;
+                                return (
+                                    <article key={index} className={`rounded-lg border px-3 py-3 ${row.isTotal ? 'bg-slate-100 border-slate-300' : row.isSubtotal ? 'bg-slate-50' : 'bg-white'}`}>
+                                        <div className="text-sm text-slate-700">
+                                            <span className={row.isTotal ? 'font-black' : row.isSubtotal ? 'font-bold' : 'font-medium'}>{row.Concepto?.trim()}</span>
+                                        </div>
+                                        {valueText && <div className={`mt-1 text-right font-mono text-sm ${row.isTotal ? 'font-bold text-slate-900' : 'text-slate-700'}`}>{valueText}</div>}
+                                    </article>
+                                );
+                            })}
+                        </div>
+                        <div className="hidden md:block overflow-x-auto rounded-lg border">
                             {!areAllDataLoaded ? <p className="p-4">Cargando...</p> : 
                             <table className="w-full">
                                 <thead className="bg-slate-50"><tr><th className="px-6 py-3 text-left text-sm font-semibold text-slate-800">Concepto</th><th className="px-6 py-3 text-right text-sm font-semibold text-slate-800">Valor</th></tr></thead>

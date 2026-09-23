@@ -188,7 +188,52 @@ const Inventory = () => {
                 </motion.div>
 
                 <div className="bg-white rounded-xl shadow-lg border overflow-hidden">
-                    <div className="overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    <div className="md:hidden space-y-3 p-3">
+                        {filteredProducts.length === 0 ? (
+                            <div className="p-8 text-center text-slate-500">No se encontraron productos.</div>
+                        ) : filteredProducts.map(product => (
+                            <article key={product.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <h3 className="font-bold text-slate-900 break-words">{product.name}</h3>
+                                        {product.description && <p className="mt-1 text-xs text-slate-500">{product.description}</p>}
+                                        <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                                            <span className="font-mono font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded-md">{product.sku}</span>
+                                            {product.barcode && <span className="font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{product.barcode}</span>}
+                                            {product.category && <span className="text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{product.category}</span>}
+                                        </div>
+                                    </div>
+                                    <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${product.quantity > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                        {product.quantity} {product.unit}
+                                    </span>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                                    <div className="rounded-lg bg-slate-50 p-2">
+                                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Costo</div>
+                                        <div className="mt-1 text-xs font-bold font-mono">${parseFloat(product.unit_cost || 0).toLocaleString('es-CO')}</div>
+                                    </div>
+                                    <div className="rounded-lg bg-emerald-50 p-2">
+                                        <div className="text-[10px] uppercase tracking-wide text-emerald-700">Venta</div>
+                                        <div className="mt-1 text-xs font-bold font-mono text-emerald-700">${parseFloat(product.suggested_price || 0).toLocaleString('es-CO')}</div>
+                                    </div>
+                                    <div className="rounded-lg bg-blue-50 p-2">
+                                        <div className="text-[10px] uppercase tracking-wide text-blue-700">Valor</div>
+                                        <div className="mt-1 text-xs font-bold font-mono text-blue-800">${(product.quantity * product.unit_cost).toLocaleString('es-CO')}</div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-3 gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => { setCodeProduct(product); setCodeDialogOpen(true); }}>
+                                        <QrCode className="w-4 h-4 mr-1.5 text-indigo-600" /> Código
+                                    </Button>
+                                    {canEdit && <Button variant="outline" size="sm" onClick={() => { setEditingProduct(product); setDialogOpen(true); }}><Edit2 className="w-4 h-4 mr-1.5" />Editar</Button>}
+                                    {canDelete && <Button variant="outline" size="sm" className="text-red-600 border-red-200" onClick={() => handleDelete(product.id)}><Trash2 className="w-4 h-4 mr-1.5" />Eliminar</Button>}
+                                </div>
+                            </article>
+                        ))}
+                    </div>
+                    <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
                         <table className="w-full min-w-[980px] text-sm text-left">
                             <thead className="bg-slate-50 text-slate-700">
                                 <tr>
