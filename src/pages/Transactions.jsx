@@ -89,6 +89,11 @@ const formatSafeDate = (dateStr) => {
 };
 
 const getTransactionTypeAndPrefix = (t) => {
+    // Las intenciones de misa con ofrenda son ingresos reales, aunque tengan asiento contable completo.
+    // Esta regla también protege registros históricos que hubieran quedado con prefijo/tipo incorrecto.
+    if (t?.sourceModule === 'mass_intentions' || t?.massIntentionId) {
+        return { type: 'income', prefix: 'I' };
+    }
     if (t?.isStoreSale) return { type: 'income', prefix: 'I' };
     if (t?.isStorePurchase) return { type: 'expense', prefix: 'E' };
     if (t?.isBankReconciliation && t?.type === 'income') return { type: 'income', prefix: 'I' };
@@ -103,22 +108,66 @@ const getTransactionTypeAndPrefix = (t) => {
         return false;
     };
 
+    // La semántica explícita del movimiento manda sobre la forma del asiento.
+    // Un ingreso/egreso puede traer Débito y Crédito completos sin convertirse por eso en transferencia.
+    if (t.isInternalTransfer || t.type === 'transfer') {
+        const sourceParts = (t.fromAccount || t.destination || '').split('|');
+        const targetParts = (t.toAccount || '').split('|');
+        const hasCash = checkCashOrBank(sourceParts[0], sourceParts[1]) || checkCashOrBank(targetParts[0], targetParts[1]);
+        return hasCash ? { type: 'transfer', prefix: 'T' } : { type: 'adjustment', prefix: 'A' };
+    }
+
+    if (t.type === 'adjustment' || t.voucherPrefix === 'A' || t.category === 'INGRESOS POR DONACIONES') {
+        return { type: 'adjustment', prefix: 'A' };
+    }
+
+    if (t.type === 'income') return { type: 'income', prefix: 'I' };
+    if (t.type === 'expense') return { type: 'expense', prefix: 'E' };
+
+    // Compatibilidad con registros históricos que no traen tipo explícito.
     if (t.debitAccount && t.creditAccount) {
         const hasCash = checkCashOrBank(t.debitAccount.code, t.debitAccount.name) || checkCashOrBank(t.creditAccount.code, t.creditAccount.name);
         return hasCash ? { type: 'transfer', prefix: 'T' } : { type: 'adjustment', prefix: 'A' };
     }
 
-    if (t.voucherPrefix === 'A' || t.category === 'INGRESOS POR DONACIONES') {
-        return { type: 'adjustment', prefix: 'A' };
-    }
+    if (t.voucherPrefix === 'I') return { type: 'income', prefix: 'I' };
+    if (t.voucherPrefix === 'E') return { type: 'expense', prefix: 'E' };
+    return { type: 'expense', prefix: 'E' };
+};
 
-    if (t.isInternalTransfer || t.type === 'transfer') {
-        const destParts = (t.destination || '').split('|');
-        const hasCash = checkCashOrBank(destParts[0], destParts[1]);
-        return hasCash ? { type: 'transfer', prefix: 'T' } : { type: 'adjustment', prefix: 'A' };
-    }
+const findDuplicateVoucherKeys = (items = []) => {
+    const ownersByVoucher = new Map();
 
-    return t.type === 'income' ? { type: 'income', prefix: 'I' } : { type: 'expense', prefix: 'E' };
+    (items || []).forEach(t => {
+        const number = parseInt(t?.voucherNumber, 10);
+        if (!Number.isFinite(number) || number <= 0) return;
+
+        const computed = getTransactionTypeAndPrefix(t);
+        const prefix = String(t?.voucherPrefix || computed.prefix || '').toUpperCase();
+        if (!prefix) return;
+
+        const voucherKey = `${prefix}-${String(number).padStart(4, '0')}`;
+        const logicalId = t?.isInternalTransfer && !t?.debitAccount
+            ? String(t?.id || voucherKey).replace(/-(exp|inc)$/, '')
+            : String(t?.id || voucherKey);
+
+        if (!ownersByVoucher.has(voucherKey)) ownersByVoucher.set(voucherKey, new Map());
+        if (!ownersByVoucher.get(voucherKey).has(logicalId)) {
+            ownersByVoucher.get(voucherKey).set(logicalId, {
+                id: logicalId,
+                date: t?.date,
+                description: t?.description || 'Sin descripción'
+            });
+        }
+    });
+
+    return [...ownersByVoucher.entries()]
+        .filter(([, owners]) => owners.size > 1)
+        .map(([voucher, owners]) => ({
+            voucher,
+            count: owners.size,
+            entries: [...owners.values()]
+        }));
 };
 
 const Transactions = () => {
@@ -196,17 +245,23 @@ const Transactions = () => {
     const filteredPrintRef = useRef(null); // Ref para imprimir el reporte
     const nativeApp = isNativeApp();
     const [voucherPreviewScale, setVoucherPreviewScale] = useState(1);
+    const [halfSheetPreviewScale, setHalfSheetPreviewScale] = useState(1);
+    const [auxiliaryPreviewScale, setAuxiliaryPreviewScale] = useState(1);
 
     useEffect(() => {
         if (!nativeApp) {
             setVoucherPreviewScale(1);
+            setHalfSheetPreviewScale(1);
+            setAuxiliaryPreviewScale(1);
             return undefined;
         }
 
         const updateScale = () => {
-            const voucherWidthPx = (215.9 / 25.4) * 96;
             const availableWidth = Math.max(280, window.innerWidth - 32);
-            setVoucherPreviewScale(Math.min(1, availableWidth / voucherWidthPx));
+            const mmToPx = mm => (mm / 25.4) * 96;
+            setVoucherPreviewScale(Math.min(1, availableWidth / mmToPx(215.9)));
+            setHalfSheetPreviewScale(Math.min(1, availableWidth / mmToPx(205.9)));
+            setAuxiliaryPreviewScale(Math.min(1, availableWidth / mmToPx(279.4)));
         };
 
         updateScale();
@@ -626,8 +681,23 @@ const Transactions = () => {
         
         // Filtro de Búsqueda de Texto
         if (searchTerm) {
-            const lower = searchTerm.toLowerCase();
-            result = result.filter(t => (t.description || '').toLowerCase().includes(lower) || getTransactionCategoryLabel(t).toLowerCase().includes(lower) || (t._accountNumber || '').toLowerCase().includes(lower));
+            const lower = searchTerm.toLowerCase().trim();
+            result = result.filter(t => {
+                const voucher = t.voucherNumber
+                    ? `${t.voucherPrefix || getTransactionTypeAndPrefix(t).prefix}-${String(t.voucherNumber).padStart(4, '0')}`
+                    : '';
+                return [
+                    t.description,
+                    getTransactionCategoryLabel(t),
+                    t._accountNumber,
+                    voucher,
+                    t.voucherNumber,
+                    t.contact,
+                    t.beneficiary,
+                    t._destName,
+                    t.destination,
+                ].some(value => String(value || '').toLowerCase().includes(lower));
+            });
         }
         
         result.sort((a, b) => {
@@ -649,6 +719,14 @@ const Transactions = () => {
         });
         setFilteredTransactions(result);
     }, [processedTransactions, searchTerm, filterType, startDate, effectiveEndDate, accountFilters]);
+
+    const duplicateVoucherIssues = useMemo(() => {
+        const periodItems = (processedTransactions || []).filter(t => {
+            const dateKey = String(t?.date || '').slice(0, 10);
+            return dateKey && dateKey >= startDate && dateKey <= effectiveEndDate;
+        });
+        return findDuplicateVoucherKeys(periodItems);
+    }, [processedTransactions, startDate, effectiveEndDate]);
 
     const getDisplayTransactions = () => {
         const groups = [];
@@ -794,7 +872,9 @@ const Transactions = () => {
         };
 
         saveBillingDocuments([...(billingDocuments || []), newDoc]);
-        toast({ title: 'Cuenta de Cobro Generada', description: 'El documento de soporte fue creado exitosamente.' });
+        setBillingDocToPrint(newDoc);
+        setPrintBillingOpen(true);
+        toast({ title: 'Cuenta de Cobro Generada', description: 'El documento de soporte fue creado y está listo para revisar.' });
     };
 
     const handleGenerateReceipt = (transaction) => {
@@ -813,8 +893,11 @@ const Transactions = () => {
             beneficiaryName = transaction.description.split(' ')[0] || 'A actualizar';
         }
 
+        const computed = getTransactionTypeAndPrefix(transaction);
         setReceiptToPrint({
             ...transaction,
+            type: computed.type,
+            voucherPrefix: computed.prefix,
             beneficiary: beneficiaryName,
             docNumber: docNumber || 'A actualizar'
         });
@@ -1066,14 +1149,7 @@ const Transactions = () => {
         }
 
         const assetToDelete = (fixedAssets || []).find(a => a.transactionId === id);
-        if (assetToDelete) saveFixedAssets(fixedAssets.filter(a => a.id !== assetToDelete.id));
-
-        if (billingDocuments) {
-            const docsToKeep = billingDocuments.filter(b => b.transactionId !== id);
-            if (docsToKeep.length !== billingDocuments.length) {
-                saveBillingDocuments(docsToKeep);
-            }
-        }
+        const docsToKeep = (billingDocuments || []).filter(b => !transactionsToDeleteIds.includes(b.transactionId));
 
         const stockChanging = tx => Boolean(tx?.isStoreSale || tx?.isStorePurchase || tx?.isInitialStock);
         for (const txId of transactionsToDeleteIds) {
@@ -1094,6 +1170,16 @@ const Transactions = () => {
                 return;
             }
         }
+
+        const voucherLabel = transactionToDelete.voucherNumber
+            ? `${transactionToDelete.voucherPrefix || getTransactionTypeAndPrefix(transactionToDelete).prefix}-${String(transactionToDelete.voucherNumber).padStart(4, '0')}`
+            : 'sin comprobante';
+        const confirmed = window.confirm(
+            `ELIMINAR TRANSACCIÓN ${voucherLabel}\n\n` +
+            `${formatSafeDate(transactionToDelete.date)} · ${transactionToDelete.description || 'Sin descripción'}\n\n` +
+            'Esta acción eliminará también los documentos o movimientos vinculados que correspondan. ¿Desea continuar?'
+        );
+        if (!confirmed) return;
 
         let updatedInventory = [...(inventory || [])];
         let inventoryChanged = false;
@@ -1133,6 +1219,13 @@ const Transactions = () => {
         if (inventoryChanged) {
             saveInventory(updatedInventory);
             toast({ title: "Inventario actualizado", description: "Se han revertido los cambios de stock." });
+        }
+
+        if (assetToDelete) {
+            saveFixedAssets(fixedAssets.filter(a => a.id !== assetToDelete.id));
+        }
+        if (docsToKeep.length !== (billingDocuments || []).length) {
+            saveBillingDocuments(docsToKeep);
         }
 
         saveTransactions(transactions.filter(t => !transactionsToDeleteIds.includes(t.id)));
@@ -1538,6 +1631,17 @@ const Transactions = () => {
         };
         const fullMonthTransactions = (processedTransactions || []).filter(inPeriod);
         const rawMonthTransactions = (transactions || []).filter(isRelevant).filter(inPeriod);
+        const duplicateVouchers = findDuplicateVoucherKeys(fullMonthTransactions);
+
+        if (duplicateVouchers.length > 0) {
+            const sample = duplicateVouchers.slice(0, 5).map(item => item.voucher).join(', ');
+            toast({
+                variant: 'destructive',
+                title: 'Comprobantes duplicados',
+                description: `No se puede oficializar el mes mientras existan comprobantes repetidos: ${sample}.`
+            });
+            return;
+        }
 
         if (fullMonthTransactions.length === 0) {
             toast({ variant: 'destructive', title: 'Mes sin movimientos', description: `No existen comprobantes contables para ${startPeriod}; no se generó un Libro Diario vacío.` });
@@ -2820,12 +2924,12 @@ const Transactions = () => {
                 
                 <div className="bg-white rounded-xl shadow-sm p-4 border border-slate-200 space-y-4">
                     <div className="flex flex-wrap gap-4 items-center justify-between">
-                        <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500" /></div>
+                        <div className={`relative flex-1 min-w-[200px] ${viewMode === 'mayor' ? 'hidden' : ''}`}><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Buscar concepto o comprobante..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500" /></div>
                         
                         <div className="flex gap-2 items-center flex-wrap">
                             
                             {/* 🚀 FILTRO POR CUENTA PUC MULTIPLE */}
-                            <div className="relative">
+                            <div className={`relative ${viewMode === 'mayor' || viewMode === 'billing' ? 'hidden' : ''}`}>
                                 <Button 
                                     variant="outline" 
                                     onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)} 
@@ -2835,7 +2939,7 @@ const Transactions = () => {
                                     {accountFilters.length === 0 ? 'Todas las cuentas' : `${accountFilters.length} cuentas filtradas`}
                                 </Button>
                                 {isAccountMenuOpen && (
-                                    <div className="absolute top-full mt-2 right-0 md:left-0 w-80 bg-white border border-slate-200 shadow-2xl rounded-xl z-50 flex flex-col">
+                                    <div className="absolute top-full mt-2 left-0 w-[calc(100vw-3rem)] max-w-80 bg-white border border-slate-200 shadow-2xl rounded-xl z-50 flex flex-col">
                                         <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
                                             <span className="font-bold text-slate-700 text-sm">Filtrar por Cuentas</span>
                                             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-blue-600 hover:bg-blue-50" onClick={() => { setAccountFilters([]); setAccountSearchTerm(''); setIsAccountMenuOpen(false); }}>Limpiar</Button>
@@ -2935,16 +3039,20 @@ const Transactions = () => {
                             </div>
                             {canEdit && (
     <>
-        <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="h-10 w-10 ml-0 sm:ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>
-        <Button variant="outline" size="icon" onClick={() => setConfigVoucherOpen(true)} className="h-10 w-10 ml-0 sm:ml-1 text-slate-500 hover:text-purple-600 bg-white" title="Configurar Numeración Inicial"><Edit2 className="w-4 h-4"/></Button>
+        <Button variant="outline" size="sm" onClick={() => setConfigBillingOpen(true)} className="h-10 px-3 ml-0 sm:ml-1 text-slate-600 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro">
+            <Settings className="w-4 h-4 sm:mr-0 mr-2"/><span className="sm:hidden">Auto cobros</span>
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setConfigVoucherOpen(true)} className="h-10 px-3 ml-0 sm:ml-1 text-slate-600 hover:text-purple-600 bg-white" title="Configurar Numeración de Documentos">
+            <Edit2 className="w-4 h-4 sm:mr-0 mr-2"/><span className="sm:hidden">Numeración</span>
+        </Button>
     </>
 )}
                         </div>
                     </div>
                     
-                    {viewMode !== 'billing' && (
+                    {(viewMode === 'balances' || viewMode === 'accounting') && (
                         <div className="grid grid-cols-2 gap-2 mt-2 pb-2 sm:flex sm:items-center">
-                            {['all', 'income', 'expense', 'transfer', 'adjustment'].map(type => (
+                            {(viewMode === 'balances' || viewMode === 'accounting') && ['all', 'income', 'expense', 'transfer', 'adjustment'].map(type => (
                                 <Button 
                                     key={type} 
                                     variant={filterType === type ? 'default' : 'outline'} 
@@ -2969,6 +3077,31 @@ const Transactions = () => {
                                         <Button variant="ghost" size="sm" onClick={handleExportAccounting}><Download className="w-4 h-4 mr-2" /> Excel</Button>
                                     </>
                                 ) : <Button variant="ghost" size="sm" onClick={handleExport}><Download className="w-4 h-4 mr-2" /> Excel</Button>}
+                            </div>
+                        </div>
+                    )}
+
+                    {viewMode === 'mayor' && (
+                        <div className="rounded-lg border border-purple-100 bg-purple-50 px-3 py-2 text-xs text-purple-800">
+                            El Libro Mayor y Balance de Comprobación presenta todas las cuentas del período seleccionado. Los filtros por tipo de transacción no aplican a esta vista.
+                        </div>
+                    )}
+
+                    {duplicateVoucherIssues.length > 0 && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                            <div className="font-bold flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Auditoría de comprobantes</div>
+                            <div className="mt-1">Hay numeración repetida en el período: {duplicateVoucherIssues.map(item => item.voucher).join(', ')}. Debe corregirse antes de oficializar el mes.</div>
+                            <div className="mt-2 space-y-1 text-xs">
+                                {duplicateVoucherIssues.map(issue => (
+                                    <div key={issue.voucher} className="rounded-md border border-red-100 bg-white/70 px-2 py-1.5">
+                                        <span className="font-bold">{issue.voucher}</span>
+                                        {issue.entries.map(entry => (
+                                            <div key={entry.id} className="mt-0.5 text-red-700">
+                                                {formatSafeDate(entry.date)} · {entry.description}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     )}
@@ -3026,7 +3159,7 @@ const Transactions = () => {
                                                     <FileText className="w-4 h-4 mr-1.5" /> Cuenta cobro
                                                 </Button>
                                             )}
-                                            {t.type === 'income' && !t.isInternalTransfer && !t.debitAccount && (
+                                            {t.type === 'income' && !t.isInternalTransfer && (
                                                 <Button variant="outline" size="sm" className="flex-1 min-w-[92px] text-indigo-700" onClick={() => handleGenerateReceipt(t)}>
                                                     <FileCheck className="w-4 h-4 mr-1.5" /> Recibo
                                                 </Button>
@@ -3088,7 +3221,7 @@ const Transactions = () => {
                                                             </Button>
                                                         )}
 
-                                                        {t.type === 'income' && !t.isInternalTransfer && !t.debitAccount && (
+                                                        {t.type === 'income' && !t.isInternalTransfer && (
                                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50" onClick={() => handleGenerateReceipt(t)} title="Generar Recibo de Caja / Certificado">
                                                                 <FileCheck className="w-3 h-3" />
                                                             </Button>
@@ -3114,7 +3247,50 @@ const Transactions = () => {
                         </div>
                         </>
                     ) : viewMode === 'accounting' ? (
-                        <div className="overflow-x-auto">
+                        <>
+                        <div className="md:hidden divide-y divide-slate-100">
+                            {displayTransactions.length === 0 ? (
+                                <div className="p-8 text-center text-slate-400">No hay registros contables</div>
+                            ) : displayTransactions.map(t => {
+                                if (t._isMerged) return null;
+                                const vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
+                                const accountingRows = resolveAccountingRows(t);
+                                return (
+                                    <article key={t.id} className="p-4 bg-white space-y-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-xs font-semibold text-slate-500">{formatSafeDate(t.date)}</span>
+                                                    <span className="font-mono text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-md">{vId}</span>
+                                                </div>
+                                                <h3 className="mt-2 text-sm font-bold text-slate-900 break-words">{t.description || 'Sin detalle'}</h3>
+                                            </div>
+                                            {t.isLocked && <Lock className="w-4 h-4 text-slate-400 shrink-0" title="Registro oficializado" />}
+                                        </div>
+                                        <div className="space-y-2">
+                                            {accountingRows.map((row, rowIndex) => (
+                                                <div key={`${t.id}-mobile-accounting-${rowIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <div className="font-mono text-xs font-bold text-slate-700">{row.account?.code || 'N/A'}</div>
+                                                            <div className="mt-0.5 text-xs uppercase text-slate-600 break-words">{row.account?.name || getTransactionCategoryLabel(t)}</div>
+                                                        </div>
+                                                        <div className="shrink-0 text-right">
+                                                            {row.debit > 0 ? (
+                                                                <><div className="text-[10px] uppercase text-blue-600 font-semibold">Débito</div><div className="font-mono text-sm font-bold text-blue-700">${Number(row.debit).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</div></>
+                                                            ) : (
+                                                                <><div className="text-[10px] uppercase text-orange-600 font-semibold">Crédito</div><div className="font-mono text-sm font-bold text-orange-700">${Number(row.credit).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</div></>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                        <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-800 text-slate-200 font-medium"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comp.</th><th className="px-4 py-3 w-1/3">Cuenta (PUC)</th><th className="px-4 py-3 w-1/3">Detalle</th><th className="px-4 py-3 text-right w-32">Débito</th><th className="px-4 py-3 text-right w-32">Crédito</th></tr></thead>
                                 <tbody className="bg-white">
@@ -3150,18 +3326,75 @@ const Transactions = () => {
                                 </tbody>
                             </table>
                         </div>
+                        </>
                     ) : viewMode === 'mayor' ? (
-                        <div className="overflow-x-auto">
-                            <div className="bg-purple-50 p-4 border-b border-purple-100 flex justify-between items-center">
+                        <div>
+                            <div className="bg-purple-50 p-4 border-b border-purple-100 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
                                 <div>
                                     <h3 className="font-bold text-purple-900 text-lg">Libro Mayor y Balance de Comprobación</h3>
                                     <p className="text-xs text-purple-700">Saldos por naturaleza Débito/Crédito y control automático de cuadre</p>
                                 </div>
-                                <div className="flex gap-2">
-                                    <Button variant="outline" size="sm" onClick={handlePrintMayorPdf} className="bg-white border-purple-200 text-purple-700 shadow-sm hover:bg-purple-100"><Printer className="w-4 h-4 mr-2" /> Imprimir Mayor Oficial (PDF)</Button>
-                                    <Button variant="outline" size="sm" onClick={handleExportMayorExcel} className="bg-green-50 border-green-200 text-green-700 shadow-sm hover:bg-green-100"><FileSpreadsheet className="w-4 h-4 mr-2" /> Excel Profesional</Button>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full md:w-auto">
+                                    <Button variant="outline" size="sm" onClick={handlePrintMayorPdf} className="w-full bg-white border-purple-200 text-purple-700 shadow-sm hover:bg-purple-100"><Printer className="w-4 h-4 mr-2" /> Imprimir Mayor Oficial (PDF)</Button>
+                                    <Button variant="outline" size="sm" onClick={handleExportMayorExcel} className="w-full bg-green-50 border-green-200 text-green-700 shadow-sm hover:bg-green-100"><FileSpreadsheet className="w-4 h-4 mr-2" /> Excel Profesional</Button>
                                 </div>
                             </div>
+                            <div className="md:hidden space-y-3 p-3">
+                                {libroMayorData.length === 0 ? (
+                                    <div className="p-8 text-center text-slate-400">No hay movimientos en este periodo</div>
+                                ) : (
+                                    <>
+                                        {libroMayorData.map(acc => {
+                                            const previous = splitBalanceByNature(acc.code, acc.saldoAnterior);
+                                            const ending = splitBalanceByNature(acc.code, acc.nuevoSaldo);
+                                            const fmt = value => Number(value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 });
+                                            return (
+                                                <article key={acc.code} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                                                    <div className="font-mono text-xs font-bold text-purple-700">{acc.code}</div>
+                                                    <h4 className="mt-1 text-sm font-bold uppercase text-slate-800 break-words">{acc.name}</h4>
+                                                    <div className="mt-3 space-y-2 text-xs">
+                                                        <div className="rounded-lg bg-slate-50 p-3">
+                                                            <div className="font-semibold text-slate-600 mb-2">Saldo anterior</div>
+                                                            <div className="grid grid-cols-2 gap-2"><span>Débito <b className="block font-mono text-slate-800">${fmt(previous.debit)}</b></span><span>Crédito <b className="block font-mono text-slate-800">${fmt(previous.credit)}</b></span></div>
+                                                        </div>
+                                                        <div className="rounded-lg bg-blue-50 p-3">
+                                                            <div className="font-semibold text-blue-700 mb-2">Movimientos del período</div>
+                                                            <div className="grid grid-cols-2 gap-2"><span>Débito <b className="block font-mono text-blue-800">${fmt(acc.debito)}</b></span><span>Crédito <b className="block font-mono text-orange-700">${fmt(acc.credito)}</b></span></div>
+                                                        </div>
+                                                        <div className="rounded-lg bg-emerald-50 p-3">
+                                                            <div className="font-semibold text-emerald-700 mb-2">Nuevo saldo</div>
+                                                            <div className="grid grid-cols-2 gap-2"><span>Débito <b className="block font-mono text-emerald-900">${fmt(ending.debit)}</b></span><span>Crédito <b className="block font-mono text-emerald-900">${fmt(ending.credit)}</b></span></div>
+                                                        </div>
+                                                    </div>
+                                                </article>
+                                            );
+                                        })}
+                                        {(() => {
+                                            const totals = libroMayorData.reduce((sum, acc) => {
+                                                const previous = splitBalanceByNature(acc.code, acc.saldoAnterior);
+                                                const ending = splitBalanceByNature(acc.code, acc.nuevoSaldo);
+                                                sum.prevDebit += previous.debit; sum.prevCredit += previous.credit;
+                                                sum.movDebit += Number(acc.debito) || 0; sum.movCredit += Number(acc.credito) || 0;
+                                                sum.endDebit += ending.debit; sum.endCredit += ending.credit;
+                                                return sum;
+                                            }, { prevDebit: 0, prevCredit: 0, movDebit: 0, movCredit: 0, endDebit: 0, endCredit: 0 });
+                                            const balanced = Math.abs(totals.prevDebit - totals.prevCredit) < 0.01 && Math.abs(totals.movDebit - totals.movCredit) < 0.01 && Math.abs(totals.endDebit - totals.endCredit) < 0.01;
+                                            const fmt = value => Number(value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 });
+                                            return (
+                                                <article className={`rounded-xl border-2 p-4 ${balanced ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-red-600 bg-red-50 text-red-900'}`}>
+                                                    <div className="font-black text-sm">{balanced ? 'SUMAS DE COMPROBACIÓN · CUADRADAS' : 'SUMAS DE COMPROBACIÓN · VERIFICAR'}</div>
+                                                    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                                                        <span>Anterior Débito<b className="block font-mono">${fmt(totals.prevDebit)}</b></span><span>Anterior Crédito<b className="block font-mono">${fmt(totals.prevCredit)}</b></span>
+                                                        <span>Mov. Débito<b className="block font-mono">${fmt(totals.movDebit)}</b></span><span>Mov. Crédito<b className="block font-mono">${fmt(totals.movCredit)}</b></span>
+                                                        <span>Nuevo Débito<b className="block font-mono">${fmt(totals.endDebit)}</b></span><span>Nuevo Crédito<b className="block font-mono">${fmt(totals.endCredit)}</b></span>
+                                                    </div>
+                                                </article>
+                                            );
+                                        })()}
+                                    </>
+                                )}
+                            </div>
+                            <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-800 text-slate-200 font-medium">
                                     <tr>
@@ -3233,6 +3466,7 @@ const Transactions = () => {
                                     {libroMayorData.length === 0 && (<tr><td colSpan="8" className="text-center py-8 text-slate-400">No hay movimientos en este periodo</td></tr>)}
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     ) : (
                         <div className="p-6 bg-slate-50">
@@ -3328,15 +3562,15 @@ const Transactions = () => {
 
 {/* RECIBO DE CAJA / DONACIÓN EN MEDIA CARTA Y DISEÑO ELEGANTE */}
 <Dialog open={printReceiptOpen} onOpenChange={setPrintReceiptOpen}>
-    <DialogContent className="max-w-4xl p-0 border-none bg-transparent shadow-none">
+    <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-4xl max-h-[94dvh] p-0 border-none bg-transparent shadow-none">
         <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
-            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+            <div className="p-3 pr-12 sm:p-4 sm:pr-12 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-slate-50">
                 <h3 className="font-semibold text-slate-800 flex items-center">
                     <FileCheck className="w-4 h-4 mr-2 text-green-600" />
                     Recibo de Caja / Donación
                 </h3>
 
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
                     <Button
                         size="sm"
                         variant="outline"
@@ -3362,7 +3596,7 @@ const Transactions = () => {
                 </div>
             </div>
 
-            <div className="p-6 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center">
+            <div className="p-2 sm:p-6 bg-slate-200 overflow-auto max-h-[78dvh] flex justify-center items-start">
 
                 {/* CONTENEDOR DEL RECIBO */}
                 <div
@@ -3372,6 +3606,7 @@ const Transactions = () => {
                         width: "205.9mm",
                         height: "130mm",
                         boxSizing: "border-box",
+                        zoom: nativeApp ? halfSheetPreviewScale : 1,
                     }}
                 >
 
@@ -3521,15 +3756,15 @@ const Transactions = () => {
 
 {/* CUENTA DE COBRO EN MEDIA CARTA Y DISEÑO ELEGANTE */}
 <Dialog open={printBillingOpen} onOpenChange={setPrintBillingOpen}>
-    <DialogContent className="max-w-4xl p-0 border-none bg-transparent shadow-none">
+    <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-4xl max-h-[94dvh] p-0 border-none bg-transparent shadow-none">
         <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
-            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+            <div className="p-3 pr-12 sm:p-4 sm:pr-12 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-slate-50">
                 <h3 className="font-semibold text-slate-800 flex items-center">
                     <FileText className="w-4 h-4 mr-2 text-blue-600" />
                     Cuenta de Cobro / Doc. Soporte
                 </h3>
 
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
                     <Button
                         size="sm"
                         variant="outline"
@@ -3555,7 +3790,7 @@ const Transactions = () => {
                 </div>
             </div>
 
-            <div className="p-6 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center">
+            <div className="p-2 sm:p-6 bg-slate-200 overflow-auto max-h-[78dvh] flex justify-center items-start">
 
                 {/* CONTENEDOR EXACTO DE MEDIA CARTA */}
                 <div
@@ -3565,6 +3800,7 @@ const Transactions = () => {
                         width: "205.9mm",
                         height: "130mm",
                         boxSizing: "border-box",
+                        zoom: nativeApp ? halfSheetPreviewScale : 1,
                     }}
                 >
 
@@ -3750,14 +3986,14 @@ const Transactions = () => {
 
             {/* NUEVO: Diálogo Oculto para Imprimir el Libro Auxiliar (Filtro Múltiple) */}
             <Dialog open={printFilteredOpen} onOpenChange={setPrintFilteredOpen}>
-                <DialogContent className="max-w-5xl p-0 border-none bg-transparent shadow-none">
+                <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-5xl max-h-[94dvh] p-0 border-none bg-transparent shadow-none">
                     <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
-                        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+                        <div className="p-3 pr-12 sm:p-4 sm:pr-12 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-slate-50">
                             <h3 className="font-semibold text-slate-800 flex items-center">
                                 <BookOpen className="w-4 h-4 mr-2 text-blue-600" />
                                 Vista Previa del Libro Auxiliar
                             </h3>
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full sm:w-auto">
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -3782,8 +4018,8 @@ const Transactions = () => {
                                 </Button>
                             </div>
                         </div>
-                        <div className="p-6 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center">
-                            <div ref={filteredPrintRef} className="bg-white p-8 shadow-sm" style={{ width: '279.4mm', minHeight: '215.9mm', boxSizing: 'border-box' }}>
+                        <div className="p-2 sm:p-6 bg-slate-200 overflow-auto max-h-[78dvh] flex justify-center items-start">
+                            <div ref={filteredPrintRef} className="bg-white p-8 shadow-sm" style={{ width: '279.4mm', minHeight: '215.9mm', boxSizing: 'border-box', zoom: nativeApp ? auxiliaryPreviewScale : 1 }}>
                                 <table className="w-full text-xs text-left border-collapse">
                                     <thead className="border-b-2 border-slate-800 text-slate-900">
                                         <tr>
@@ -4066,7 +4302,7 @@ const AutoBillingConfigDialog = ({ open, onOpenChange, accounts, autoBillingCate
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-lg max-h-[94dvh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-blue-700">
                         <Settings className="w-5 h-5" /> Configurar Auto-Cuentas de Cobro
@@ -4107,7 +4343,7 @@ const AutoBillingConfigDialog = ({ open, onOpenChange, accounts, autoBillingCate
 // =========================================================================
 // NUEVO COMPONENTE: Conciliación Bancaria Semi-Automática (Excel/CSV)
 // =========================================================================
-const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransactions, accounts, bankAccounts, cashAccounts, activeCompany, voucherConfig }) => {
+const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransactions, accounts, bankAccounts, cashAccounts, activeCompany }) => {
     const [step, setStep] = useState(1); 
     const [parsedRows, setParsedRows] = useState([]);
     const [selectedBank, setSelectedBank] = useState('');
@@ -4326,8 +4562,7 @@ const BankReconciliationDialog = ({ open, onOpenChange, transactions, saveTransa
                     const currentVnum = parseInt(t.voucherNumber, 10) || 0;
                     return currentVnum > max ? currentVnum : max;
                 }, 0);
-                const baseNumber = voucherConfig?.[row.type] ? parseInt(voucherConfig[row.type], 10) : 0;
-                nextVouchers[typeKey] = Math.max(maxNum, baseNumber) + 1;
+                nextVouchers[typeKey] = maxNum + 1;
             }
 
             const voucherNumber = nextVouchers[typeKey];
@@ -4536,19 +4771,18 @@ const VoucherConfigDialog = ({ open, onOpenChange, config, onSave }) => {
 
     return (
         <Dialog onOpenChange={onOpenChange} open={open}>
-            <DialogContent className="sm:max-w-sm">
+            <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-sm max-h-[94dvh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-purple-700">
-                        <Edit2 className="w-5 h-5"/> Numeración Inicial
+                        <Edit2 className="w-5 h-5"/> Numeración de documentos
                     </DialogTitle>
                     <DialogDescription>
-                        Define la base desde la que iniciará el contador automático. 
-                        (Ej: Si pones 450, el siguiente comprobante será el 451).
+                        Estos valores no cambian la numeración contable I-/E-. Se usan únicamente como desfase para numerar los documentos auxiliares RC (Recibo de Caja) y CC (Cuenta de Cobro) a partir del comprobante relacionado.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4 space-y-4">
                     <div className="space-y-2">
-                        <Label className="text-slate-700 font-bold">Base para Recibos de Caja (Ingresos)</Label>
+                        <Label className="text-slate-700 font-bold">Desfase para Recibos de Caja (RC)</Label>
                         <input 
                             type="number" 
                             value={incomeBase} 
@@ -4558,7 +4792,7 @@ const VoucherConfigDialog = ({ open, onOpenChange, config, onSave }) => {
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label className="text-slate-700 font-bold">Base para Cuentas de Cobro (Egresos)</Label>
+                        <Label className="text-slate-700 font-bold">Desfase para Cuentas de Cobro (CC)</Label>
                         <input 
                             type="number" 
                             value={expenseBase} 

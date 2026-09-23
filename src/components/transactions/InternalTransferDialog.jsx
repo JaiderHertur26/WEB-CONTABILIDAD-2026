@@ -170,9 +170,9 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg overflow-visible">
+      <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-lg max-h-[94dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">Nueva Transferencia / Cruce</DialogTitle>
+          <DialogTitle className="pr-8 text-xl sm:text-2xl font-bold">Nueva Transferencia / Cruce</DialogTitle>
         </DialogHeader>
         
         {/* Selector de Modo */}
@@ -198,7 +198,7 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
           </div>
 
           {mode === 'money' ? (
-              <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
                 <div className="space-y-2">
                   <Label htmlFor="fromAccount" className="text-blue-700">Desde (Origen)</Label>
                   <select id="fromAccount" required value={fromAccount} onChange={(e) => setFromAccount(e.target.value)} className="w-full px-3 py-2 border border-blue-200 rounded-lg bg-white">
@@ -241,7 +241,7 @@ const InternalTransferDialog = ({ open, onOpenChange, onSave }) => {
               </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
              <div className="space-y-2">
                 <Label htmlFor="amount">Monto</Label>
                 <input id="amount" type="number" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />

@@ -551,18 +551,20 @@ const StoreTransaction = ({ open, onOpenChange }) => {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-[700px] max-h-[94dvh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Gestión de Tienda</DialogTitle>
                 </DialogHeader>
                 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="grid w-full grid-cols-2 mb-4">
-                        <TabsTrigger value="sale" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800">
-                            <ShoppingCart className="w-4 h-4 mr-2"/> Venta (Salida)
+                        <TabsTrigger value="sale" className="h-auto min-h-11 whitespace-normal px-2 text-xs sm:text-sm leading-tight data-[state=active]:bg-green-100 data-[state=active]:text-green-800">
+                            <ShoppingCart className="w-4 h-4 mr-1.5 shrink-0"/>
+                            <span className="sm:hidden">Venta</span><span className="hidden sm:inline">Venta (Salida)</span>
                         </TabsTrigger>
-                        <TabsTrigger value="purchase" className="data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800">
-                            <PackagePlus className="w-4 h-4 mr-2"/> Compra (Entrada)
+                        <TabsTrigger value="purchase" className="h-auto min-h-11 whitespace-normal px-2 text-xs sm:text-sm leading-tight data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800">
+                            <PackagePlus className="w-4 h-4 mr-1.5 shrink-0"/>
+                            <span className="sm:hidden">Compra</span><span className="hidden sm:inline">Compra (Entrada)</span>
                         </TabsTrigger>
                     </TabsList>
 
@@ -600,7 +602,7 @@ const StoreTransaction = ({ open, onOpenChange }) => {
                             <ContactSelector contacts={contacts} value={selectedContactId} onChange={setSelectedContactId} />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Cantidad *</Label>
                                 <input type="number" min="1" step="1" value={saleQty} onChange={e => setSaleQty(e.target.value)} className="w-full p-2 border rounded-md" disabled={!selectedProductId}/>
@@ -698,7 +700,7 @@ const StoreTransaction = ({ open, onOpenChange }) => {
                                 <textarea value={prodDesc} onChange={e => setProdDesc(e.target.value)} className="w-full p-2 border rounded-md h-12 resize-none" />
                             </div>
 
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div className="space-y-2">
                                     <Label>Unidad</Label>
                                     <select value={prodUnit} onChange={e => setProdUnit(e.target.value)} className="w-full p-2 border rounded-md bg-white">
