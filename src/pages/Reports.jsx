@@ -552,7 +552,6 @@ const Reports = () => {
 
           const companyName = activeCompany?.name || ' ';
           const companyNit = activeCompany?.doc ? `NIT: ${activeCompany.doc}` : 'NIT: 900.316.227-7';
-          const arquidiocesis = "ARQUIDIOCESIS DE BARRANQUILLA";
           const fechaCorte = printType === 'balance' ? `AL ${effectiveEndDate}` : `DEL ${startDate} AL ${effectiveEndDate}`;
 
           const styles = `
@@ -604,7 +603,6 @@ const Reports = () => {
 
               content = `
                   <div class="header">
-                      ${arquidiocesis}<br/>
                       ${companyName}<br/>
                       ${companyNit}<br/>
                       BALANCE GENERAL ${fechaCorte}
@@ -628,7 +626,6 @@ const Reports = () => {
           } else if (printType === 'pnl') {
               content = `
                   <div class="header">
-                      ${arquidiocesis}<br/>
                       ${companyName}<br/>
                       ${companyNit}<br/>
                       ESTADO DE RESULTADO ${fechaCorte}
@@ -651,7 +648,6 @@ const Reports = () => {
               const { initial, sources, uses, totalSources, totalUses, final, reconciliationDifference } = reportData.cashFlow;
               content = `
                   <div class="header">
-                      ${arquidiocesis}<br/>
                       ${companyName}<br/>
                       ${companyNit}<br/>
                       FLUJO DE EFECTIVO ${fechaCorte}

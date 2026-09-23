@@ -82,7 +82,7 @@ const BookClosings = () => {
     
     const [isExecutiveReportModalOpen, setIsExecutiveReportModalOpen] = useState(false);
     const [executiveData, setExecutiveData] = useState({
-        destinatarioCuria: 'Monseñor de la Arquidiócesis de Barranquilla',
+        destinatarioCuria: 'Monseñor',
         cargoDestinatario: 'Vicario General y Moderador de la Curia',
         logrosPastorales: '',
         proximosProyectos: '',
@@ -1209,7 +1209,7 @@ const BookClosings = () => {
                     <div>A la atención de:</div>
                     <strong>${executiveData.destinatarioCuria}</strong><br/>
                     ${executiveData.cargoDestinatario}<br/>
-                    Arquidiócesis de Barranquilla
+                    ${activeCompany?.name || 'ENTIDAD CONTABLE'}
                 </div>
 
                 <p class="intro">

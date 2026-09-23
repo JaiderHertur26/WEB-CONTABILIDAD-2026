@@ -144,35 +144,29 @@ const styleMetadata = (ws, colCount, metaRowCount) => {
     ws['!merges'].push({ s: { r, c: 0 }, e: { r, c: lastCol } });
   }
 
-  const institutionCell = getExistingCell(ws, 0, 0);
-  if (institutionCell) institutionCell.s.font = {
-    name: 'Aptos Display', sz: 11, bold: true, color: { rgb: COLORS.navyDark },
-  };
-
-  const companyCell = getExistingCell(ws, 1, 0);
+  const companyCell = getExistingCell(ws, 0, 0);
   if (companyCell) companyCell.s.font = {
     name: 'Aptos Display', sz: 15, bold: true, color: { rgb: COLORS.black },
   };
 
-  const nitCell = getExistingCell(ws, 2, 0);
+  const nitCell = getExistingCell(ws, 1, 0);
   if (nitCell) nitCell.s.font = {
     name: 'Aptos', sz: 10, bold: true, color: { rgb: COLORS.grayText },
   };
 
-  const titleCell = getExistingCell(ws, 3, 0);
+  const titleCell = getExistingCell(ws, 2, 0);
   if (titleCell) titleCell.s = {
     fill: { fgColor: { rgb: COLORS.navy } },
     font: { name: 'Aptos Display', sz: 14, bold: true, color: { rgb: COLORS.white } },
     alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
   };
 
-  const periodCell = getExistingCell(ws, 4, 0);
+  const periodCell = getExistingCell(ws, 3, 0);
   if (periodCell) periodCell.s.font = {
     name: 'Aptos', sz: 10, bold: true, color: { rgb: COLORS.navyDark },
   };
 };
 const buildProfessionalSheet = ({
-  institution = 'ARQUIDIÓCESIS DE BARRANQUILLA',
   companyName = '',
   nit = '',
   title = 'REPORTE CONTABLE',
@@ -192,7 +186,6 @@ const buildProfessionalSheet = ({
     : [{ key: 'Concepto', label: 'Concepto', width: 42 }];
 
   const metadata = [
-    [institution],
     [companyName || 'ENTIDAD CONTABLE'],
     [cleanMatrixValue(normalizeNit(nit))],
     [title],
@@ -333,7 +326,6 @@ const buildProfessionalSheet = ({
 };
 
 const makeControlSheet = ({
-  institution,
   companyName,
   nit,
   title,
@@ -344,7 +336,6 @@ const makeControlSheet = ({
   controlNotes,
 }) =>
   buildProfessionalSheet({
-    institution,
     companyName,
     nit,
     title: 'FICHA DE CONTROL DEL DOCUMENTO',
@@ -373,7 +364,6 @@ const makeControlSheet = ({
   });
 export const exportProfessionalWorkbook = ({
   fileName,
-  institution = 'ARQUIDIÓCESIS DE BARRANQUILLA',
   companyName = '',
   nit = '',
   title = 'REPORTE CONTABLE',
@@ -390,14 +380,13 @@ export const exportProfessionalWorkbook = ({
   workbook.Props = {
     Title: title,
     Subject: period,
-    Author: companyName || institution,
-    Company: institution,
+    Author: companyName || 'HERTUR Contabilidad',
+    Company: companyName || 'HERTUR Contabilidad',
     CreatedDate: new Date(),
   };
 
   sheets.forEach((sheetConfig, index) => {
     const worksheet = buildProfessionalSheet({
-      institution,
       companyName,
       nit,
       title: sheetConfig.title || title,
@@ -423,7 +412,6 @@ export const exportProfessionalWorkbook = ({
     XLSX.utils.book_append_sheet(
       workbook,
       makeControlSheet({
-        institution,
         companyName,
         nit,
         title,
@@ -445,7 +433,6 @@ export const exportProfessionalWorkbook = ({
 
 export const exportProfessionalTable = ({
   fileName,
-  institution,
   companyName,
   nit,
   title,
@@ -460,7 +447,6 @@ export const exportProfessionalTable = ({
 }) =>
   exportProfessionalWorkbook({
     fileName,
-    institution,
     companyName,
     nit,
     title,

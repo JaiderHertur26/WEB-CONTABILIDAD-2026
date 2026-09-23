@@ -304,15 +304,13 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
 
   doc.setTextColor(31, 78, 121);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text('ARQUIDIÓCESIS DE BARRANQUILLA', 14, 11);
+  doc.setFontSize(13);
+  doc.text(meta.name.toUpperCase(), 14, 14);
 
   doc.setTextColor(25, 25, 25);
-  doc.setFontSize(15);
-  doc.text(meta.name.toUpperCase(), 14, 18);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.text([meta.nit ? `NIT: ${meta.nit}` : '', meta.address, meta.phone ? `Tel. ${meta.phone}` : ''].filter(Boolean).join(' · '), 14, 23);
+  doc.text([meta.nit ? `NIT: ${meta.nit}` : '', meta.address, meta.phone ? `Tel. ${meta.phone}` : ''].filter(Boolean).join(' · '), 14, 21);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
@@ -381,15 +379,13 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
 
     doc.setTextColor(31, 78, 121);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('ARQUIDIÓCESIS DE BARRANQUILLA', 14, 12);
+    doc.setFontSize(13);
+    doc.text(meta.name.toUpperCase(), 14, 17);
 
     doc.setTextColor(25, 25, 25);
-    doc.setFontSize(13);
-    doc.text(meta.name.toUpperCase(), 14, 20);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text(meta.nit ? `NIT: ${meta.nit}` : '', 14, 25);
+    doc.text(meta.nit ? `NIT: ${meta.nit}` : '', 14, 24);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
@@ -650,9 +646,6 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         }),
       },
       children: [
-        new Paragraph({
-          children: [new TextRun({ text: 'ARQUIDIÓCESIS DE BARRANQUILLA', bold: true, size: 20, color: '1F4E78' })],
-        }),
         new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { after: 180 },
