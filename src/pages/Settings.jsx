@@ -12,7 +12,7 @@ import { usePermission } from '@/hooks/usePermission';
 
 import { validateCompanyJSON, useAuth } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
-import { syncWrite } from '@/lib/secureApi';
+import { syncWrite, adminCompanyContentSummary, adminRestoreCompanyDirectory } from '@/lib/secureApi';
 import { COMPANY_DATA_SUFFIXES } from '@/lib/companyDataKeys';
 import { isNativeApp, shareBlobFile } from '@/lib/nativeFiles';
 
@@ -69,7 +69,16 @@ const Settings = () => {
 
             const sanitizeCompany = (company) => {
                 if (!company) return company;
-                if (isGeneralAdmin) return company; 
+                if (isGeneralAdmin) {
+                    return {
+                        id: String(company.id),
+                        parentId: company.parentId ? String(company.parentId) : null,
+                        name: company.name || '',
+                        doc: company.doc || company.doc_nit || '',
+                        address: company.address || '',
+                        phone: company.phone || ''
+                    };
+                }
                 const { password, partialPassword, authSerial, ...rest } = company;
                 return rest;
             };
@@ -158,29 +167,7 @@ const Settings = () => {
                         return;
                     }
 
-                    // 🛡️ ESCUDO ANTI-SECUESTRO DE ID (ADMIN)
-                    let securityBreach = false;
-                    
-                    content.companies.forEach(imported => {
-                        const existing = companies.find(c => c.id === imported.id);
-                        if (existing) {
-                            const importedDoc = imported.doc || imported.doc_nit;
-                            if (existing.doc !== importedDoc) {
-                                securityBreach = true;
-                            }
-                        } else {
-                            securityBreach = true;
-                        }
-                    });
-
-                    if (securityBreach) {
-                        toast({ variant: 'destructive', title: 'Alerta de Seguridad 🚨', description: 'El archivo contiene IDs falsificados o NITs que no coinciden. Importación bloqueada.' });
-                        return; // Se aborta todo el proceso. NO ENTRA.
-                    }
-
-                    // En un entorno blindado, el Admin no debe sobreescribir el perfil de la empresa desde un JSON.
-                    // Pasamos a restaurar la DATA, ignorando por completo los datos de perfil del archivo.
-                    analyzeAndPreviewBackup(content);
+                    await analyzeAndPreviewAdminBackup(content);
 
                 } else {
                      if (content.type === 'ADMIN_STRUCTURE_ONLY') {
@@ -196,6 +183,99 @@ const Settings = () => {
             }
         };
         reader.readAsText(file);
+    };
+
+    const analyzeAndPreviewAdminBackup = async (content) => {
+        if (!sessionToken) throw new Error('Sesión administrativa segura no disponible');
+
+        const normalizedCompanies = (content.companies || []).map(company => ({
+            id: String(company.id || '').trim(),
+            parentId: company.parentId || company.parent_id ? String(company.parentId || company.parent_id).trim() : null,
+            name: String(company.name || '').trim(),
+            doc: String(company.doc || company.doc_nit || '').trim(),
+            address: String(company.address || ''),
+            phone: String(company.phone || '')
+        }));
+
+        if (normalizedCompanies.length === 0) {
+            toast({ variant: 'destructive', title: 'Respaldo vacío', description: 'El archivo no contiene empresas para restaurar.' });
+            return;
+        }
+
+        const importedById = new Map();
+        for (const company of normalizedCompanies) {
+            if (!company.id || !company.name || !company.doc) {
+                toast({ variant: 'destructive', title: 'Estructura inválida', description: 'Todas las empresas deben tener ID, nombre y NIT.' });
+                return;
+            }
+            if (importedById.has(company.id)) {
+                toast({ variant: 'destructive', title: 'Estructura inválida', description: `El ID ${company.id} aparece más de una vez.` });
+                return;
+            }
+            if (company.parentId === company.id) {
+                toast({ variant: 'destructive', title: 'Jerarquía inválida', description: `${company.name} no puede depender de sí misma.` });
+                return;
+            }
+            importedById.set(company.id, company);
+        }
+
+        const currentById = new Map(companies.map(company => [String(company.id), company]));
+        for (const company of normalizedCompanies) {
+            if (company.parentId && !importedById.has(company.parentId) && !currentById.has(company.parentId)) {
+                toast({ variant: 'destructive', title: 'Jerarquía incompleta', description: `No existe la entidad superior ${company.parentId} requerida por ${company.name}.` });
+                return;
+            }
+        }
+
+        const visiting = new Set();
+        const visited = new Set();
+        const hasCycle = (id) => {
+            if (visiting.has(id)) return true;
+            if (visited.has(id)) return false;
+            visiting.add(id);
+            const parentId = importedById.get(id)?.parentId;
+            if (parentId && importedById.has(parentId) && hasCycle(parentId)) return true;
+            visiting.delete(id);
+            visited.add(id);
+            return false;
+        };
+        if (normalizedCompanies.some(company => hasCycle(company.id))) {
+            toast({ variant: 'destructive', title: 'Jerarquía inválida', description: 'El respaldo contiene una relación circular entre empresas.' });
+            return;
+        }
+
+        const serverSummary = await adminCompanyContentSummary(sessionToken);
+        const summaryById = new Map((serverSummary || []).map(row => [String(row.company_id), row]));
+        const plan = {
+            mode: 'admin-structure',
+            content,
+            adminCompanies: normalizedCompanies,
+            create: [],
+            update: [],
+            protected: [],
+            conflicts: []
+        };
+
+        normalizedCompanies.forEach(company => {
+            const existing = currentById.get(company.id);
+            if (!existing) {
+                plan.create.push(company);
+                return;
+            }
+            if (String(existing.doc || existing.doc_nit || '') !== company.doc) {
+                plan.conflicts.push({ ...company, existingDoc: existing.doc || existing.doc_nit || '' });
+                return;
+            }
+            const summary = summaryById.get(company.id);
+            if (summary?.has_content) {
+                plan.protected.push({ ...company, records: Number(summary.record_count || 0) });
+            } else {
+                plan.update.push(company);
+            }
+        });
+
+        setBackupPreview(plan);
+        setIsPreviewOpen(true);
     };
 
     const analyzeAndPreviewBackup = (content) => {
@@ -271,10 +351,40 @@ const Settings = () => {
     };
 
     const proceedWithRestore = async () => {
-        if (!backupPreview || !activeCompany) return;
+        if (!backupPreview || (!isGeneralAdmin && !activeCompany)) return;
         setIsRestoring(true);
 
         try {
+            if (isGeneralAdmin) {
+                if (backupPreview.mode !== 'admin-structure' || !sessionToken) {
+                    throw new Error('No existe un plan administrativo válido para restaurar');
+                }
+                if (backupPreview.conflicts?.length) {
+                    throw new Error('El respaldo contiene conflictos de identidad que deben corregirse');
+                }
+
+                const result = await adminRestoreCompanyDirectory(sessionToken, backupPreview.adminCompanies);
+                const created = Array.isArray(result?.created) ? result.created : [];
+                const updated = Array.isArray(result?.updated) ? result.updated : [];
+                const protectedCompanies = Array.isArray(result?.protected) ? result.protected : [];
+
+                await setCompanies();
+                setRestoreReport({
+                    mode: 'admin-structure',
+                    created,
+                    updated,
+                    protected: protectedCompanies,
+                    timestamp: new Date()
+                });
+                window.dispatchEvent(new CustomEvent('storage-updated', { detail: { key: 'companies' } }));
+                toast({
+                    title: 'Estructura restaurada con protección',
+                    description: `${created.length} creadas, ${updated.length} actualizadas y ${protectedCompanies.length} protegidas por contener información.`
+                });
+                setIsPreviewOpen(false);
+                return;
+            }
+
             const { content, validIds } = backupPreview;
             const supportedTypes = ['transactions', 'contacts', 'accounts', 'bankAccounts', 'accountsReceivable', 'accountsPayable', 'inventory', 'offices', 'voucher-sequence', 'cash_accounts', 'fixedAssets', 'realEstates', 'initialBalance', 'mass_intentions', 'contracts', 'contract_documents', 'billing_documents', 'auto_billing_categories', 'fiscal_years', 'monthly_closings', 'invoices', 'purchase_invoices', 'voucher_config'];
             let restoredDataCount = 0;
@@ -319,7 +429,7 @@ const Settings = () => {
 
         } catch (error) {
             console.error(error);
-            toast({ variant: 'destructive', title: 'Error Crítico', description: 'Falló la subida a la nube.' });
+            toast({ variant: 'destructive', title: 'Error Crítico', description: error.message || 'Falló la subida a la nube.' });
         } finally {
             setIsRestoring(false);
         }
@@ -333,6 +443,24 @@ const Settings = () => {
                     <div><h1 className="text-4xl font-bold text-slate-900">Ajustes</h1><p className="text-slate-600">Configuración general y datos.</p></div>
                      {isReadOnly && <div className="flex items-center text-slate-400 text-sm font-semibold bg-slate-100 px-3 py-1 rounded-full border"><Lock className="w-4 h-4 mr-1"/> Modo Lectura</div>}
                 </div>
+
+                {isGeneralAdmin && restoreReport?.mode === 'admin-structure' && (
+                    <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 shadow-sm">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="bg-emerald-100 p-2 rounded-full"><CheckCircle className="w-6 h-6 text-emerald-600" /></div>
+                            <div>
+                                <h2 className="text-lg font-bold text-emerald-900">Estructura restaurada con protección</h2>
+                                <p className="text-emerald-700 text-sm">Resumen de operaciones ({format(restoreReport.timestamp, 'HH:mm:ss')})</p>
+                            </div>
+                        </div>
+                        <div className="grid sm:grid-cols-3 gap-3 text-sm">
+                            <div className="bg-white rounded-lg border border-emerald-100 p-3"><p className="text-slate-500">Creadas</p><p className="text-2xl font-bold text-emerald-700">{restoreReport.created.length}</p></div>
+                            <div className="bg-white rounded-lg border border-emerald-100 p-3"><p className="text-slate-500">Actualizadas vacías</p><p className="text-2xl font-bold text-blue-700">{restoreReport.updated.length}</p></div>
+                            <div className="bg-white rounded-lg border border-emerald-100 p-3"><p className="text-slate-500">Protegidas con datos</p><p className="text-2xl font-bold text-amber-700">{restoreReport.protected.length}</p></div>
+                        </div>
+                        <div className="flex justify-end mt-4"><Button onClick={() => setRestoreReport(null)} className="bg-emerald-600 hover:bg-emerald-700">Cerrar Informe</Button></div>
+                    </motion.div>
+                )}
 
                 {!isGeneralAdmin && (
                     <>
@@ -378,65 +506,115 @@ const Settings = () => {
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
                     <div className="flex items-center justify-between"><div className="flex items-center"><Server className="w-6 h-6 text-green-600 mr-3" /><h2 className="text-xl font-bold text-slate-900">Datos</h2></div><span className="text-xs font-medium px-2 py-1 bg-green-100 text-green-800 rounded-full">V3 Sync Seguro</span></div>
                     
-                    {!isGeneralAdmin && <div className="flex gap-2 items-start text-xs bg-slate-50 p-2 rounded"><Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" /><span>La restauración subirá a la Nube los datos de la empresa/parroquia actual. No altera el Perfil de Ajustes.</span></div>}
+                    {isGeneralAdmin ? (
+                        <div className="flex gap-2 items-start text-xs bg-amber-50 border border-amber-100 p-3 rounded-lg"><Shield className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" /><span className="text-amber-900">El respaldo administrativo contiene únicamente la estructura empresarial. Al restaurar, las entidades con datos quedan protegidas, las vacías pueden actualizarse y las ausentes pueden crearse. Nunca se importan datos contables ni credenciales.</span></div>
+                    ) : (
+                        <div className="flex gap-2 items-start text-xs bg-slate-50 p-2 rounded"><Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" /><span>La restauración subirá a la Nube únicamente los datos de la empresa/parroquia actual. No altera su perfil ni datos de otras entidades.</span></div>
+                    )}
                     
                     <div className="grid md:grid-cols-2 gap-4 mt-4">
-                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Download className="w-6 h-6 text-slate-600" /></div><div className="text-sm"><p className="font-semibold text-slate-700">Exportar</p><p className="text-slate-500 text-xs">Descargar copia</p></div><Button onClick={handleFullBackup} variant="outline" className="w-full mt-auto"><Download className="w-4 h-4 mr-2" /> Generar</Button></div>
-                        {canModify && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Upload className="w-6 h-6 text-orange-500" /></div><div className="text-sm"><p className="font-semibold text-orange-800">Importar a Nube</p><p className="text-orange-600/80 text-xs">Sincronizar base de datos</p></div><input type="file" ref={fileInputRef} onChange={handleFileSelect} accept=".json" className="hidden" /><Button onClick={() => fileInputRef.current.click()} variant="default" className="w-full mt-auto bg-orange-600 hover:bg-orange-700 text-white border-none"><Upload className="w-4 h-4 mr-2" /> Subir Archivo</Button></div>}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Download className="w-6 h-6 text-slate-600" /></div><div className="text-sm"><p className="font-semibold text-slate-700">{isGeneralAdmin ? 'Respaldar Estructura' : 'Exportar'}</p><p className="text-slate-500 text-xs">{isGeneralAdmin ? 'Empresas y jerarquía, sin datos' : 'Descargar copia'}</p></div><Button onClick={handleFullBackup} variant="outline" className="w-full mt-auto"><Download className="w-4 h-4 mr-2" /> Generar</Button></div>
+                        {canModify && <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 flex flex-col items-center text-center gap-3"><div className="bg-white p-2 rounded-full shadow-sm"><Upload className="w-6 h-6 text-orange-500" /></div><div className="text-sm"><p className="font-semibold text-orange-800">{isGeneralAdmin ? 'Restaurar Estructura' : 'Importar a Nube'}</p><p className="text-orange-600/80 text-xs">{isGeneralAdmin ? 'Recuperar directorio empresarial' : 'Sincronizar base de datos'}</p></div><input type="file" ref={fileInputRef} onChange={handleFileSelect} accept=".json" className="hidden" /><Button onClick={() => fileInputRef.current.click()} variant="default" className="w-full mt-auto bg-orange-600 hover:bg-orange-700 text-white border-none"><Upload className="w-4 h-4 mr-2" /> {isGeneralAdmin ? 'Seleccionar Respaldo' : 'Subir Archivo'}</Button></div>}
                     </div>
                 </motion.div>
 
             </motion.div>
             
             <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-                <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-hidden flex flex-col">
+                <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-hidden flex flex-col">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 text-xl"><FileJson className="w-6 h-6 text-blue-600" />Restaurar Datos a la Nube</DialogTitle>
-                        <DialogDescription>Revisa el plan de restauración antes de confirmar.</DialogDescription>
+                        <DialogTitle className="flex items-center gap-2 text-xl">
+                            <FileJson className="w-6 h-6 text-blue-600" />
+                            {backupPreview?.mode === 'admin-structure' ? 'Restaurar Estructura Empresarial' : 'Restaurar Datos a la Nube'}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {backupPreview?.mode === 'admin-structure'
+                                ? 'Revisa qué entidades se crearán, cuáles pueden actualizarse y cuáles quedarán protegidas.'
+                                : 'Revisa el plan de restauración antes de confirmar.'}
+                        </DialogDescription>
                     </DialogHeader>
                     
                     {backupPreview && (
                         <div className="overflow-y-auto flex-1 pr-2 space-y-4 py-4">
-                            <div className="space-y-3">
-                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1">Datos a Subir a Supabase</h4>
-                                {backupPreview.validIds.size === 0 ? (
-                                    <p className="text-sm text-slate-500 italic">No se encontraron datos válidos.</p>
-                                ) : (
-                                    Object.keys(backupPreview.dataStats).map(id => {
-                                        const stat = backupPreview.dataStats[id];
-                                        return (
-                                            <div key={id} className="bg-white border rounded-lg p-3 shadow-sm">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <div className="flex items-center gap-2">
+                            {backupPreview.mode === 'admin-structure' ? (
+                                <>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                                        <div className="rounded-lg border bg-emerald-50 p-3"><p className="text-xs text-emerald-700">Crear</p><p className="text-2xl font-bold text-emerald-800">{backupPreview.create.length}</p></div>
+                                        <div className="rounded-lg border bg-blue-50 p-3"><p className="text-xs text-blue-700">Actualizar vacías</p><p className="text-2xl font-bold text-blue-800">{backupPreview.update.length}</p></div>
+                                        <div className="rounded-lg border bg-amber-50 p-3"><p className="text-xs text-amber-700">Proteger con datos</p><p className="text-2xl font-bold text-amber-800">{backupPreview.protected.length}</p></div>
+                                        <div className="rounded-lg border bg-red-50 p-3"><p className="text-xs text-red-700">Conflictos</p><p className="text-2xl font-bold text-red-800">{backupPreview.conflicts.length}</p></div>
+                                    </div>
+
+                                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                                        Las entidades que ya contienen información no serán modificadas. La restauración no borra empresas, no importa datos contables y no cambia usuarios ni contraseñas.
+                                    </div>
+
+                                    {backupPreview.conflicts.length > 0 && (
+                                        <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                                            <p className="font-semibold text-red-800 text-sm mb-2">Conflictos de identidad</p>
+                                            {backupPreview.conflicts.map(company => (
+                                                <p key={company.id} className="text-xs text-red-700">{company.name}: el ID existe con NIT {company.existingDoc}, pero el archivo trae {company.doc}.</p>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {backupPreview.protected.length > 0 && (
+                                        <div className="rounded-lg border bg-slate-50 p-3">
+                                            <p className="font-semibold text-slate-700 text-sm mb-2">Entidades protegidas</p>
+                                            <div className="space-y-1">
+                                                {backupPreview.protected.map(company => (
+                                                    <div key={company.id} className="flex justify-between gap-3 text-xs"><span>{company.name}</span><span className="font-mono text-slate-500">{company.records} registros</span></div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="space-y-3">
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1">Datos a Subir a Supabase</h4>
+                                    {backupPreview.validIds.size === 0 ? (
+                                        <p className="text-sm text-slate-500 italic">No se encontraron datos válidos.</p>
+                                    ) : (
+                                        Object.keys(backupPreview.dataStats).map(id => {
+                                            const stat = backupPreview.dataStats[id];
+                                            return (
+                                                <div key={id} className="bg-white border rounded-lg p-3 shadow-sm">
+                                                    <div className="flex items-center gap-2 mb-2">
                                                         <Building className="w-4 h-4 text-blue-500" />
                                                         <span className="font-bold text-sm text-slate-800">{stat.name}</span>
                                                     </div>
+                                                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50 p-2 rounded">
+                                                        {Object.entries(stat.details).map(([type, count]) => (
+                                                            <div key={type} className="flex justify-between">
+                                                                <span className="capitalize">{type.replace(/_/g, ' ')}:</span>
+                                                                <span className="font-mono font-bold text-slate-900">{count}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50 p-2 rounded">
-                                                    {Object.entries(stat.details).map(([type, count]) => (
-                                                        <div key={type} className="flex justify-between">
-                                                            <span className="capitalize">{type.replace(/_/g, ' ')}:</span>
-                                                            <span className="font-mono font-bold text-slate-900">{count}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        );
-                                    })
-                                )}
-                            </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                     
                     <DialogFooter className="mt-2 pt-2 border-t">
                         <Button variant="outline" onClick={() => setIsPreviewOpen(false)} disabled={isRestoring}>Cancelar</Button>
                         <Button 
-                            onClick={proceedWithRestore} 
-                            disabled={isRestoring || !backupPreview || backupPreview.validIds.size === 0} 
+                            onClick={proceedWithRestore}
+                            disabled={
+                                isRestoring ||
+                                !backupPreview ||
+                                (backupPreview.mode === 'admin-structure'
+                                    ? backupPreview.adminCompanies.length === 0 || backupPreview.conflicts.length > 0
+                                    : backupPreview.validIds.size === 0)
+                            }
                             className="bg-green-600 hover:bg-green-700 text-white"
                         >
                             {isRestoring ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <ArrowRight className="w-4 h-4 mr-2" />}
-                            Confirmar Subida a la Nube
+                            {backupPreview?.mode === 'admin-structure' ? 'Confirmar Estructura' : 'Confirmar Subida a la Nube'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

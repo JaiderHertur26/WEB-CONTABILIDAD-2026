@@ -407,7 +407,7 @@ declare
   v_token text;
 begin
   select access_level into v_access from public.app_session_context(p_session_token);
-  if v_access <> 'admin' then
+  if v_access is distinct from 'admin' then
     raise exception 'Solo el Administrador General puede emitir códigos de activación';
   end if;
 
@@ -439,7 +439,7 @@ declare
   v_access text;
 begin
   select access_level into v_access from public.app_session_context(p_session_token);
-  if v_access <> 'admin' then raise exception 'Sesión administrativa inválida'; end if;
+  if v_access is distinct from 'admin' then raise exception 'Sesión administrativa inválida'; end if;
   if length(coalesce(p_new_password,'')) < 12 then
     raise exception 'La nueva clave debe tener al menos 12 caracteres';
   end if;

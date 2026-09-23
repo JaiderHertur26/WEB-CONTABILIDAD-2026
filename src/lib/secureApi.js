@@ -20,6 +20,15 @@ export const sessionCompanies = sessionToken =>
 export const sessionInfo = sessionToken =>
   rpc('session_info', { p_session_token: sessionToken });
 
+export const adminCompanyContentSummary = sessionToken =>
+  rpc('admin_company_content_summary', { p_session_token: sessionToken });
+
+export const adminRestoreCompanyDirectory = (sessionToken, companies) =>
+  rpc('admin_restore_company_directory', {
+    p_session_token: sessionToken,
+    p_companies: companies,
+  });
+
 export const sessionLogout = sessionToken =>
   sessionToken ? rpc('session_logout', { p_session_token: sessionToken }) : Promise.resolve(true);
 export const syncRead = (sessionToken, companyId, storageKey) =>
