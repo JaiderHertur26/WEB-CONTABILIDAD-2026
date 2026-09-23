@@ -15,7 +15,7 @@ const Badge = React.forwardRef(({ className, variant = 'default', ...props }, re
     <div
       ref={ref}
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors',
+        'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-[-0.01em] transition-colors',
         variants[variant],
         className
       )}
