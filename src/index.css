@@ -186,6 +186,19 @@ html.native-app .app-workspace {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Zonas táctiles cómodas únicamente dentro de la app nativa. */
+html.native-app button,
+html.native-app [role='button'] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+html.native-app input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+html.native-app select,
+html.native-app textarea {
+  min-height: 44px;
+}
+
 @media print {
   body,
   .app-workspace {

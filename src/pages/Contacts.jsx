@@ -516,12 +516,12 @@ const Contacts = () => {
             <h1 className="text-4xl font-bold text-slate-900">Contactos</h1>
             <p className="text-slate-600">Gestiona los datos de personas y empresas</p>
           </div>
-          <div className="flex gap-2 items-center flex-wrap">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:flex-wrap">
             <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".xlsx,.xls,.csv,.json" />
             {canAdd && <Button onClick={triggerImport} variant="outline" className="bg-white"><Upload className="w-4 h-4 mr-2" />Importar</Button>}
             <Button onClick={handleExport} variant="outline" className="bg-white"><Download className="w-4 h-4 mr-2" />Exportar</Button>
             {isReadOnly && <div className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1"/> Acceso Parcial</div>}
-            {canAdd && <Button onClick={openDialogForNew} className="bg-blue-600 hover:bg-blue-700">
+            {canAdd && <Button onClick={openDialogForNew} className="col-span-2 w-full sm:w-auto sm:col-span-1 bg-blue-600 hover:bg-blue-700">
               <Plus className="w-4 h-4 mr-2" />
               Nuevo Contacto
             </Button>}
@@ -562,8 +562,8 @@ const Contacts = () => {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border">
-             <table className="w-full text-sm text-left">
+          <div className="overflow-x-auto overscroll-x-contain touch-pan-x rounded-lg border" style={{ WebkitOverflowScrolling: 'touch' }}>
+             <table className="w-full min-w-[900px] text-sm text-left">
                  <thead className="bg-slate-50 text-slate-700 font-semibold border-b">
                      <tr>
                          <th className="px-6 py-4">Nombre / Empresa</th>
@@ -602,10 +602,10 @@ const Contacts = () => {
                                 </td>
                                 <td className="px-6 py-4">
                                     <div className="flex justify-center gap-2">
-                                        {canEdit && <Button variant="ghost" size="sm" onClick={() => openDialogForEdit(contact)} className="hover:bg-blue-50 text-blue-600">
+                                        {canEdit && <Button variant="ghost" size="sm" onClick={() => openDialogForEdit(contact)} className="h-10 w-10 hover:bg-blue-50 text-blue-600">
                                             <Edit2 className="w-4 h-4" />
                                         </Button>}
-                                        {canDelete && <Button variant="ghost" size="sm" onClick={() => handleDeleteContact(contact.id)} className="hover:bg-red-50 text-red-600">
+                                        {canDelete && <Button variant="ghost" size="sm" onClick={() => handleDeleteContact(contact.id)} className="h-10 w-10 hover:bg-red-50 text-red-600">
                                             <Trash2 className="w-4 h-4" />
                                         </Button>}
                                     </div>
@@ -681,7 +681,7 @@ const ContactDialog = ({ open, onOpenChange, contact, onSave }) => {
           <DialogTitle className="text-2xl font-bold">{contact ? 'Editar Contacto' : 'Nuevo Contacto'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
                 <Label>Categoría *</Label>
                 <Select value={formData.category} onValueChange={(val) => setFormData({ ...formData, category: val })}>
@@ -714,7 +714,7 @@ const ContactDialog = ({ open, onOpenChange, contact, onSave }) => {
             <input id="name" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="docType">Tipo Documento</Label>
               <select id="docType" value={formData.docType} onChange={(e) => setFormData({ ...formData, docType: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg">

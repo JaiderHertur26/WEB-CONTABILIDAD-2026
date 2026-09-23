@@ -456,11 +456,11 @@ const FixedAssets = () => {
         <>
         <Helmet><title>Activos Fijos - Sistema de Contabilidad</title></Helmet>
         <div className="space-y-6">
-            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center">
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Activos Fijos</h1></div>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
-                    {canAdd && <Button onClick={() => { setEditingAsset(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Activo</Button>}
+                    {canAdd && <Button onClick={() => { setEditingAsset(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Activo</Button>}
                 </div>
             </motion.div>
             
@@ -489,7 +489,7 @@ const FixedAssets = () => {
                     <p className="text-slate-500">No hay activos registrados para el año {yearFilter}.</p>
                 </motion.div>
             ) : (
-                <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
+                <div className="bg-white rounded-xl shadow-lg border overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[1120px] text-sm">
                     {/* NUEVO: REORDEN DEL HEADER DE LA TABLA PARA COINCIDIR CON EL DOCUMENTO EXPORTADO */}
                     <thead className="bg-slate-50">
                         <tr>

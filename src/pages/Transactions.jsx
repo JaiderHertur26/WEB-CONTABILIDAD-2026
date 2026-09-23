@@ -2809,11 +2809,11 @@ const Transactions = () => {
             <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900 mb-2">Transacciones</h1><p className="text-slate-600">Control de movimientos financieros</p></div>
-                    <div className="flex gap-2">
-                        {canAdd && <Button variant="outline" onClick={() => setStoreDialogOpen(true)} className="text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"><Store className="w-4 h-4 mr-2" />Tienda</Button>}
-                        {canAdd && <Button variant="outline" onClick={() => setTransferDialogOpen(true)}><ArrowRightLeft className="w-4 h-4 mr-2" />Transferir</Button>}
-                        {canAdd && <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"><FileSpreadsheet className="w-4 h-4 mr-2" />Conciliar Banco</Button>}
-                        {canAdd && <Button onClick={() => { setEditingTransaction(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" />Nueva</Button>}
+                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                        {canAdd && <Button variant="outline" onClick={() => setStoreDialogOpen(true)} className="w-full sm:w-auto text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"><Store className="w-4 h-4 mr-2" />Tienda</Button>}
+                        {canAdd && <Button variant="outline" onClick={() => setTransferDialogOpen(true)} className="w-full sm:w-auto"><ArrowRightLeft className="w-4 h-4 mr-2" />Transferir</Button>}
+                        {canAdd && <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="w-full sm:w-auto text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"><FileSpreadsheet className="w-4 h-4 mr-2" />Conciliar Banco</Button>}
+                        {canAdd && <Button onClick={() => { setEditingTransaction(null); setDialogOpen(true); }} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" />Nueva</Button>}
                         {isReadOnly && <span className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1" />Acceso Parcial</span>}
                     </div>
                 </div>
@@ -2927,7 +2927,7 @@ const Transactions = () => {
                                 />
                             </div>
                             
-                            <div className="flex bg-slate-100 rounded-lg p-1">
+                            <div className="grid w-full grid-cols-2 gap-1 bg-slate-100 rounded-lg p-1 sm:flex sm:w-auto">
                                 <button onClick={() => setViewMode('balances')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'balances' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><TableIcon className="w-3 h-3 inline mr-1" /> Control</button>
                                 <button onClick={() => setViewMode('accounting')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'accounting' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BookOpen className="w-3 h-3 inline mr-1" /> Diario Oficial</button>
                                 <button onClick={() => setViewMode('mayor')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'mayor' ? 'bg-white shadow-sm text-purple-700' : 'text-slate-500 hover:text-purple-600'}`}><Filter className="w-3 h-3 inline mr-1" /> Mayor y Balances</button>
@@ -2935,27 +2935,27 @@ const Transactions = () => {
                             </div>
                             {canEdit && (
     <>
-        <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>
-        <Button variant="outline" size="icon" onClick={() => setConfigVoucherOpen(true)} className="ml-1 text-slate-500 hover:text-purple-600 bg-white" title="Configurar Numeración Inicial"><Edit2 className="w-4 h-4"/></Button>
+        <Button variant="outline" size="icon" onClick={() => setConfigBillingOpen(true)} className="h-10 w-10 ml-0 sm:ml-1 text-slate-500 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro"><Settings className="w-4 h-4"/></Button>
+        <Button variant="outline" size="icon" onClick={() => setConfigVoucherOpen(true)} className="h-10 w-10 ml-0 sm:ml-1 text-slate-500 hover:text-purple-600 bg-white" title="Configurar Numeración Inicial"><Edit2 className="w-4 h-4"/></Button>
     </>
 )}
                         </div>
                     </div>
                     
                     {viewMode !== 'billing' && (
-                        <div className="flex gap-2 overflow-x-auto mt-2 pb-2">
+                        <div className="grid grid-cols-2 gap-2 mt-2 pb-2 sm:flex sm:items-center">
                             {['all', 'income', 'expense', 'transfer', 'adjustment'].map(type => (
                                 <Button 
                                     key={type} 
                                     variant={filterType === type ? 'default' : 'outline'} 
                                     size="sm" 
                                     onClick={() => setFilterType(type)} 
-                                    className="capitalize"
+                                    className="w-full sm:w-auto capitalize"
                                 >
                                     {type === 'all' ? 'Todas' : type === 'income' ? 'Ingresos' : type === 'expense' ? 'Gastos' : type === 'transfer' ? 'Transferencias' : 'Ajustes'}
                                 </Button>
                             ))}
-                            <div className="ml-auto flex gap-2">
+                            <div className="col-span-2 grid grid-cols-2 gap-2 sm:ml-auto sm:flex">
                                 {/* 🚀 BOTÓN DE IMPRESIÓN SIEMPRE VISIBLE */}
                                 <Button variant="outline" size="sm" onClick={() => setPrintFilteredOpen(true)} className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Reporte

@@ -298,11 +298,11 @@ const BankAccounts = () => {
         <>
             <Helmet><title>Cuentas Bancarias - JaiderHerTur26</title></Helmet>
             <div className="space-y-6">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center">
+                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900">Cuentas Bancarias</h1><p className="text-slate-600">Gestiona tus cuentas y aportes ordinarios.</p></div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1" />Acceso Parcial</span>}
-                        {canAdd && <Button onClick={() => { setEditingAccount(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
+                        {canAdd && <Button onClick={() => { setEditingAccount(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
                     </div>
                 </motion.div>
                 {(accountsWithCalculatedBalances || []).length === 0 ? (
@@ -363,18 +363,18 @@ const AccountDialog = ({ open, onOpenChange, onSave, account, isReadOnly }) => {
                 {isReadOnly && account && <div className="bg-amber-50 text-amber-800 p-4 rounded-lg flex items-center gap-2 mb-4"><AlertTriangle className="w-5 h-5" />Modo Solo Lectura</div>}
                 <form onSubmit={handleSubmit} className="space-y-4 pt-4">
                     <div className="space-y-2"><Label>Nombre del Banco/Entidad</Label><input required disabled={isReadOnly} value={data.bankName} onChange={e => setData({ ...data, bankName: e.target.value })} className="w-full px-3 py-2 border rounded-lg disabled:bg-slate-100" /></div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2"><Label>Número de Cuenta Bancaria</Label><input required disabled={isReadOnly} value={data.accountNumber} onChange={e => setData({ ...data, accountNumber: e.target.value })} className="w-full px-3 py-2 border rounded-lg disabled:bg-slate-100" /></div>
                         {/* NUEVO CAMPO: Fecha */}
                         <div className="space-y-2"><Label>Fecha Apertura / Saldo</Label><input type="date" required disabled={isReadOnly} value={data.date} onChange={e => setData({ ...data, date: e.target.value })} className="w-full px-3 py-2 border rounded-lg disabled:bg-slate-100" /></div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
                         <div className="col-span-2 flex items-center gap-2 text-sm font-semibold text-blue-800 pb-2 border-b border-slate-200 mb-2"><Landmark className="w-4 h-4" /> Vinculación Contable (Automática)</div>
                         <div className="space-y-2"><Label className="text-xs">Código PUC</Label><input disabled={isReadOnly} value={data.accountingCode} onChange={e => setData({ ...data, accountingCode: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm disabled:bg-slate-100" /></div>
                         <div className="space-y-2"><Label className="text-xs">Nombre Cuenta PUC</Label><input disabled={isReadOnly} value={data.accountingConcept} onChange={e => setData({ ...data, accountingConcept: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm disabled:bg-slate-100" /></div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2"><Label>Saldo Inicial Cta. Principal</Label><input type="number" disabled={isReadOnly} step="0.01" value={data.initialBalance} onChange={e => setData({ ...data, initialBalance: e.target.value })} className="w-full px-3 py-2 border rounded-lg disabled:bg-slate-100" /></div>
                         <div className="space-y-2"><Label>Saldo Inicial Aporte</Label><input type="number" disabled={isReadOnly} step="0.01" value={data.initialInvestmentBalance} onChange={e => setData({ ...data, initialInvestmentBalance: e.target.value })} className="w-full px-3 py-2 border rounded-lg disabled:bg-slate-100" /></div>
                     </div>

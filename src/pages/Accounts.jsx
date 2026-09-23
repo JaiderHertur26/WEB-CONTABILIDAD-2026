@@ -416,8 +416,8 @@ const Accounts = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-            <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div className="grid min-w-[720px] grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 <div className="col-span-6 sm:col-span-4">Código / Cuenta</div>
                 <div className="col-span-3 sm:col-span-6">Nombre</div>
                 <div className="col-span-3 sm:col-span-2 text-right">Nivel</div>
@@ -443,17 +443,17 @@ const Accounts = () => {
                        }
 
                        return (
-                           <motion.div layout="position" key={row.id} className={cn("grid grid-cols-12 gap-4 px-6 py-2.5 items-center hover:bg-slate-50 transition-colors group text-sm", rowBg)}>
+                           <motion.div layout="position" key={row.id} className={cn("grid min-w-[720px] grid-cols-12 gap-4 px-6 py-2.5 items-center hover:bg-slate-50 transition-colors group text-sm", rowBg)}>
                                <div className="col-span-6 sm:col-span-4 flex items-center gap-2" style={{ paddingLeft: `${indent * 1.5}rem` }}>
-                                   {row.hasChildren ? <button onClick={() => toggleExpand(row.number)} className="p-0.5 rounded hover:bg-slate-200 text-slate-400">{row.isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</button> : <span className="w-5" />}
+                                   {row.hasChildren ? <button onClick={() => toggleExpand(row.number)} className="p-2 md:p-0.5 rounded hover:bg-slate-200 text-slate-400">{row.isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</button> : <span className="w-5" />}
                                    <span className={cn("font-mono", textClass)}>{row.number}</span>
                                </div>
                                <div className="col-span-3 sm:col-span-6 flex items-center gap-2 overflow-hidden">{icon}<span className={cn("truncate", textClass)}>{row.name}</span></div>
                                <div className="col-span-3 sm:col-span-2 flex items-center justify-end gap-3">
                                    <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-500 font-medium uppercase border border-slate-200">{label}</span>
-                                   <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {canEdit && <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditingAccount(row); setDialogOpen(true); }}><Edit2 className="w-3 h-3 text-blue-500" /></Button>}
-                                        {canDelete && <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDeleteAccount(row.id)}><Trash2 className="w-3 h-3 text-red-500" /></Button>}
+                                   <div className="flex opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                        {canEdit && <Button variant="ghost" size="icon" className="h-10 w-10 md:h-6 md:w-6" onClick={() => { setEditingAccount(row); setDialogOpen(true); }}><Edit2 className="w-3 h-3 text-blue-500" /></Button>}
+                                        {canDelete && <Button variant="ghost" size="icon" className="h-10 w-10 md:h-6 md:w-6" onClick={() => handleDeleteAccount(row.id)}><Trash2 className="w-3 h-3 text-red-500" /></Button>}
                                    </div>
                                </div>
                            </motion.div>

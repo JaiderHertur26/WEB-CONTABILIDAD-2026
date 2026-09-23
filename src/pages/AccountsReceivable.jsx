@@ -475,11 +475,11 @@ const AccountsReceivable = () => {
         <>
         <Helmet><title>Cuentas por Cobrar - JaiderHerTur26</title></Helmet>
         <div className="space-y-6">
-            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center">
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div><h1 className="text-4xl font-bold text-slate-900">Cuentas por Cobrar</h1><p className="text-slate-600">Lleva un control de lo que tus clientes te deben.</p></div>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
-                    {canAdd && <Button onClick={() => { setEditingReceivable(null); setDialogOpen(true); }} className="bg-green-600 hover:bg-green-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
+                    {canAdd && <Button onClick={() => { setEditingReceivable(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-green-600 hover:bg-green-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
                 </div>
             </motion.div>
             
@@ -494,7 +494,7 @@ const AccountsReceivable = () => {
                     <p className="text-slate-500">No tienes cuentas por cobrar pendientes.</p>
                 </motion.div>
             ) : (
-                <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
+                <div className="bg-white rounded-xl shadow-lg border overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[760px] text-sm">
                     <thead className="bg-slate-50"><tr>{['Cliente', 'Descripción', 'Vencimiento', 'Monto', 'Estado', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
                     <tbody className="divide-y">{filteredReceivables.map(r => (<tr key={r.id} className={`hover:bg-slate-50 ${r.status === 'Cobrado' ? 'text-slate-400' : ''}`}>
                         <td className="p-3 font-medium">{r.customer}</td><td className="p-3">{r.description}</td><td className="p-3">{format(parseAccountingDate(r.dueDate), 'dd/MM/yyyy', { locale: es })}</td><td className="p-3 font-mono">${parseFloat(r.amount).toLocaleString('es-ES')}</td>
@@ -742,7 +742,7 @@ const PaymentDialog = ({ open, onOpenChange, onSave, receivable, bankAccounts, c
                         <div className="flex justify-between mt-1"><span>Cobrado</span><strong className="text-green-700">${previousPaid.toLocaleString('es-CO')}</strong></div>
                         <div className="flex justify-between mt-1"><span>Saldo pendiente</span><strong className="text-amber-700">${remaining.toLocaleString('es-CO')}</strong></div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1"><Label>Fecha del cobro</Label><input type="date" value={paymentDate} onChange={e=>setPaymentDate(e.target.value)} className="w-full p-2 border rounded-lg"/></div>
                         <div className="space-y-1"><Label>Monto a cobrar</Label><input type="number" min="0.01" max={remaining} step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-2 border rounded-lg"/></div>
                     </div>

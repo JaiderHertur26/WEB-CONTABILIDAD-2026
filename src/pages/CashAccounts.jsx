@@ -311,9 +311,9 @@ const CashAccounts = () => {
     <>
       <Helmet><title>Cajas - JaiderHerTur26</title></Helmet>
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div><h1 className="text-4xl font-bold text-slate-900">Cajas</h1><p className="text-slate-600">Administra Cajas Menores y Mayores</p></div>
-          {canAdd && <Button onClick={() => handleOpenDialog()} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Caja</Button>}
+          {canAdd && <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Caja</Button>}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {allAccounts.map(account => {
@@ -358,7 +358,7 @@ const CashAccounts = () => {
           <form onSubmit={handleSave} className="space-y-4 py-4">
             <div className="space-y-2"><Label>Nombre de la Caja (Uso interno)</Label><input required disabled={editingAccount?.isMain || isReadOnly} className="w-full px-3 py-2 border rounded-md disabled:bg-slate-100" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Tipo</Label><select className="w-full px-3 py-2 border rounded-md bg-white disabled:bg-slate-100" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} disabled={editingAccount?.isMain || isReadOnly}>{editingAccount?.isMain && <option value="Principal">Caja Principal</option>}<option value="Menor">Caja Menor</option><option value="Mayor">Caja Mayor</option></select></div>
               <div className="space-y-2"><Label>Fecha de Apertura / Saldo</Label><input type="date" required disabled={isReadOnly} className="w-full px-3 py-2 border rounded-md disabled:bg-slate-100" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
             </div>
@@ -406,7 +406,7 @@ const CashAccounts = () => {
               </div>
             )}
 
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4"><h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Banknote className="w-4 h-4" /> Configuración Contable</h4><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Número de Cuenta</Label><input required disabled={isReadOnly || (editingAccount && !editingAccount.isMain)} className={cn("w-full px-3 py-2 border rounded-md font-mono", (isReadOnly || (editingAccount && !editingAccount.isMain)) ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "")} value={formData.accounting_account} onChange={e => setFormData({ ...formData, accounting_account: e.target.value.replace(/[^0-9]/g, '') })} /></div><div className="space-y-2"><Label>Concepto (Nombre PUC)</Label><input required disabled={isReadOnly} className="w-full px-3 py-2 border rounded-md disabled:bg-slate-100" value={formData.accounting_concept} onChange={e => setFormData({ ...formData, accounting_concept: e.target.value })} /></div></div></div>
+            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4"><h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Banknote className="w-4 h-4" /> Configuración Contable</h4><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div className="space-y-2"><Label>Número de Cuenta</Label><input required disabled={isReadOnly || (editingAccount && !editingAccount.isMain)} className={cn("w-full px-3 py-2 border rounded-md font-mono", (isReadOnly || (editingAccount && !editingAccount.isMain)) ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "")} value={formData.accounting_account} onChange={e => setFormData({ ...formData, accounting_account: e.target.value.replace(/[^0-9]/g, '') })} /></div><div className="space-y-2"><Label>Concepto (Nombre PUC)</Label><input required disabled={isReadOnly} className="w-full px-3 py-2 border rounded-md disabled:bg-slate-100" value={formData.accounting_concept} onChange={e => setFormData({ ...formData, accounting_concept: e.target.value })} /></div></div></div>
 
             <DialogFooter><DialogClose asChild><Button variant="outline" type="button">Cancelar</Button></DialogClose>{!isReadOnly && <Button type="submit">Guardar</Button>}</DialogFooter>
           </form>

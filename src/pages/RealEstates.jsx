@@ -378,12 +378,12 @@ const RealEstates = () => {
         <>
             <Helmet><title>Propiedades y Oficinas - JaiderHerTur26</title></Helmet>
             <div className="space-y-6">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center">
+                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900">Propiedades y Oficinas</h1></div>
-                    <div className="flex items-center gap-2">
+                    <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
                         {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
-                        {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
-                        {canAdd && <Button onClick={() => { setEditingEstate(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Propiedad</Button>}
+                        {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="w-full sm:w-auto border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
+                        {canAdd && <Button onClick={() => { setEditingEstate(null); setDialogOpen(true); }} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Propiedad</Button>}
                     </div>
                 </motion.div>
                 
@@ -397,7 +397,7 @@ const RealEstates = () => {
                         <p className="text-slate-500">No hay propiedades registradas.</p>
                     </motion.div>
                 ) : (
-                    <div className="bg-white rounded-xl shadow-lg border overflow-x-auto"><table className="w-full text-sm">
+                    <div className="bg-white rounded-xl shadow-lg border overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[980px] text-sm">
                         <thead className="bg-slate-50">
                             <tr>
                                 {['Nombre', 'Dirección', 'Fecha', 'Estado', 'Valor Original', 'Deprec. Acumulada', 'Valor Neto', 'Acciones'].map(h => 

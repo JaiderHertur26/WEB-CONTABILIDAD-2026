@@ -298,10 +298,10 @@ const Invoices = () => {
 
         <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-8 bg-slate-100 p-1 rounded-xl">
-                <TabsTrigger value="sales" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm text-base py-3">
+                <TabsTrigger value="sales" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm px-2 py-3 text-xs sm:text-base leading-tight text-center whitespace-normal">
                     <ShoppingCart className="w-4 h-4 mr-2"/> Facturas de Venta
                 </TabsTrigger>
-                <TabsTrigger value="purchases" className="data-[state=active]:bg-white data-[state=active]:text-orange-600 data-[state=active]:shadow-sm text-base py-3">
+                <TabsTrigger value="purchases" className="data-[state=active]:bg-white data-[state=active]:text-orange-600 data-[state=active]:shadow-sm px-2 py-3 text-xs sm:text-base leading-tight text-center whitespace-normal">
                     <ShoppingBag className="w-4 h-4 mr-2"/> Facturas de Compra
                 </TabsTrigger>
             </TabsList>

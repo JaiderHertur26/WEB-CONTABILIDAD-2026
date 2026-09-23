@@ -1459,7 +1459,7 @@ const months = [
                 </motion.div>
 
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg border overflow-hidden print:hidden">
-                    <div className="flex border-b bg-slate-50 overflow-x-auto">
+                    <div className="flex border-b bg-slate-50 overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {[
                             { id: 'day', label: 'Cierre Diario', icon: CalendarIcon },
                             { id: 'week', label: 'Cierre Semanal', icon: CalendarIcon },
@@ -1470,7 +1470,7 @@ const months = [
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center px-6 py-4 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeTab === tab.id
+                                className={`flex shrink-0 min-w-max items-center px-4 sm:px-6 py-4 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeTab === tab.id
                                     ? 'border-blue-600 text-blue-600 bg-white'
                                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100'
                                     }`}

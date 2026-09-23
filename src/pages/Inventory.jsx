@@ -166,11 +166,11 @@ const Inventory = () => {
         <>
             <Helmet><title>Inventario - JaiderHerTur26</title></Helmet>
             <div className="space-y-6">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-center">
+                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Tienda</h1><p className="text-slate-600">Productos, existencias, costo promedio, precio de venta y etiquetas QR / código de barras.</p></div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
                         {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
-                        {canAdd && <Button onClick={() => { setEditingProduct(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Producto / Donación</Button>}
+                        {canAdd && <Button onClick={() => { setEditingProduct(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Producto / Donación</Button>}
                     </div>
                 </motion.div>
 
@@ -188,8 +188,8 @@ const Inventory = () => {
                 </motion.div>
 
                 <div className="bg-white rounded-xl shadow-lg border overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
+                    <div className="overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+                        <table className="w-full min-w-[980px] text-sm text-left">
                             <thead className="bg-slate-50 text-slate-700">
                                 <tr>
                                     <th className="p-4 font-semibold">Producto</th>
