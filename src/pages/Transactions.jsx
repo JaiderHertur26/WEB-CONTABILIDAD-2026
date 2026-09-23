@@ -2955,7 +2955,7 @@ const Transactions = () => {
                                     {type === 'all' ? 'Todas' : type === 'income' ? 'Ingresos' : type === 'expense' ? 'Gastos' : type === 'transfer' ? 'Transferencias' : 'Ajustes'}
                                 </Button>
                             ))}
-                            <div className="col-span-2 grid grid-cols-2 gap-2 sm:ml-auto sm:flex">
+                            <div className="col-span-2 grid grid-cols-1 gap-2 sm:ml-auto sm:flex">
                                 {/* 🚀 BOTÓN DE IMPRESIÓN SIEMPRE VISIBLE */}
                                 <Button variant="outline" size="sm" onClick={() => setPrintFilteredOpen(true)} className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm">
                                     <Printer className="w-4 h-4 mr-2" /> Imprimir Reporte

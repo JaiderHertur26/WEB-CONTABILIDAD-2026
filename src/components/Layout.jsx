@@ -393,7 +393,7 @@ const Layout = ({ children, onLogout }) => {
           </div>
         </header>
 
-        <div className="app-workspace custom-scrollbar flex-1 overflow-y-auto">
+        <div className="app-workspace custom-scrollbar flex-1 overflow-y-auto overflow-x-hidden">
           <div className="mx-auto w-full max-w-[1680px] p-4 sm:p-6 lg:p-8 xl:p-9">
             {children}
           </div>

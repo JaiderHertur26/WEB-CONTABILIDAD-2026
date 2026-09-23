@@ -370,7 +370,7 @@ const AccountDialog = ({ open, onOpenChange, onSave, account, isReadOnly }) => {
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                        <div className="col-span-2 flex items-center gap-2 text-sm font-semibold text-blue-800 pb-2 border-b border-slate-200 mb-2"><Landmark className="w-4 h-4" /> Vinculación Contable (Automática)</div>
+                        <div className="col-span-1 sm:col-span-2 flex items-center gap-2 text-sm font-semibold text-blue-800 pb-2 border-b border-slate-200 mb-2"><Landmark className="w-4 h-4 shrink-0" /> Vinculación Contable (Automática)</div>
                         <div className="space-y-2"><Label className="text-xs">Código PUC</Label><input disabled={isReadOnly} value={data.accountingCode} onChange={e => setData({ ...data, accountingCode: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm disabled:bg-slate-100" /></div>
                         <div className="space-y-2"><Label className="text-xs">Nombre Cuenta PUC</Label><input disabled={isReadOnly} value={data.accountingConcept} onChange={e => setData({ ...data, accountingConcept: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm disabled:bg-slate-100" /></div>
                     </div>
