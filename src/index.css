@@ -91,6 +91,10 @@ body {
   line-height: 1.05 !important;
 }
 
+.app-workspace h1.company-hero-title {
+  color: #ffffff !important;
+}
+
 .app-workspace h2,
 .app-workspace h3 {
   letter-spacing: -0.02em;
