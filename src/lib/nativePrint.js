@@ -38,6 +38,75 @@ const pagePixels = {
   legal: { width: 816, height: 1344 },
 };
 
+const measureRenderedContentHeight = (doc, body) => {
+  const bodyRect = body.getBoundingClientRect();
+  let bottom = bodyRect.top;
+
+  try {
+    const range = doc.createRange();
+    range.selectNodeContents(body);
+    const rangeRect = range.getBoundingClientRect();
+    if (Number.isFinite(rangeRect.bottom)) bottom = Math.max(bottom, rangeRect.bottom);
+  } catch {
+    // Algunos nodos no admiten Range; los descendientes cubren ese caso.
+  }
+
+  for (const element of Array.from(body.querySelectorAll('*'))) {
+    if (['SCRIPT', 'STYLE', 'LINK', 'META', 'TITLE'].includes(element.tagName)) continue;
+    const style = doc.defaultView?.getComputedStyle(element);
+    if (!style || style.display === 'none' || style.visibility === 'hidden') continue;
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    if (Number.isFinite(rect.bottom)) bottom = Math.max(bottom, rect.bottom);
+  }
+
+  // Conserva una pequeña respiración inferior, pero no padding/min-height vacíos.
+  return Math.max(1, Math.ceil(bottom - bodyRect.top + 8));
+};
+
+const cropCanvasBottomWhitespace = (sourceCanvas, extraPadding = 10) => {
+  const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx || sourceCanvas.width < 1 || sourceCanvas.height < 1) return sourceCanvas;
+
+  const width = sourceCanvas.width;
+  const height = sourceCanvas.height;
+  let lastContentRow = -1;
+  const rowChunk = 24;
+  const sampleStep = Math.max(1, Math.floor(width / 420));
+
+  for (let startY = height - rowChunk; startY >= 0 && lastContentRow < 0; startY -= rowChunk) {
+    const y = Math.max(0, startY);
+    const h = Math.min(rowChunk, height - y);
+    const pixels = ctx.getImageData(0, y, width, h).data;
+
+    for (let localY = h - 1; localY >= 0 && lastContentRow < 0; localY -= 1) {
+      for (let x = 0; x < width; x += sampleStep) {
+        const i = (localY * width + x) * 4;
+        const alpha = pixels[i + 3];
+        if (alpha > 8 && (pixels[i] < 248 || pixels[i + 1] < 248 || pixels[i + 2] < 248)) {
+          lastContentRow = y + localY;
+          break;
+        }
+      }
+    }
+  }
+
+  if (lastContentRow < 0) return sourceCanvas;
+
+  const croppedHeight = Math.min(height, lastContentRow + 1 + extraPadding);
+  if (croppedHeight >= height - 2) return sourceCanvas;
+
+  const cropped = document.createElement('canvas');
+  cropped.width = width;
+  cropped.height = croppedHeight;
+  const croppedCtx = cropped.getContext('2d');
+  croppedCtx.fillStyle = '#ffffff';
+  croppedCtx.fillRect(0, 0, width, croppedHeight);
+  croppedCtx.drawImage(sourceCanvas, 0, 0, width, croppedHeight, 0, 0, width, croppedHeight);
+  return cropped;
+};
+
 const waitForDocumentAssets = async (doc) => {
   try {
     if (doc.fonts?.ready) await doc.fonts.ready;
@@ -113,10 +182,12 @@ export const sharePrintableHtml = async ({
     body.style.margin = body.style.margin || '0';
 
     const contentWidth = Math.max(pageWidthPx, body.scrollWidth, frameDoc.documentElement?.scrollWidth || 0);
-    const contentHeight = Math.max(1, body.scrollHeight, frameDoc.documentElement?.scrollHeight || 0);
+    const rawContentHeight = Math.max(1, body.scrollHeight, frameDoc.documentElement?.scrollHeight || 0);
+    const measuredContentHeight = measureRenderedContentHeight(frameDoc, body);
+    const contentHeight = Math.min(rawContentHeight, Math.max(1, measuredContentHeight));
 
     iframe.style.width = `${contentWidth}px`;
-    iframe.style.height = `${Math.min(contentHeight + 20, 12000)}px`;
+    iframe.style.height = `${Math.min(contentHeight + 8, 12000)}px`;
 
     await wait(80);
 
@@ -132,7 +203,7 @@ export const sharePrintableHtml = async ({
     const longDocument = contentHeight > 9000;
 
     if (!longDocument) {
-      const canvas = await html2canvas(body, {
+      const capturedCanvas = await html2canvas(body, {
         scale: 1.35,
         useCORS: true,
         allowTaint: true,
@@ -146,27 +217,122 @@ export const sharePrintableHtml = async ({
         scrollY: 0,
       });
 
-      const imageData = canvas.toDataURL('image/jpeg', 0.93);
-      const imageHeight = (canvas.height * pageWidth) / canvas.width;
+      const canvas = cropCanvasBottomWhitespace(capturedCanvas, Math.ceil(8 * 1.35));
+      const nominalSourcePageHeight = Math.max(
+        1,
+        Math.floor(canvas.width * (pageHeight / pageWidth))
+      );
+      const tolerancePx = Math.ceil(nominalSourcePageHeight * (3 / pageHeight));
+      let totalPages = Math.max(
+        1,
+        Math.ceil(Math.max(1, canvas.height - tolerancePx) / nominalSourcePageHeight)
+      );
+      let sourcePageHeight = nominalSourcePageHeight;
 
-      let position = 0;
-      let remaining = imageHeight;
+      if (totalPages > 1) {
+        const trailingHeight = canvas.height - ((totalPages - 1) * nominalSourcePageHeight);
+        const trailingRatio = trailingHeight / nominalSourcePageHeight;
+        const compressedSourcePageHeight = Math.ceil(canvas.height / (totalPages - 1));
+        const uniformScaleRatio = nominalSourcePageHeight / compressedSourcePageHeight;
 
-      pdf.addImage(imageData, 'JPEG', 0, position, pageWidth, imageHeight, undefined, 'FAST');
-      remaining -= pageHeight;
+        // Evita una última hoja con sólo pie/espacio residual.
+        // Sólo compacta cuando el fragmento final es pequeño y la reducción total es <= 3.5%.
+        if (
+          trailingHeight > 0 &&
+          trailingRatio <= 0.15 &&
+          uniformScaleRatio >= 0.965
+        ) {
+          totalPages -= 1;
+          sourcePageHeight = compressedSourcePageHeight;
+        }
+      }
 
-      while (remaining > 0.5) {
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imageData, 'JPEG', 0, position, pageWidth, imageHeight, undefined, 'FAST');
-        remaining -= pageHeight;
+      if (totalPages === 1) {
+        const imageData = canvas.toDataURL('image/jpeg', 0.93);
+        const scale = Math.min(
+          pageWidth / canvas.width,
+          pageHeight / canvas.height
+        );
+        const renderedWidth = canvas.width * scale;
+        const renderedHeight = canvas.height * scale;
+        pdf.addImage(
+          imageData,
+          'JPEG',
+          (pageWidth - renderedWidth) / 2,
+          0,
+          renderedWidth,
+          renderedHeight,
+          undefined,
+          'FAST'
+        );
+      } else {
+        for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
+          const sourceY = pageIndex * sourcePageHeight;
+          const sliceHeight = Math.min(sourcePageHeight, canvas.height - sourceY);
+          if (sliceHeight <= 0) break;
+
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = canvas.width;
+          pageCanvas.height = sliceHeight;
+          const pageCtx = pageCanvas.getContext('2d');
+          pageCtx.fillStyle = '#ffffff';
+          pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+          pageCtx.drawImage(
+            canvas,
+            0,
+            sourceY,
+            canvas.width,
+            sliceHeight,
+            0,
+            0,
+            canvas.width,
+            sliceHeight
+          );
+
+          if (pageIndex > 0) pdf.addPage();
+
+          const imageData = pageCanvas.toDataURL('image/jpeg', 0.93);
+          const scale = Math.min(
+            pageWidth / pageCanvas.width,
+            pageHeight / pageCanvas.height
+          );
+          const renderedWidth = pageCanvas.width * scale;
+          const renderedHeight = pageCanvas.height * scale;
+          pdf.addImage(
+            imageData,
+            'JPEG',
+            (pageWidth - renderedWidth) / 2,
+            0,
+            renderedWidth,
+            renderedHeight,
+            undefined,
+            'FAST'
+          );
+        }
       }
     } else {
-      const sourcePageHeight = Math.max(
+      const nominalSourcePageHeight = Math.max(
         600,
         Math.floor(contentWidth * (pageHeightPx / pageWidthPx))
       );
-      const totalPages = Math.ceil(contentHeight / sourcePageHeight);
+      let totalPages = Math.ceil(contentHeight / nominalSourcePageHeight);
+      let sourcePageHeight = nominalSourcePageHeight;
+
+      if (totalPages > 1) {
+        const trailingHeight = contentHeight - ((totalPages - 1) * nominalSourcePageHeight);
+        const trailingRatio = trailingHeight / nominalSourcePageHeight;
+        const compressedSourcePageHeight = Math.ceil(contentHeight / (totalPages - 1));
+        const uniformScaleRatio = nominalSourcePageHeight / compressedSourcePageHeight;
+
+        if (
+          trailingHeight > 0 &&
+          trailingRatio <= 0.15 &&
+          uniformScaleRatio >= 0.965
+        ) {
+          totalPages -= 1;
+          sourcePageHeight = compressedSourcePageHeight;
+        }
+      }
 
       for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
         const offsetY = pageIndex * sourcePageHeight;
@@ -190,9 +356,26 @@ export const sharePrintableHtml = async ({
 
         if (pageIndex > 0) pdf.addPage();
 
-        const imageData = canvas.toDataURL('image/jpeg', 0.92);
-        const imageHeight = (canvas.height * pageWidth) / canvas.width;
-        pdf.addImage(imageData, 'JPEG', 0, 0, pageWidth, imageHeight, undefined, 'FAST');
+        const pageCanvas = pageIndex === totalPages - 1
+          ? cropCanvasBottomWhitespace(canvas, Math.ceil(8 * 1.15))
+          : canvas;
+        const imageData = pageCanvas.toDataURL('image/jpeg', 0.92);
+        const scale = Math.min(
+          pageWidth / pageCanvas.width,
+          pageHeight / pageCanvas.height
+        );
+        const renderedWidth = pageCanvas.width * scale;
+        const renderedHeight = pageCanvas.height * scale;
+        pdf.addImage(
+          imageData,
+          'JPEG',
+          (pageWidth - renderedWidth) / 2,
+          0,
+          renderedWidth,
+          renderedHeight,
+          undefined,
+          'FAST'
+        );
 
         await wait(15);
       }
