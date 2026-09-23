@@ -17,6 +17,9 @@ export const secureAdminLogin = (username, password) =>
 export const sessionCompanies = sessionToken =>
   rpc('session_companies', { p_session_token: sessionToken });
 
+export const sessionInfo = sessionToken =>
+  rpc('session_info', { p_session_token: sessionToken });
+
 export const sessionLogout = sessionToken =>
   sessionToken ? rpc('session_logout', { p_session_token: sessionToken }) : Promise.resolve(true);
 export const syncRead = (sessionToken, companyId, storageKey) =>

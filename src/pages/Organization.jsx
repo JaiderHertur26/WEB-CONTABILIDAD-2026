@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Building, Plus, Network, Trash2, ShieldCheck, MapPin, Phone, User, Lock, Info, Edit2, Key, CreditCard, Shield, AlertTriangle } from 'lucide-react';
@@ -10,11 +10,12 @@ import { Label } from '@/components/ui/label';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuth } from '@/contexts/LocalAuthContext';
 import { createCompanySecure, deleteCompanySecure } from '@/lib/secureApi';
+import { getCompanyScope } from '@/lib/companyHierarchy';
 
 const Organization = () => {
-    const { activeCompany, companies, setCompanies, updateCompanyCredentials } = useCompany();
+    const { activeCompany, companies, setCompanies, updateCompanyCredentials, switchCompany } = useCompany();
     const { sessionToken } = useAuth();
-    const { canModify, canEdit, isReadOnly } = usePermission();
+    const { canModify, isReadOnly, accessLevel, isConsolidatedReadOnly } = usePermission();
     const { toast } = useToast();
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isSecurityDialogOpen, setIsSecurityDialogOpen] = useState(false);
@@ -23,7 +24,39 @@ const Organization = () => {
     const [formData, setFormData] = useState({ name: '', address: '', phone: '', username: '', password: '', partialPassword: '' });
     const [securityData, setSecurityData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
-    const subCompanies = companies.filter(c => c.parentId && String(c.parentId) === String(activeCompany?.id));
+    const organizationScope = useMemo(
+        () => getCompanyScope(companies, activeCompany?.id),
+        [companies, activeCompany?.id]
+    );
+    const linkedCompanies = useMemo(
+        () => organizationScope.filter(c => String(c.id) !== String(activeCompany?.id)),
+        [organizationScope, activeCompany?.id]
+    );
+    const companyById = useMemo(
+        () => new Map((companies || []).map(c => [String(c.id), c])),
+        [companies]
+    );
+    const activeParent = activeCompany?.parentId
+        ? companyById.get(String(activeCompany.parentId))
+        : null;
+    const getDepth = (company) => {
+        let depth = 1;
+        let parentId = company?.parentId || company?.parent_id;
+        const visited = new Set();
+        while (parentId && String(parentId) !== String(activeCompany?.id) && !visited.has(String(parentId))) {
+            visited.add(String(parentId));
+            const parent = companyById.get(String(parentId));
+            if (!parent) break;
+            depth += 1;
+            parentId = parent.parentId || parent.parent_id;
+        }
+        return depth;
+    };
+
+    const handleSwitchCompany = async (companyId) => {
+        if (!companyId || String(companyId) === String(activeCompany?.id)) return;
+        await switchCompany(companyId);
+    };
 
     const handleDelete = async (id) => {
         if (!canModify || !sessionToken) return;
@@ -119,10 +152,22 @@ const Organization = () => {
             <div className="max-w-6xl mx-auto space-y-8">
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <div><h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2"><Network className="w-8 h-8 text-blue-600" /> Mi Organización</h1><p className="text-slate-600 mt-1">Gestión de sucursales y seguridad.</p></div>
+                        <div>
+                            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2"><Network className="w-8 h-8 text-blue-600" /> Mi Organización</h1>
+                            <p className="text-slate-600 mt-1">Estructura organizacional, niveles de acceso y seguridad.</p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600">
+                                    {organizationScope.length} {organizationScope.length === 1 ? 'entidad' : 'entidades'} en el alcance
+                                </span>
+                                <span className={`rounded-full border px-2.5 py-1 font-semibold ${accessLevel === 'full' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                                    {accessLevel === 'full' ? 'Acceso Total' : 'Acceso Parcial'}
+                                </span>
+                                {isConsolidatedReadOnly && <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 font-semibold text-violet-700">Vista Consolidada · Solo lectura</span>}
+                            </div>
+                        </div>
                         <div className="flex gap-2">
                              <Dialog open={isSecurityDialogOpen} onOpenChange={setIsSecurityDialogOpen}>
-                                <DialogTrigger asChild><Button variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-100"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button></DialogTrigger>
+                                <DialogTrigger asChild>{canModify ? <Button variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-100"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button> : <span className="hidden" />}</DialogTrigger>
                                 <DialogContent>
                                     <DialogHeader><DialogTitle>Cambiar Contraseña Global</DialogTitle><DialogDescription>La sesión actual ya acredita tu identidad. La nueva clave se almacenará únicamente como hash.</DialogDescription></DialogHeader>
                                     {isReadOnly ? (
@@ -137,9 +182,9 @@ const Organization = () => {
                                 </DialogContent>
                             </Dialog>
                             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                                <DialogTrigger asChild>{canModify && <Button onClick={handleOpenCreate} className="bg-blue-600 hover:bg-blue-700 shadow-lg"><Plus className="w-4 h-4 mr-2" /> Nueva Sub-empresa</Button>}</DialogTrigger>
+                                <DialogTrigger asChild>{canModify ? <Button onClick={handleOpenCreate} className="bg-blue-600 hover:bg-blue-700 shadow-lg"><Plus className="w-4 h-4 mr-2" /> Nueva entidad vinculada</Button> : <span className="hidden" />}</DialogTrigger>
                                 <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-                                    <DialogHeader><DialogTitle>{editingId ? 'Editar Sub-empresa' : 'Crear Nueva Sub-empresa'}</DialogTitle><DialogDescription>Configure los detalles y credenciales.</DialogDescription></DialogHeader>
+                                    <DialogHeader><DialogTitle>{editingId ? 'Editar entidad vinculada' : 'Crear entidad vinculada'}</DialogTitle><DialogDescription>Configure identidad y credenciales de acceso para esta entidad.</DialogDescription></DialogHeader>
                                     <form onSubmit={handleSave} className="space-y-6 py-4">
                                         <div className="space-y-4">
                                             <div className="space-y-2"><Label>Nombre</Label><input required disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
@@ -157,10 +202,81 @@ const Organization = () => {
                     </div>
                 </motion.div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 shadow-sm relative"><div className="absolute -top-3 -left-3 bg-blue-600 text-white p-2 rounded-lg shadow-md"><Building className="w-6 h-6" /></div><div className="ml-8"><h3 className="text-lg font-bold text-blue-900">{activeCompany?.name}</h3><p className="text-sm text-blue-700">Empresa Principal (Matriz)</p><div className="mt-4 space-y-2 text-sm text-blue-800"><div className="flex items-center gap-2"><MapPin className="w-4 h-4"/> {activeCompany?.address || 'Sin dirección'}</div><div className="flex items-center gap-2"><Phone className="w-4 h-4"/> {activeCompany?.phone || 'Sin teléfono'}</div></div></div></div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 shadow-sm relative">
+                        <div className="absolute -top-3 -left-3 bg-blue-600 text-white p-2 rounded-lg shadow-md"><Building className="w-6 h-6" /></div>
+                        <div className="ml-8">
+                            <p className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600">Entidad activa</p>
+                            <h3 className="mt-1 text-lg font-bold text-blue-900">{activeCompany?.name}</h3>
+                            <p className="text-sm text-blue-700">{activeCompany?.parentId ? 'Entidad vinculada' : 'Entidad principal / matriz'}</p>
+                            <div className="mt-4 space-y-2 text-sm text-blue-800">
+                                {activeCompany?.doc && <div className="font-mono">NIT / Documento: {activeCompany.doc}</div>}
+                                <div className="flex items-center gap-2"><MapPin className="w-4 h-4"/> {activeCompany?.address || 'Sin dirección'}</div>
+                                <div className="flex items-center gap-2"><Phone className="w-4 h-4"/> {activeCompany?.phone || 'Sin teléfono'}</div>
+                            </div>
+                            {activeParent && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="mt-4 border-blue-200 bg-white/70 text-blue-700 hover:bg-white"
+                                    onClick={() => handleSwitchCompany(activeParent.id)}
+                                >
+                                    Volver a {activeParent.name}
+                                </Button>
+                            )}
+                        </div>
+                    </div>
                     <div className="space-y-4">
-                        <h4 className="font-semibold text-slate-500 text-sm uppercase tracking-wider">Sub-empresas Vinculadas</h4>
-                        {subCompanies.length === 0 ? (<div className="text-center p-8 bg-slate-50 rounded-xl border border-dashed border-slate-300"><Network className="w-10 h-10 text-slate-300 mx-auto mb-2" /><p className="text-slate-500">No hay sub-empresas registradas.</p></div>) : (subCompanies.map(sub => (<motion.div key={sub.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-all"><div className="flex justify-between items-start"><div className="flex gap-3"><div className="bg-indigo-100 text-indigo-600 p-2 rounded-lg h-fit"><Building className="w-5 h-5" /></div><div><h3 className="font-bold text-slate-900">{sub.name}</h3><div className="mt-2 text-sm text-slate-600 flex gap-4"><span className="flex items-center gap-1"><User className="w-3 h-3"/> {sub.username}</span></div></div></div><div className="flex gap-1">{canModify && <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(sub)}><Edit2 className="w-4 h-4" /></Button>}{canModify && <Button variant="ghost" size="icon" onClick={() => handleDelete(sub.id)} className="text-red-600"><Trash2 className="w-4 h-4" /></Button>}</div></div></motion.div>)))}
+                        <div className="flex items-center justify-between gap-3">
+                            <h4 className="font-semibold text-slate-500 text-sm uppercase tracking-wider">Estructura vinculada</h4>
+                            <span className="text-xs font-semibold text-slate-400">{linkedCompanies.length} vinculadas</span>
+                        </div>
+                        {linkedCompanies.length === 0 ? (
+                            <div className="text-center p-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                                <Network className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                                <p className="text-slate-500">No hay entidades vinculadas.</p>
+                            </div>
+                        ) : (
+                            linkedCompanies
+                                .slice()
+                                .sort((a, b) => getDepth(a) - getDepth(b) || String(a.name || '').localeCompare(String(b.name || ''), 'es'))
+                                .map(sub => {
+                                    const depth = getDepth(sub);
+                                    const parent = companyById.get(String(sub.parentId || sub.parent_id || ''));
+                                    return (
+                                        <motion.div
+                                            key={sub.id}
+                                            initial={{ opacity: 0, x: 20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-all"
+                                            style={{ marginLeft: Math.min((depth - 1) * 18, 54) }}
+                                        >
+                                            <div className="flex justify-between items-start gap-3">
+                                                <div className="flex gap-3 min-w-0">
+                                                    <div className="bg-indigo-100 text-indigo-600 p-2 rounded-lg h-fit"><Building className="w-5 h-5" /></div>
+                                                    <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <h3 className="font-bold text-slate-900">{sub.name}</h3>
+                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Nivel {depth}</span>
+                                                        </div>
+                                                        <p className="mt-1 text-xs text-slate-500">Depende de: {parent?.name || activeCompany?.name || 'Entidad principal'}</p>
+                                                        <div className="mt-2 text-sm text-slate-600 flex flex-wrap gap-4">
+                                                            <span className="flex items-center gap-1"><User className="w-3 h-3"/> {sub.username || 'Sin usuario'}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-1 shrink-0">
+                                                    <Button variant="outline" size="sm" onClick={() => handleSwitchCompany(sub.id)} title="Trabajar en esta entidad">
+                                                        Abrir
+                                                    </Button>
+                                                    {canModify && <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(sub)} title="Editar entidad"><Edit2 className="w-4 h-4" /></Button>}
+                                                    {canModify && <Button variant="ghost" size="icon" onClick={() => handleDelete(sub.id)} className="text-red-600" title="Eliminar entidad"><Trash2 className="w-4 h-4" /></Button>}
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    );
+                                })
+                        )}
                     </div>
                 </div>
             </div>

@@ -28,6 +28,8 @@ import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { createPrintTarget } from '@/lib/nativePrint';
 import { useCompany } from '@/contexts/CompanyContext';
+import { usePermission } from '@/hooks/usePermission';
+import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import {
     format,
     parseISO,
@@ -46,16 +48,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 const BookClosings = () => {
     const { activeCompany, isConsolidated, companies } = useCompany();
+    const { canEdit, isReadOnly } = usePermission();
+    const companyScopeIds = React.useMemo(
+        () => getCompanyScopeIds(companies, activeCompany?.id),
+        [companies, activeCompany?.id]
+    );
 
     const isRelevantCompany = React.useCallback((item) => {
         if (!item) return false;
         const cid = item.company_id || item._companyId || item.companyId;
         if (!isConsolidated) return !cid || String(cid) === String(activeCompany?.id);
-        const relevantIds = (companies || [])
-            .filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id)
-            .map(c => String(c.id));
-        return !cid || relevantIds.includes(String(cid));
-    }, [activeCompany, isConsolidated, companies]);
+        return !cid || companyScopeIds.has(String(cid));
+    }, [activeCompany, isConsolidated, companyScopeIds]);
     const [activeTab, setActiveTab] = useState('day');
     const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth()));
@@ -1345,6 +1349,10 @@ const months = [
     };
 
     const handleCloseFiscalYear = async () => {
+        if (!canEdit) {
+            toast({ variant: 'destructive', title: 'Acceso restringido', description: 'Cerrar una vigencia requiere Acceso Total y Vista Individual.' });
+            return;
+        }
         if (isConsolidated) {
             toast({ variant: 'destructive', title: 'Seleccione una entidad', description: 'El cierre anual debe ejecutarse dentro de una entidad individual.' });
             return;
@@ -1454,7 +1462,14 @@ const months = [
 
             <div className="space-y-6 max-w-7xl mx-auto">
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="print:hidden">
-                    <h1 className="text-4xl font-bold text-slate-900">Cierres Contables</h1>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <h1 className="text-4xl font-bold text-slate-900">Cierres Contables</h1>
+                        {isReadOnly && (
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                                Solo lectura
+                            </span>
+                        )}
+                    </div>
                     <p className="text-slate-600">Genera actas y reportes de cierre. El acta por sí sola no bloquea movimientos: los meses se oficializan en Transacciones y la vigencia anual se cierra aquí cuando todos los meses con movimiento ya están oficializados.</p>
                 </motion.div>
 
@@ -1548,7 +1563,7 @@ const months = [
                         <Button onClick={generateReport} className="bg-blue-600 hover:bg-blue-700 min-w-[140px]">
                             <PieChart className="w-4 h-4 mr-2" /> Generar Acta
                         </Button>
-                        {activeTab === 'year' && (
+                        {activeTab === 'year' && canEdit && (
                             <Button onClick={handleCloseFiscalYear} variant="outline" className="border-amber-300 text-amber-800 hover:bg-amber-50 min-w-[140px]">
                                 <BookOpen className="w-4 h-4 mr-2" /> Cerrar Vigencia
                             </Button>

@@ -1,23 +1,23 @@
 import { useCompany } from '@/contexts/CompanyContext';
 
 export function usePermission() {
-  const { accessLevel, isGeneralAdmin } = useCompany();
-  
-  // PARTIAL ACCESS POLICY:
-  // - Can Add: YES (Create new records, add payments, etc.)
-  // - Can Edit: NO (Modify existing records)
-  // - Can Delete: NO (Remove records)
-  // - Can Import: NO (Bulk upload)
-  
+  const { accessLevel, isGeneralAdmin, isConsolidated } = useCompany();
+
+  // Acceso Parcial: puede registrar nuevos datos, pero no modificar,
+  // eliminar, importar ni cambiar configuración.
+  // Vista Consolidada: siempre es de solo lectura para evitar escribir
+  // sobre un conjunto compuesto por varias entidades.
   const isFullAccess = isGeneralAdmin || accessLevel === 'full';
-  
+  const consolidatedReadOnly = !isGeneralAdmin && !!isConsolidated;
+
   return {
-    canEdit: isFullAccess,
-    canDelete: isFullAccess,
-    canAdd: true,             // Updated: Partial users CAN add data now
-    canImport: isFullAccess,  // Restricted
-    canModify: isFullAccess,  // Restricted (Settings, etc.)
-    isReadOnly: !isFullAccess, // Used for UI badges
+    canEdit: isFullAccess && !consolidatedReadOnly,
+    canDelete: isFullAccess && !consolidatedReadOnly,
+    canAdd: !consolidatedReadOnly,
+    canImport: isFullAccess && !consolidatedReadOnly,
+    canModify: isFullAccess && !consolidatedReadOnly,
+    isReadOnly: !isFullAccess || consolidatedReadOnly,
+    isConsolidatedReadOnly: consolidatedReadOnly,
     accessLevel: isGeneralAdmin ? 'admin' : accessLevel
   };
 }

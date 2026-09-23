@@ -203,7 +203,7 @@ const MassIntentions = () => {
     };
 
     const handleSaveIntention = async (data) => {
-        if (!editingIntention && !canAdd) return;
+        if (editingIntention ? !canEdit : !canAdd) return;
         if (editingIntention && !canEdit) {
             toast({ variant: 'destructive', title: 'Acceso denegado', description: 'Tu perfil no tiene permiso para editar intenciones.' });
             return;

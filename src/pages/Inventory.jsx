@@ -15,7 +15,7 @@ import ProductCodeDialog from '@/components/inventory/ProductCodeDialog';
 import { ensureProductCodes, productSearchText, sanitizeProductCode } from '@/lib/productCodes';
 
 const Inventory = () => {
-    const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+    const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
     const [products, saveProducts] = useCompanyData('inventory');
     const [accounts] = useCompanyData('accounts');
     const [transactions, saveTransactions] = useCompanyData('transactions');
@@ -63,7 +63,7 @@ const Inventory = () => {
     };
 
     const handleSave = (productData) => {
-        if (!canAdd && !editingProduct) return;
+        if (editingProduct ? !canEdit : !canAdd) return;
         if (!canEdit && editingProduct) return;
 
         const targetId = editingProduct?.id || Date.now().toString();
@@ -169,7 +169,7 @@ const Inventory = () => {
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Tienda</h1><p className="text-slate-600">Productos, existencias, costo promedio, precio de venta y etiquetas QR / código de barras.</p></div>
                     <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
+                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
                         {canAdd && <Button onClick={() => { setEditingProduct(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Producto / Donación</Button>}
                     </div>
                 </motion.div>

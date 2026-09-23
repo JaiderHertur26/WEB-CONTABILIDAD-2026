@@ -112,7 +112,7 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) =
 const AccountsPayable = () => {
     const { activeCompany } = useCompany();
     const { activeSessionId } = useAuth();
-    const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+    const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
     const [payables, savePayables] = useCompanyData('accountsPayable');
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [contracts, saveContracts] = useCompanyData('contracts');
@@ -171,7 +171,7 @@ const AccountsPayable = () => {
         getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
 
     const handleSavePayable = (payableData) => {
-        if (!canAdd && !editingPayable) return;
+        if (editingPayable ? !canEdit : !canAdd) return;
         if (!canEdit && editingPayable) return;
 
         const { isNew, ...data } = payableData;
@@ -606,7 +606,7 @@ const AccountsPayable = () => {
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900">Cuentas por Pagar</h1><p className="text-slate-600">Gestiona tus deudas y obligaciones con proveedores.</p></div>
                     <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1" />Acceso Parcial</span>}
+                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1" />{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
                         {canAdd && <Button onClick={() => { setEditingPayable(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-red-600 hover:bg-red-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
                     </div>
                 </motion.div>

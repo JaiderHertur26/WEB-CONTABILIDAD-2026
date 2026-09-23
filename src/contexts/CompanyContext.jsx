@@ -7,7 +7,7 @@ import { sessionCompanies, updateCompanySecure } from '@/lib/secureApi';
 export const CompanyContext = createContext();
 
 export const CompanyProvider = ({ children }) => {
-  const { activeSessionId, isGeneralAdmin, isAuthenticated, accessLevel, sessionToken } = useAuth();
+  const { activeSessionId, isGeneralAdmin, isAuthenticated, accessLevel, sessionToken, selectCompanySession } = useAuth();
   const [activeCompany, setActiveCompany] = useState(null);
   const [companies, setCompanies] = useState([]);
   const [isConsolidated, setIsConsolidated] = useState(false);
@@ -118,17 +118,31 @@ export const CompanyProvider = ({ children }) => {
 
   // Cambiar de empresa es un evento de sesión (Local)
   const switchCompany = async (companyId) => {
-    const target = companies.find(c => c.id === companyId);
-    if (target) {
-        await storage.setItem('auth_session', target.id);
-        setActiveCompany(target);
-        setIsConsolidated(false);
-        await storage.setItem(`${target.id}-consolidate`, 'false');
-        toast({ title: "Cambio de Empresa", description: `Has cambiado a: ${target.name}` });
-        return true;
+    const target = companies.find(c => String(c.id) === String(companyId));
+    if (!target) {
+      toast({ variant: "destructive", title: "Error", description: "No se encontró la entidad solicitada." });
+      return false;
     }
-    toast({ variant: "destructive", title: "Error", description: "No se encontró la empresa solicitada." });
-    return false;
+
+    const targetConsolidationKey = `${target.id}-consolidate`;
+    const previousTargetConsolidation = await storage.getItem(targetConsolidationKey);
+    await storage.setItem(targetConsolidationKey, 'false');
+
+    const sessionChanged = await selectCompanySession(target.id);
+    if (!sessionChanged) {
+      if (previousTargetConsolidation == null) {
+        await storage.removeItem(targetConsolidationKey);
+      } else {
+        await storage.setItem(targetConsolidationKey, previousTargetConsolidation);
+      }
+      toast({ variant: "destructive", title: "Acceso denegado", description: "La sesión no puede abrir esta entidad." });
+      return false;
+    }
+
+    setActiveCompany(target);
+    setIsConsolidated(false);
+    toast({ title: "Entidad activa", description: `Ahora trabajas en: ${target.name}` });
+    return true;
   };
 
   const value = {

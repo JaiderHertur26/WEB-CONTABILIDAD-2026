@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { storage } from '@/lib/storage';
-import { listLoginCompanies, sessionCompanies, sessionLogout } from '@/lib/secureApi';
+import { listLoginCompanies, sessionCompanies, sessionInfo, sessionLogout } from '@/lib/secureApi';
 
 const LocalAuthContext = createContext();
 
@@ -56,21 +56,32 @@ export const LocalAuthProvider = ({ children }) => {
     const initAuth = async () => {
       try {
         const session = await storage.getItem('auth_session');
-        const level = await storage.getItem('auth_access_level') || 'full';
         const token = await storage.getItem('app_session_token');
 
         if (session && token) {
           try {
-            const scope = await sessionCompanies(token);
-            const isAdminSession = session === 'general_admin';
-            const validCompanySession = isAdminSession || (Array.isArray(scope) && scope.some(company => String(company.id) === String(session)));
+            const [scope, serverSession] = await Promise.all([
+              sessionCompanies(token),
+              sessionInfo(token),
+            ]);
+            if (!serverSession?.success || !serverSession?.accessLevel) {
+              throw new Error('La sesión remota no es válida');
+            }
+
+            const isAdminSession = serverSession.accessLevel === 'admin';
+            const validCompanySession = isAdminSession || (
+              Array.isArray(scope) &&
+              scope.some(company => String(company.id) === String(session))
+            );
             if (!validCompanySession) throw new Error('La sesión ya no tiene acceso a la entidad');
 
+            const authoritativeLevel = isAdminSession ? 'admin' : serverSession.accessLevel;
             setIsAuthenticated(true);
-            setActiveSessionId(session);
+            setActiveSessionId(isAdminSession ? 'general_admin' : session);
             setSessionToken(token);
-            setAccessLevel(level);
+            setAccessLevel(authoritativeLevel);
             setIsGeneralAdmin(isAdminSession);
+            await storage.setItem('auth_access_level', authoritativeLevel);
           } catch (sessionError) {
             console.warn('Sesión local vencida o inválida; se solicitará un nuevo acceso.', sessionError);
             await storage.removeItem('auth_session');
@@ -110,6 +121,23 @@ export const LocalAuthProvider = ({ children }) => {
     }
   };
 
+  const selectCompanySession = async (companyId) => {
+    if (!isAuthenticated || isGeneralAdmin || !sessionToken || !companyId) return false;
+    try {
+      const scope = await sessionCompanies(sessionToken);
+      const allowed = Array.isArray(scope) && scope.some(company => String(company.id) === String(companyId));
+      if (!allowed) throw new Error('La sesión no tiene acceso a la entidad solicitada');
+
+      const targetId = String(companyId);
+      setActiveSessionId(targetId);
+      await storage.setItem('auth_session', targetId);
+      return true;
+    } catch (error) {
+      console.error('No fue posible cambiar la entidad activa:', error);
+      return false;
+    }
+  };
+
   const logout = async () => {
     try { await sessionLogout(sessionToken); } catch (error) { console.warn('No fue posible cerrar la sesión remota:', error); }
     setIsAuthenticated(false);
@@ -124,7 +152,7 @@ export const LocalAuthProvider = ({ children }) => {
 
   return (
     <LocalAuthContext.Provider value={{ 
-      isAuthenticated, isGeneralAdmin, accessLevel, activeSessionId, sessionToken, login, logout, loading
+      isAuthenticated, isGeneralAdmin, accessLevel, activeSessionId, sessionToken, login, logout, selectCompanySession, loading
     }}>
       {children}
     </LocalAuthContext.Provider>

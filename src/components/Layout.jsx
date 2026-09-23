@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { cn } from '@/lib/utils';
+import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 
 const navGroups = [
   {
@@ -190,7 +191,19 @@ const Navigation = ({ groups, onNavigate }) => {
 };
 
 const SidebarContent = ({ onLogout, onNavigate, mobile = false }) => {
-  const { activeCompany, isGeneralAdmin, accessLevel } = useCompany();
+  const {
+    activeCompany,
+    companies,
+    isGeneralAdmin,
+    accessLevel,
+    isConsolidated,
+    toggleConsolidation,
+  } = useCompany();
+  const companyScopeIds = useMemo(
+    () => getCompanyScopeIds(companies, activeCompany?.id),
+    [companies, activeCompany?.id]
+  );
+  const hasSubCompanies = companyScopeIds.size > (activeCompany?.id ? 1 : 0);
 
   const groups = useMemo(() => {
     const source = isGeneralAdmin ? adminNavGroups : navGroups;
@@ -248,6 +261,32 @@ const SidebarContent = ({ onLogout, onNavigate, mobile = false }) => {
         )}
 
         {!isGeneralAdmin && <AccessBadge level={accessLevel} />}
+
+        {!isGeneralAdmin && activeCompany && hasSubCompanies && (
+          <button
+            type="button"
+            onClick={() => toggleConsolidation(!isConsolidated)}
+            className={cn(
+              'mt-3 flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left transition',
+              isConsolidated
+                ? 'border-violet-400/25 bg-violet-400/10 text-violet-200'
+                : 'border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.07]'
+            )}
+          >
+            <div className="flex items-center gap-2.5">
+              <Network className={cn('h-4 w-4', isConsolidated ? 'text-violet-300' : 'text-slate-500')} />
+              <div>
+                <p className="text-[11px] font-bold">
+                  {isConsolidated ? 'Vista consolidada' : 'Vista individual'}
+                </p>
+                <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] opacity-70">
+                  {isConsolidated ? 'Solo lectura · toda la estructura' : 'Entidad activa'}
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold">{isConsolidated ? 'ON' : 'OFF'}</span>
+          </button>
+        )}
       </div>
 
       <Navigation groups={groups} onNavigate={onNavigate} />

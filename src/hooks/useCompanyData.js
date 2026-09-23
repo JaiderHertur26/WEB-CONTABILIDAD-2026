@@ -4,6 +4,7 @@ import { storage } from '@/lib/storage';
 import { syncRead, syncWrite } from '@/lib/secureApi';
 import { useAuth } from '@/contexts/LocalAuthContext';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import { getCompanyScope } from '@/lib/companyHierarchy';
 
 const SYNC_META_VERSION = 3;
 const syncMetaKey = (storageKey) => `${storageKey}.__sync_meta_v3`;
@@ -470,11 +471,7 @@ export function useCompanyData(key) {
       let loadedData;
 
       if (isConsolidated && Array.isArray(companies) && companies.length > 0) {
-        const relevant = companies.filter(
-          company =>
-            company &&
-            (company.id === activeCompany.id || company.parentId === activeCompany.id)
-        );
+        const relevant = getCompanyScope(companies, activeCompany.id);
         const uniqueCompanies = Array.from(
           new Map(relevant.map(company => [String(company.id), company])).values()
         );

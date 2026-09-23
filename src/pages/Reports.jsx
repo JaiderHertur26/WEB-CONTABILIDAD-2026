@@ -15,6 +15,7 @@ import { calculateLiquidityBalances, buildCashFlowFromLiquidity } from '@/lib/fi
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { isValid, parseISO } from 'date-fns';
 import { createPrintTarget } from '@/lib/nativePrint';
+import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
@@ -62,15 +63,19 @@ const Reports = () => {
       return new Date(dateStr).getFullYear();
   };
 
+  const companyScopeIds = useMemo(
+      () => getCompanyScopeIds(companies, activeCompany?.id),
+      [companies, activeCompany?.id]
+  );
+
   const filterByCompany = useMemo(() => (items) => {
       if (!items) return [];
       return items.filter(item => {
           const cid = item.company_id || item._companyId || item.companyId;
-          if (!isConsolidated) return !cid || cid === activeCompany?.id;
-          const relevantIds = companies.filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id).map(c => c.id);
-          return !cid || relevantIds.includes(cid);
+          if (!isConsolidated) return !cid || String(cid) === String(activeCompany?.id);
+          return !cid || companyScopeIds.has(String(cid));
       });
-  }, [isConsolidated, activeCompany, companies]);
+  }, [isConsolidated, activeCompany, companyScopeIds]);
 
   // El período sugerido comienza el día siguiente al saldo de apertura cuando
   // esa apertura pertenece al año actual. Así Santa Cruz abre el 01/08/2026

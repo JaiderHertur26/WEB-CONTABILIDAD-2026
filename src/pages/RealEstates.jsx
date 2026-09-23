@@ -13,7 +13,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 
 const RealEstates = () => {
-    const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+    const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
     const { activeCompany } = useCompany();
     const [realEstates, saveRealEstates] = useCompanyData('realEstates');
     
@@ -88,7 +88,7 @@ const RealEstates = () => {
         getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
 
     const handleSaveEstate = (estateData) => {
-        if (!canAdd && !editingEstate) return;
+        if (editingEstate ? !canEdit : !canAdd) return;
         if (!canEdit && editingEstate) return;
 
         const newValue = Number(estateData.value || 0);
@@ -244,7 +244,7 @@ const RealEstates = () => {
 
     // --- DEPRECIACIÓN ANUAL DE EDIFICACIONES ---
     const handleRunDepreciation = async () => {
-        if (!canEdit && !canAdd) return;
+        if (!canEdit) return;
 
         const year = String(depreciationYear || '').trim();
         if (!/^\d{4}$/.test(year)) {
@@ -381,8 +381,8 @@ const RealEstates = () => {
                 <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div><h1 className="text-4xl font-bold text-slate-900">Propiedades y Oficinas</h1></div>
                     <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
-                        {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="w-full sm:w-auto border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
+                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
+                        {canEdit && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="w-full sm:w-auto border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
                         {canAdd && <Button onClick={() => { setEditingEstate(null); setDialogOpen(true); }} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Propiedad</Button>}
                     </div>
                 </motion.div>

@@ -53,7 +53,7 @@ const LoadingScreen = ({ message = 'Preparando tu espacio de trabajo...', compac
 );
 
 const AppRoutes = () => {
-  const { isAuthenticated, isGeneralAdmin, loading, logout } = useAuth();
+  const { isAuthenticated, isGeneralAdmin, accessLevel, loading, logout } = useAuth();
 
   if (loading) {
     return <LoadingScreen message="Validando sesión segura..." />;
@@ -65,7 +65,10 @@ const AppRoutes = () => {
         <Routes>
           <Route path="/" element={isGeneralAdmin ? <Navigate to="/companies" /> : <Dashboard />} />
           <Route path="/companies" element={<Companies />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route
+            path="/settings"
+            element={(isGeneralAdmin || accessLevel === 'full') ? <Settings /> : <Navigate to="/" replace />}
+          />
 
           <Route path="/organization" element={!isGeneralAdmin ? <Organization /> : <Navigate to="/companies" />} />
           <Route path="/transactions" element={!isGeneralAdmin ? <Transactions /> : <Navigate to="/companies" />} />

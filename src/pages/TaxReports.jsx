@@ -15,6 +15,7 @@ import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import ContractTaxAlert from '@/components/contracts/ContractTaxAlert';
 import { getRetentionDueDate } from '@/lib/contractTaxEngine';
+import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -44,15 +45,19 @@ const TaxReports = () => {
         return new Date(dateStr).getFullYear();
     };
 
+    const companyScopeIds = useMemo(
+        () => getCompanyScopeIds(companies, activeCompany?.id),
+        [companies, activeCompany?.id]
+    );
+
     const filterByCompany = useMemo(() => (items) => {
         if (!items) return [];
         return items.filter(item => {
             const cid = item.company_id || item._companyId || item.companyId;
-            if (!isConsolidated) return !cid || cid === activeCompany?.id;
-            const relevantIds = companies.filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id).map(c => c.id);
-            return !cid || relevantIds.includes(cid);
+            if (!isConsolidated) return !cid || String(cid) === String(activeCompany?.id);
+            return !cid || companyScopeIds.has(String(cid));
         });
-    }, [isConsolidated, activeCompany, companies]);
+    }, [isConsolidated, activeCompany, companyScopeIds]);
 
     const areAllDataLoaded = useMemo(() => 
         isTransactionsLoaded && 

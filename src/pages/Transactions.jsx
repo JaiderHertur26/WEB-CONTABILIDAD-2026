@@ -27,6 +27,7 @@ import { jsPDF } from 'jspdf';
 import { isNativeApp, shareBase64File } from '@/lib/nativeFiles';
 import { createPrintTarget } from '@/lib/nativePrint';
 import { cleanBankNumber, parseBankDate, buildReconciliationFingerprint } from '@/lib/bankReconciliation';
+import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 
 const cleanPrintedCompanyName = (name) => String(name || '').replace(/MAR[ÍI]A[\s\u00A0]*AUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
 
@@ -172,7 +173,7 @@ const findDuplicateVoucherKeys = (items = []) => {
 
 const Transactions = () => {
     const { activeCompany, isConsolidated, companies } = useCompany();
-    const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+    const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
 
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
@@ -269,15 +270,19 @@ const Transactions = () => {
         return () => window.removeEventListener('resize', updateScale);
     }, [nativeApp]);
 
+    const companyScopeIds = useMemo(
+        () => getCompanyScopeIds(companies, activeCompany?.id),
+        [companies, activeCompany?.id]
+    );
+
     const isRelevant = useMemo(() => (item) => {
         if (!item) return false;
         const cid = item.company_id || item._companyId || item.companyId;
         if (!isConsolidated) {
-            return !cid || cid === activeCompany?.id;
+            return !cid || String(cid) === String(activeCompany?.id);
         }
-        const relevantIds = companies.filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id).map(c => c.id);
-        return !cid || relevantIds.includes(cid);
-    }, [isConsolidated, activeCompany, companies]);
+        return !cid || companyScopeIds.has(String(cid));
+    }, [isConsolidated, activeCompany, companyScopeIds]);
 
     const transactionsMap = useMemo(() => {
         return new Map((transactions || []).map(t => [t.id, t]));
@@ -905,7 +910,7 @@ const Transactions = () => {
     };
 
     const handleSaveTransaction = (transactionData) => {
-        if (!canAdd && !editingTransaction) return;
+        if (editingTransaction ? !canEdit : !canAdd) return;
         if (!canEdit && editingTransaction) return;
         if (editingTransaction && (isSystemManagedTransaction(editingTransaction) || invoicedTransactionIds.has(editingTransaction.id))) {
             toast({
@@ -1596,6 +1601,10 @@ const Transactions = () => {
     };
 
     const handleOfficializeMonth = async () => {
+        if (!canEdit) {
+            toast({ variant: 'destructive', title: 'Acceso restringido', description: 'Oficializar un mes requiere Acceso Total y Vista Individual.' });
+            return;
+        }
         if (isConsolidated) {
             toast({ variant: 'destructive', title: 'Seleccione una entidad', description: 'El cierre mensual debe ejecutarse dentro de una entidad individual, no desde la vista consolidada.' });
             return;
@@ -2918,7 +2927,7 @@ const Transactions = () => {
                         {canAdd && <Button variant="outline" onClick={() => setTransferDialogOpen(true)} className="w-full sm:w-auto"><ArrowRightLeft className="w-4 h-4 mr-2" />Transferir</Button>}
                         {canAdd && <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="w-full sm:w-auto text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"><FileSpreadsheet className="w-4 h-4 mr-2" />Conciliar Banco</Button>}
                         {canAdd && <Button onClick={() => { setEditingTransaction(null); setDialogOpen(true); }} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" />Nueva</Button>}
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1" />Acceso Parcial</span>}
+                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1" />{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
                     </div>
                 </div>
                 
@@ -3070,9 +3079,11 @@ const Transactions = () => {
                                 </Button>
                                 {viewMode === 'accounting' ? (
                                     <>
-                                        <Button variant="outline" size="sm" onClick={handleOfficializeMonth} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
-                                            <Lock className="w-4 h-4 mr-2" /> Oficializar Mes
-                                        </Button>
+                                        {canEdit && (
+                                            <Button variant="outline" size="sm" onClick={handleOfficializeMonth} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-sm font-bold">
+                                                <Lock className="w-4 h-4 mr-2" /> Oficializar Mes
+                                            </Button>
+                                        )}
                                         <Button variant="outline" size="sm" onClick={handlePrintDiarioPdf} className="bg-white shadow-sm"><Printer className="w-4 h-4 mr-2" /> Imprimir Libro Diario</Button>
                                         <Button variant="ghost" size="sm" onClick={handleExportAccounting}><Download className="w-4 h-4 mr-2" /> Excel</Button>
                                     </>
@@ -3164,7 +3175,7 @@ const Transactions = () => {
                                                     <FileCheck className="w-4 h-4 mr-1.5" /> Recibo
                                                 </Button>
                                             )}
-                                            {!t.isLocked && (canEdit || canAdd) && !isSystemManagedTransaction(t) && !invoicedTransactionIds.has(t.id) && (
+                                            {!t.isLocked && canEdit && !isSystemManagedTransaction(t) && !invoicedTransactionIds.has(t.id) && (
                                                 <Button variant="outline" size="sm" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }}>
                                                     <Edit2 className="w-4 h-4 mr-1.5" /> Editar
                                                 </Button>
@@ -3229,7 +3240,7 @@ const Transactions = () => {
 
                                                         {!t.isLocked ? (
                                                             <>
-                                                                {(canEdit || canAdd) && !isSystemManagedTransaction(t) && !invoicedTransactionIds.has(t.id) && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }} title="Editar transacción"><Edit2 className="w-3 h-3" /></Button>}
+                                                                {canEdit && !isSystemManagedTransaction(t) && !invoicedTransactionIds.has(t.id) && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }} title="Editar transacción"><Edit2 className="w-3 h-3" /></Button>}
                                                                 {(isSystemManagedTransaction(t) || invoicedTransactionIds.has(t.id)) && <Lock className="w-3 h-3 text-slate-300 mx-1" title="Movimiento protegido por trazabilidad" />}
                                                                 {canDelete && <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => handleDelete(t.id)}><Trash2 className="w-3 h-3" /></Button>}
                                                             </>

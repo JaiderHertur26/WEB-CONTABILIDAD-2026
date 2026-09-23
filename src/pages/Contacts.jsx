@@ -74,7 +74,7 @@ const sameContactData = (a, b) =>
   JSON.stringify(contactComparable(a)) === JSON.stringify(contactComparable(b));
 
 const Contacts = () => {
-  const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+  const { canEdit, canDelete, canAdd, canImport, isReadOnly, isConsolidatedReadOnly } = usePermission();
   const { activeCompany } = useCompany();
   const [contacts, saveContacts] = useCompanyData('contacts');
   const [searchTerm, setSearchTerm] = useState('');
@@ -85,7 +85,7 @@ const Contacts = () => {
   const fileInputRef = useRef(null);
 
   const handleSaveContact = (contact) => {
-    if (!canAdd && !editingContact) return;
+    if (editingContact ? !canEdit : !canAdd) return;
     if (!canEdit && editingContact) return;
 
     const normalizedType = normalizeContactType(contact.type, contact.docType);
@@ -518,9 +518,9 @@ const Contacts = () => {
           </div>
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:flex-wrap">
             <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".xlsx,.xls,.csv,.json" />
-            {canAdd && <Button onClick={triggerImport} variant="outline" className="bg-white"><Upload className="w-4 h-4 mr-2" />Importar</Button>}
+            {canImport && <Button onClick={triggerImport} variant="outline" className="bg-white"><Upload className="w-4 h-4 mr-2" />Importar</Button>}
             <Button onClick={handleExport} variant="outline" className="bg-white"><Download className="w-4 h-4 mr-2" />Exportar</Button>
-            {isReadOnly && <div className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1"/> Acceso Parcial</div>}
+            {isReadOnly && <div className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1"/> {isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</div>}
             {canAdd && <Button onClick={openDialogForNew} className="col-span-2 w-full sm:w-auto sm:col-span-1 bg-blue-600 hover:bg-blue-700">
               <Plus className="w-4 h-4 mr-2" />
               Nuevo Contacto

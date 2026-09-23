@@ -15,7 +15,7 @@ import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { toAccountingDateInput } from '@/lib/accountingDate';
 
 const FixedAssets = () => {
-    const { canEdit, canDelete, canAdd, canImport, isReadOnly } = usePermission();
+    const { canEdit, canDelete, canAdd, canImport, isReadOnly, isConsolidatedReadOnly } = usePermission();
     const { activeCompany } = useCompany();
     const [assets, saveAssets] = useCompanyData('fixedAssets');
     const [transactions, saveTransactions] = useCompanyData('transactions');
@@ -79,7 +79,7 @@ const FixedAssets = () => {
     }, [transactions, assets]);
 
     const handleSaveAsset = (assetData) => {
-        if (!canAdd && !editingAsset) return;
+        if (editingAsset ? !canEdit : !canAdd) return;
         if (!canEdit && editingAsset) return;
 
         let updatedAssets;
@@ -176,7 +176,7 @@ const FixedAssets = () => {
     
     // --- DEPRECIACIÓN AUTOMÁTICA CON CONSECUTIVO DE TRANSFERENCIA ---
     const handleRunDepreciation = async () => {
-        if (!canEdit && !canAdd) return;
+        if (!canEdit) return;
 
         const currentYear = new Date().getFullYear();
         if (Number(yearFilter) >= currentYear) {
@@ -459,7 +459,7 @@ const FixedAssets = () => {
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Activos Fijos</h1></div>
                 <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
+                    {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
                     {canAdd && <Button onClick={() => { setEditingAsset(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Activo</Button>}
                 </div>
             </motion.div>
@@ -477,7 +477,7 @@ const FixedAssets = () => {
                     <Button onClick={handleExportWord} variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50"><FileText className="w-4 h-4 mr-2" /> Word</Button>
                     
                     {canAdd && <Button onClick={handleCloneYear} variant="outline">Clonar a Año Actual</Button>}
-             {canAdd && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Anual</Button>}
+             {canEdit && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Anual</Button>}
                 </div>
 
 

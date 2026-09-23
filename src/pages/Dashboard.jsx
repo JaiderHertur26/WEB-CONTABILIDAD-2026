@@ -17,6 +17,7 @@ import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { parseAccountingDate, getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 
 const Dashboard = () => {
   const { activeCompany, companies, isConsolidated, toggleConsolidation } = useCompany();
@@ -84,10 +85,11 @@ const Dashboard = () => {
   };
 
   const currentId = String(activeCompany?.id || '').trim();
-  const hasSubCompanies = companies.some(c => {
-      const pId = String(c.parentId || c.parent_id || '').trim();
-      return pId === currentId && pId !== '';
-  });
+  const consolidatedCompanyIds = useMemo(
+    () => getCompanyScopeIds(companies, currentId),
+    [companies, currentId]
+  );
+  const hasSubCompanies = consolidatedCompanyIds.size > (currentId ? 1 : 0);
 
   // 🚀 HELPER SEGURO DE FECHAS
   const getSafeYear = (dateStr) => {
@@ -103,11 +105,10 @@ const Dashboard = () => {
       if (!items) return [];
       return items.filter(item => {
           const cid = item.company_id || item._companyId || item.companyId;
-          if (!isConsolidated) return !cid || cid === activeCompany?.id;
-          const relevantIds = companies.filter(c => c.id === activeCompany?.id || c.parentId === activeCompany?.id).map(c => c.id);
-          return !cid || relevantIds.includes(cid);
+          if (!isConsolidated) return !cid || String(cid) === String(activeCompany?.id);
+          return !cid || consolidatedCompanyIds.has(String(cid));
       });
-  }, [isConsolidated, activeCompany, companies]);
+  }, [isConsolidated, activeCompany, consolidatedCompanyIds]);
 
   const availableYears = useMemo(() => {
       const validTransactions = filterByCompany(transactionsData || []).filter(t => 
@@ -538,7 +539,7 @@ const Dashboard = () => {
                                 <span className={isConsolidated ? "font-bold text-purple-700" : "font-medium text-slate-600"}>
                                     {isConsolidated ? "Vista Consolidada" : "Vista Individual"}
                                 </span>
-                                {isConsolidated && <span className="text-[10px] text-purple-600 font-medium">Incluye sub-empresas</span>}
+                                {isConsolidated && <span className="text-[10px] text-purple-600 font-medium">Incluye toda la estructura vinculada</span>}
                             </div>
                         </Label>
                     </div>
@@ -550,7 +551,7 @@ const Dashboard = () => {
         {isConsolidated && (
             <div className="flex items-center gap-3 rounded-2xl border border-violet-200/80 bg-violet-50/70 px-4 py-3 text-sm text-violet-800 shadow-sm">
                 <Info className="w-5 h-5 flex-shrink-0" />
-                Estás viendo la información combinada de tu empresa y todas sus sub-empresas vinculadas. Para editar datos, se recomienda cambiar a Vista Individual.
+                Estás viendo la información combinada de toda la estructura vinculada. La Vista Consolidada es de solo lectura; para registrar, editar o cerrar períodos debes volver a Vista Individual.
             </div>
         )}
 

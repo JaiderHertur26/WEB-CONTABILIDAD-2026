@@ -132,7 +132,7 @@ const Accounts = () => {
   };
 
   const handleSaveAccount = (accountData) => {
-    if (!canAdd && !editingAccount) return;
+    if (editingAccount ? !canEdit : !canAdd) return;
     if (!canEdit && editingAccount) return;
 
     const len = accountData.number.length;

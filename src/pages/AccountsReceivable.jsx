@@ -110,7 +110,7 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) =
 
 const AccountsReceivable = () => {
     const { activeCompany } = useCompany();
-    const { canEdit, canDelete, canAdd, isReadOnly } = usePermission();
+    const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
     const [receivables, saveReceivables] = useCompanyData('accountsReceivable');
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts'); 
@@ -162,7 +162,7 @@ const AccountsReceivable = () => {
         getAccountingPeriodLockReason(date, { fiscalYears, monthlyClosings });
 
     const handleSaveReceivable = (receivableData) => {
-        if (!canAdd && !editingReceivable) return;
+        if (editingReceivable ? !canEdit : !canAdd) return;
         if (!canEdit && editingReceivable) return;
 
         const { isNew, ...data } = receivableData;
@@ -478,7 +478,7 @@ const AccountsReceivable = () => {
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div><h1 className="text-4xl font-bold text-slate-900">Cuentas por Cobrar</h1><p className="text-slate-600">Lleva un control de lo que tus clientes te deben.</p></div>
                 <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>Acceso Parcial</span>}
+                    {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
                     {canAdd && <Button onClick={() => { setEditingReceivable(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-green-600 hover:bg-green-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
                 </div>
             </motion.div>
