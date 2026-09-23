@@ -2978,7 +2978,7 @@ const Transactions = () => {
                     {viewMode === 'balances' ? (
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-700 font-medium border-b"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Monto</th><th className="px-4 py-3 text-right bg-blue-50/50">Saldo Caja</th><th className="px-4 py-3 text-right bg-purple-50/50">Saldo Bancos</th><th className="px-4 py-3 text-right bg-green-50/50">Saldo Aportes</th><th className="px-4 py-3 text-center">Acciones</th></tr></thead>
+                                <thead className="bg-slate-50 text-slate-700 font-medium border-b"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Monto</th><th className="px-4 py-3 text-right bg-blue-50/50">Saldo Caja</th><th className="px-4 py-3 text-right bg-purple-50/50">Saldo Bancos</th><th className="px-4 py-3 text-right bg-green-50/50">Saldo Aportes</th><th className="px-3 py-3 text-center sticky right-0 z-20 bg-slate-50 min-w-[168px] border-l border-slate-200 shadow-[-6px_0_12px_-10px_rgba(15,23,42,0.35)]">Acciones</th></tr></thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {displayTransactions.map((t) => {
                                         return (
@@ -3005,8 +3005,8 @@ const Transactions = () => {
                                                 <td className={`px-4 py-3 text-right font-mono text-slate-600 bg-blue-50/30 ${t._affectedColumn === 'cash' ? 'font-bold text-slate-900' : ''}`}>{t._calculatedCash.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</td>
                                                 <td className={`px-4 py-3 text-right font-mono text-slate-600 bg-purple-50/30 ${t._affectedColumn === 'banks' ? 'font-bold text-slate-900' : ''}`}>{t._calculatedBanks.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</td>
                                                 <td className={`px-4 py-3 text-right font-mono text-slate-600 bg-green-50/30 ${t._affectedColumn === 'aportes' ? 'font-bold text-slate-900' : ''}`}>{t._calculatedAportes.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</td>
-                                                <td className="px-4 py-3 text-center">
-                                                    <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <td className="px-2 py-3 text-center sticky right-0 z-10 bg-white group-hover:bg-slate-50 min-w-[168px] border-l border-slate-100 shadow-[-6px_0_12px_-10px_rgba(15,23,42,0.35)]">
+                                                    <div className="flex items-center justify-center gap-1 opacity-100">
                                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-800 hover:bg-blue-50" onClick={() => handlePrint(t)} title="Imprimir Comprobante"><Printer className="w-3 h-3" /></Button>
                                                         
                                                         {t.type === 'expense' && !t.isInternalTransfer && !t.debitAccount && (
