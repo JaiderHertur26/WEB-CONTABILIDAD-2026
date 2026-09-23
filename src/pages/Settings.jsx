@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Save, Download, Server, Hash, Lock, Building, User, MapPin, Phone, Shield, Upload, FileJson, CheckCircle, RefreshCw, AlertTriangle, Info, XCircle, ArrowRight } from 'lucide-react';
+import { Save, Download, Server, Lock, Building, User, MapPin, Phone, Shield, Upload, FileJson, CheckCircle, RefreshCw, AlertTriangle, Info, XCircle, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { format } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { usePermission } from '@/hooks/usePermission';
-import { useCompanyData } from '@/hooks/useCompanyData';
+
 import { validateCompanyJSON, useAuth } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
 import { syncWrite } from '@/lib/secureApi';
@@ -21,7 +21,6 @@ const Settings = () => {
     const { sessionToken } = useAuth();
     const { canModify, isReadOnly } = usePermission();
     const { toast } = useToast();
-    const [syncedVoucherSequences, saveVoucherSequences, voucherSequencesLoaded] = useCompanyData('voucher-sequence');
     const fileInputRef = useRef(null);
     
     const [backupPreview, setBackupPreview] = useState(null);
@@ -30,22 +29,9 @@ const Settings = () => {
     const [restoreReport, setRestoreReport] = useState(null);
     
     const [profileData, setProfileData] = useState({ name: '', doc: '', authSerial: '', address: '', phone: '', username: '' });
-    const [voucherSequences, setVoucherSequences] = useState({ income: '1', expense: '1', transfer: '1' });
 
     useEffect(() => {
       if (!activeCompany) return;
-
-      if (voucherSequencesLoaded) {
-        const sequences = syncedVoucherSequences && !Array.isArray(syncedVoucherSequences)
-          ? syncedVoucherSequences
-          : { income: 0, expense: 0, transfer: 0 };
-
-        setVoucherSequences({
-          income: String(sequences.income || 0),
-          expense: String(sequences.expense || 0),
-          transfer: String(sequences.transfer || 0)
-        });
-      }
 
       setProfileData({
           name: activeCompany.name || '',
@@ -55,18 +41,11 @@ const Settings = () => {
           phone: activeCompany.phone || '',
           username: activeCompany.username || ''
       });
-    }, [activeCompany, syncedVoucherSequences, voucherSequencesLoaded]);
+    }, [activeCompany]);
 
     const handleSaveSettings = async () => {
         if (!canModify) return;
         if (activeCompany) {
-          const sequences = {
-            income: parseInt(voucherSequences.income) || 0,
-            expense: parseInt(voucherSequences.expense) || 0,
-            transfer: parseInt(voucherSequences.transfer) || 0
-          };
-          await saveVoucherSequences(sequences);
-
           await updateCompanyCredentials(activeCompany.id, {
               name: profileData.name, 
               address: profileData.address, 
@@ -392,19 +371,7 @@ const Settings = () => {
                         </motion.div>
                         )}
 
-                        {!restoreReport && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="bg-white rounded-xl shadow-sm border p-6">
-                                <div className="flex items-center mb-4"><Hash className="w-6 h-6 text-purple-600 mr-3" /><h2 className="text-lg font-bold text-slate-900">Secuencias</h2></div>
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div className="space-y-1"><Label className="text-xs">Ingresos</Label><input type="number" min="0" value={voucherSequences.income} onChange={(e) => setVoucherSequences({...voucherSequences, income: e.target.value})} className="w-full px-2 py-1.5 border rounded text-sm" disabled={isReadOnly} /></div>
-                                    <div className="space-y-1"><Label className="text-xs">Gastos</Label><input type="number" min="0" value={voucherSequences.expense} onChange={(e) => setVoucherSequences({...voucherSequences, expense: e.target.value})} className="w-full px-2 py-1.5 border rounded text-sm" disabled={isReadOnly} /></div>
-                                    <div className="space-y-1"><Label className="text-xs">Transf.</Label><input type="number" min="0" value={voucherSequences.transfer} onChange={(e) => setVoucherSequences({...voucherSequences, transfer: e.target.value})} className="w-full px-2 py-1.5 border rounded text-sm" disabled={isReadOnly} /></div>
-                                </div>
-                            </motion.div>
-                        </div>
-                        )}
-                        {canModify && !restoreReport && <div className="flex justify-end"><Button onClick={handleSaveSettings} className="bg-blue-600 hover:bg-blue-700 shadow-md"><Save className="w-4 h-4 mr-2" />Guardar Todo</Button></div>}
+                        {canModify && !restoreReport && <div className="flex justify-end"><Button onClick={handleSaveSettings} className="bg-blue-600 hover:bg-blue-700 shadow-md"><Save className="w-4 h-4 mr-2" />Guardar perfil</Button></div>}
                     </>
                 )}
                 
