@@ -14,6 +14,7 @@ import { validateCompanyJSON, useAuth } from '@/contexts/LocalAuthContext';
 import { storage } from '@/lib/storage';
 import { syncWrite } from '@/lib/secureApi';
 import { COMPANY_DATA_SUFFIXES } from '@/lib/companyDataKeys';
+import { isNativeApp, shareBlobFile } from '@/lib/nativeFiles';
 
 const Settings = () => {
     const { activeCompany, companies, setCompanies, isGeneralAdmin, updateCompanyCredentials } = useCompany();
@@ -115,16 +116,29 @@ const Settings = () => {
             }
 
             const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
             const name = isGeneralAdmin ? 'RESPALDO_ADMIN' : `RESPALDO_${activeCompany.name.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`;
-            link.href = url;
-            link.download = `${name}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            toast({ title: 'Copia de Seguridad Generada', description: 'Se ha descargado el archivo.' });
+            const fileName = `${name}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.json`;
+
+            if (isNativeApp()) {
+                await shareBlobFile({
+                    blob,
+                    fileName,
+                    mimeType: 'application/json',
+                    title: 'Copia de seguridad HERTUR',
+                    text: 'Respaldo generado por HERTUR Contabilidad',
+                });
+                toast({ title: 'Copia de Seguridad Generada', description: 'Puedes guardarla o compartirla desde Android.' });
+            } else {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                toast({ title: 'Copia de Seguridad Generada', description: 'Se ha descargado el archivo.' });
+            }
         } catch (error) {
             console.error(error);
             toast({ variant: 'destructive', title: 'Error', description: 'No se pudo generar la copia.' });

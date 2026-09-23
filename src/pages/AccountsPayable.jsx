@@ -22,6 +22,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { resolveLiquidityAccount, liquidityEndpointOptions } from '@/lib/liquidityAccounts';
+import { isNativeApp, shareJsPdf } from '@/lib/nativeFiles';
 
 const Highlight = ({ text, highlight }) => {
     if (!highlight || !text) return <>{text}</>;
@@ -553,10 +554,17 @@ const AccountsPayable = () => {
 
             pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
 
-            const pdfBlob = pdf.output('blob');
-            const pdfUrl = URL.createObjectURL(pdfBlob);
-
-            window.open(pdfUrl, '_blank');
+            if (isNativeApp()) {
+                await shareJsPdf(
+                    pdf,
+                    `Hoja_Apuntes_Cuenta_por_Pagar_${itemToPrint?.id || 'registro'}.pdf`,
+                    'Hoja de Apuntes - Cuenta por Pagar'
+                );
+            } else {
+                const pdfBlob = pdf.output('blob');
+                const pdfUrl = URL.createObjectURL(pdfBlob);
+                window.open(pdfUrl, '_blank');
+            }
 
         } catch (error) {
             console.error("Error generating PDF:", error);
@@ -646,7 +654,7 @@ const AccountsPayable = () => {
                             <DialogDescription>Genera un PDF con el historial de abonos.</DialogDescription>
                         </DialogHeader>
                         <Button onClick={handlePrintToPdf} disabled={isPrinting}>
-                            {isPrinting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generando...</> : <><Printer className="mr-2 h-4 w-4" /> Descargar PDF</>}
+                            {isPrinting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generando...</> : <><Printer className="mr-2 h-4 w-4" /> {isNativeApp() ? 'Compartir PDF' : 'Descargar PDF'}</>}
                         </Button>
                     </div>
                     <div className="p-8 bg-gray-200 flex justify-center">

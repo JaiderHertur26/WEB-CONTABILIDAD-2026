@@ -11,6 +11,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useAuth } from '@/contexts/LocalAuthContext';
 import jsPDF from 'jspdf';
 import { CONTRACT_TYPES, UVT_2026, getContractType, calculateContractTaxes, getRetentionAlert } from '@/lib/contractTaxEngine';
+import { isNativeApp, shareBase64File, shareJsPdf } from '@/lib/nativeFiles';
 
 const money = value => (Number(value) || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -51,6 +52,15 @@ const addPdfHeader = (doc, company, title) => {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text(company?.name || 'ENTIDAD', 105, 16, { align: 'center' });
   doc.setFontSize(10); doc.text('NIT: ' + (company?.doc || '—'), 105, 22, { align: 'center' });
   doc.setFontSize(14); doc.text(title, 105, 32, { align: 'center' }); doc.setFont('helvetica', 'normal');
+};
+
+const deliverPdf = (doc, fileName, title) => {
+  if (isNativeApp()) {
+    void shareJsPdf(doc, fileName, title)
+      .catch((error) => console.error('[HERTUR] No fue posible compartir el PDF contractual.', error));
+    return;
+  }
+  doc.save(fileName);
 };
 
 const ContractModal = ({ open, onClose, onSave, contacts, accounts }) => {
@@ -389,6 +399,24 @@ const Contracts = () => {
     toast({title:'Documento archivado',description:'Se conserva la trazabilidad en el expediente.'});
   };
 
+  const shareContractDocument = async (document) => {
+    if (!document?.dataUrl) return;
+    const [header, base64] = String(document.dataUrl).split(',');
+    if (!base64) {
+      toast({ variant: 'destructive', title: 'Archivo inválido', description: 'No fue posible preparar este anexo para compartir.' });
+      return;
+    }
+
+    const mimeType = document.type || header?.match(/data:([^;]+)/)?.[1] || 'application/octet-stream';
+    await shareBase64File({
+      base64,
+      fileName: document.name || 'anexo',
+      mimeType,
+      title: 'Anexo contractual',
+      text: `Documento del contrato ${selected?.number || ''}`,
+    });
+  };
+
   const reverseAct = actId => {
     if(!selected)return;
     const act=(selected.acts||[]).find(a=>a.id===actId); if(!act||act.status==='Anulada')return;
@@ -424,13 +452,13 @@ const Contracts = () => {
     y=pageText(doc,'CONTRATISTA: '+contract.contractorName+' · '+(contract.contractorDoc||''),18,y); y=pageText(doc,'OBJETO: '+contract.object,18,y); y=pageText(doc,'VALOR INICIAL: '+money(contract.value)+' · VALOR FINAL: '+money(effectiveContractValue(contract)),18,y); y=pageText(doc,'PLAZO FINAL: '+contract.startDate+' a '+(effectiveEndDate(contract)||'—'),18,y);
     y=pageText(doc,'VALOR EJECUTADO CERTIFICADO: '+money(executed),18,y); y=pageText(doc,'ANTICIPO ENTREGADO: '+money(contract.advanceValue)+' · AMORTIZADO: '+money(amortized),18,y); y=pageText(doc,'RETENCIONES PRACTICADAS: '+money(withheld),18,y);
     y+=4; y=pageText(doc,'DECLARACIÓN DE CIERRE',18,y,175,11); y=pageText(doc,'Las partes dejan constancia de la terminación de las obligaciones registradas en el expediente contractual, sujeto a los soportes, garantías y responsabilidades que por su naturaleza sobrevivan a la liquidación.',18,y);
-    y+=22; doc.text('CONTRATANTE / SUPERVISOR',28,y); doc.text('CONTRATISTA',138,y); doc.line(18,y+12,92,y+12); doc.line(115,y+12,190,y+12); doc.save('Liquidacion_'+contract.number+'.pdf');
+    y+=22; doc.text('CONTRATANTE / SUPERVISOR',28,y); doc.text('CONTRATISTA',138,y); doc.line(18,y+12,92,y+12); doc.line(115,y+12,190,y+12); deliverPdf(doc, 'Liquidacion_'+contract.number+'.pdf', 'Acta de Liquidación');
   };
 
   const printPortfolio = () => {
     const doc=new jsPDF(); addPdfHeader(doc,activeCompany,'REPORTE GENERAL DE CONTRATOS'); let y=44;
     (contracts||[]).forEach((c,index)=>{ if(y>270){doc.addPage(); y=20;} doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text((index+1)+'. '+c.number+' · '+getContractType(c.type).label,18,y); doc.setFont('helvetica','normal'); y+=5; y=pageText(doc,c.contractorName+' · '+money(effectiveContractValue(c))+' · '+c.status,22,y,168,9); y=pageText(doc,c.object,22,y,168,9); y+=2; });
-    doc.save('Reporte_Contratos_'+todayIso()+'.pdf');
+    deliverPdf(doc, 'Reporte_Contratos_'+todayIso()+'.pdf', 'Reporte General de Contratos');
   };
 
   const printAddendum = amendment => {
@@ -438,7 +466,7 @@ const Contracts = () => {
     y=pageText(doc,'CONTRATISTA: '+selected.contractorName+' · '+(selected.contractorDoc||''),18,y); y=pageText(doc,'OBJETO DEL CONTRATO: '+selected.object,18,y); y=pageText(doc,'FECHA DEL OTROSÍ: '+amendment.date,18,y); y=pageText(doc,'TIPO DE MODIFICACIÓN: '+amendment.kind,18,y);
     if(Number(amendment.amountChange||0)!==0)y=pageText(doc,'VARIACIÓN DE VALOR: '+money(amendment.amountChange)+' · VALOR VIGENTE RESULTANTE: '+money(effectiveContractValue(selected)),18,y);
     if(amendment.newEndDate)y=pageText(doc,'NUEVA FECHA DE TERMINACIÓN: '+amendment.newEndDate,18,y);
-    y+=5; doc.setFont('helvetica','bold'); y=pageText(doc,'MODIFICACIÓN ACORDADA',18,y,175,10); doc.setFont('helvetica','normal'); y=pageText(doc,amendment.description,18,y,175,9); y+=20; doc.text('CONTRATANTE',28,y); doc.text('CONTRATISTA',138,y); doc.line(18,y+12,92,y+12); doc.line(115,y+12,190,y+12); doc.save('Otrosi_'+amendment.number+'_Contrato_'+selected.number+'.pdf');
+    y+=5; doc.setFont('helvetica','bold'); y=pageText(doc,'MODIFICACIÓN ACORDADA',18,y,175,10); doc.setFont('helvetica','normal'); y=pageText(doc,amendment.description,18,y,175,9); y+=20; doc.text('CONTRATANTE',28,y); doc.text('CONTRATISTA',138,y); doc.line(18,y+12,92,y+12); doc.line(115,y+12,190,y+12); deliverPdf(doc, 'Otrosi_'+amendment.number+'_Contrato_'+selected.number+'.pdf', 'Otrosí Contractual');
   };
 
   const printContract = contract => {
@@ -460,7 +488,7 @@ const Contracts = () => {
     if(specific[contract.type])section('DÉCIMA. CONDICIONES ESPECÍFICAS DEL TIPO CONTRACTUAL',specific[contract.type]);
     if(contract.specialClauses) section('CONDICIONES ESPECIALES ACORDADAS',contract.specialClauses);
     if(y>240){doc.addPage();y=35;} y+=16; doc.setFontSize(9); doc.text('Por el CONTRATANTE',30,y); doc.text('Por el CONTRATISTA',130,y); y+=14; doc.line(18,y,92,y); doc.line(112,y,192,y); y+=5; doc.text(activeCompany?.name||'ENTIDAD',18,y); doc.text(contract.contractorName||'',112,y); y+=5; doc.text('Supervisor: '+(contract.supervisor||'________________'),18,y);
-    doc.save('Contrato_'+contract.number+'.pdf');
+    deliverPdf(doc, 'Contrato_'+contract.number+'.pdf', 'Contrato '+contract.number);
   };
   const printAct = act => {
     const contract=(contracts||[]).find(c=>c.id===act.contractId); if(!contract)return; const doc=new jsPDF(); addPdfHeader(doc,activeCompany,actTypeLabel(act.type)+' · '+act.number); let y=43;
@@ -471,7 +499,7 @@ const Contracts = () => {
     if(act.type==='final_delivery'){y+=3;y=pageText(doc,'Con la suscripción de esta acta se deja constancia del recibo o entrega final registrada en el expediente, sin perjuicio de garantías, responsabilidades pendientes y liquidación contractual.',18,y,175,9);}
     if(act.type==='suspension'){y+=3;y=pageText(doc,'La ejecución queda suspendida desde la fecha indicada hasta que exista acta de reinicio o decisión documentada que modifique esta situación.',18,y,175,9);}
     if(act.type==='restart'){y+=3;y=pageText(doc,'La ejecución contractual se reinicia desde la fecha indicada, conforme a las condiciones vigentes del expediente.',18,y,175,9);}
-    y+=22; doc.setFontSize(9); doc.text('SUPERVISOR / CONTRATANTE',25,y); doc.text('CONTRATISTA',135,y); doc.line(18,y+12,92,y+12); doc.line(115,y+12,190,y+12); doc.save('Acta_'+act.number+'_Contrato_'+contract.number+'.pdf');
+    y+=22; doc.setFontSize(9); doc.text('SUPERVISOR / CONTRATANTE',25,y); doc.text('CONTRATISTA',135,y); doc.line(18,y+12,92,y+12); doc.line(115,y+12,190,y+12); deliverPdf(doc, 'Acta_'+act.number+'_Contrato_'+contract.number+'.pdf', actTypeLabel(act.type));
   };
 
   const alerts=(contracts||[]).flatMap(contract=>(contract.acts||[]).filter(act=>act.status!=='Anulada'&&Number(act.tax?.totalWithholdings||0)>0 && act.taxStatus!=='paid').map(act=>({id:act.id,description:'Contrato '+contract.number+' · Acta '+act.number,amount:Number(act.tax?.totalWithholdings||0),...getRetentionAlert(act.date,activeCompany?.doc)}))).filter(a=>a.dueDate).sort((a,b)=>(a.days??999)-(b.days??999));
@@ -509,7 +537,7 @@ const Contracts = () => {
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden"><div className="p-4 border-b flex items-center justify-between"><div className="font-bold flex items-center gap-2"><ClipboardList className="w-5 h-5"/>Actas y ejecución</div><span className="text-xs text-slate-500">{selectedActs.length} acta(s)</span></div>{selectedActs.length===0?<div className="p-10 text-center text-slate-500">No hay actas registradas.</div>:<div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="p-3 text-left">Acta</th><th className="p-3 text-left">Fecha</th><th className="p-3 text-right">Ejecutado</th><th className="p-3 text-right">Retenciones</th><th className="p-3 text-right">Neto CxP</th><th className="p-3"></th></tr></thead><tbody className="divide-y">{selectedActs.map(a=><tr key={a.id}><td className="p-3"><div className="font-semibold">{a.number}</div><div className="text-[11px] text-slate-500">{actTypeLabel(a.type)}</div></td><td className="p-3">{a.date}</td><td className="p-3 text-right">{money(a.grossValue)}</td><td className="p-3 text-right text-red-600">{money(a.tax?.totalWithholdings)}</td><td className="p-3 text-right font-bold">{money(a.netPayable)}</td><td className="p-3 text-right"><div className="flex justify-end gap-1"><Button size="sm" variant="outline" onClick={()=>printAct(a)} title="Imprimir acta"><Printer className="w-4 h-4"/></Button>{a.status!=='Anulada'&&Number(a.tax?.totalWithholdings||0)>0&&a.taxStatus!=='paid'&&<Button size="sm" variant="outline" onClick={()=>markTaxPaid(a.id)} title="Marcar retención declarada/pagada"><CheckCircle2 className="w-4 h-4 text-green-600"/></Button>}{a.status!=='Anulada'&&a.type!=='liquidation'&&selected.status!=='Liquidado'&&<Button size="sm" variant="outline" onClick={()=>reverseAct(a.id)} title="Anular/reversar acta"><Ban className="w-4 h-4 text-red-600"/></Button>}{a.status==='Anulada'&&<span className="text-xs font-bold text-red-600 px-2">ANULADA</span>}</div></td></tr>)}</tbody></table></div>}</div>
           <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
             <div className="p-4 border-b flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div className="font-bold flex items-center gap-2"><Paperclip className="w-5 h-5 text-blue-600"/>Expediente documental</div><p className="text-xs text-slate-500 mt-1">RUT, contrato firmado, cotizaciones, PILA, facturas, cuentas de cobro, pólizas y demás soportes. Máx. 4 MB por archivo / 20 MB activos por contrato.</p></div><div className="flex flex-wrap items-center gap-2"><select value={documentCategory} onChange={e=>setDocumentCategory(e.target.value)} className="p-2 border rounded-lg text-sm"><option>Soporte general</option><option>Contrato firmado</option><option>RUT</option><option>Cámara de Comercio</option><option>Cotización</option><option>Factura / Cuenta de cobro</option><option>PILA / Seguridad Social</option><option>Póliza</option><option>Acta firmada</option><option>Comprobante de pago</option></select><label className="inline-flex"><input type="file" multiple className="hidden" onChange={handleDocumentUpload} accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"/><span className="inline-flex items-center px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium cursor-pointer hover:bg-blue-700"><Upload className="w-4 h-4 mr-2"/>Adjuntar</span></label></div></div>
-            {selectedDocuments.length===0?<div className="p-8 text-center text-slate-500">Aún no hay anexos en este expediente.</div>:<div className="divide-y">{selectedDocuments.map(d=><div key={d.id} className="p-3 flex flex-col md:flex-row md:items-center justify-between gap-2 text-sm"><div className="min-w-0"><div className="font-semibold truncate">{d.name}</div><div className="text-xs text-slate-500">{d.category} · {(Number(d.size||0)/1024).toFixed(0)} KB · {String(d.uploadedAt||'').slice(0,10)} · {d.uploadedBy||'Usuario'}</div></div><div className="flex gap-1"><a href={d.dataUrl} download={d.name} className="inline-flex items-center justify-center h-8 px-3 border rounded-md hover:bg-slate-50"><Download className="w-4 h-4 mr-1"/>Descargar</a>{canEdit&&<Button size="sm" variant="outline" onClick={()=>archiveDocument(d.id)}><Ban className="w-4 h-4 text-slate-500"/></Button>}</div></div>)}</div>}
+            {selectedDocuments.length===0?<div className="p-8 text-center text-slate-500">Aún no hay anexos en este expediente.</div>:<div className="divide-y">{selectedDocuments.map(d=><div key={d.id} className="p-3 flex flex-col md:flex-row md:items-center justify-between gap-2 text-sm"><div className="min-w-0"><div className="font-semibold truncate">{d.name}</div><div className="text-xs text-slate-500">{d.category} · {(Number(d.size||0)/1024).toFixed(0)} KB · {String(d.uploadedAt||'').slice(0,10)} · {d.uploadedBy||'Usuario'}</div></div><div className="flex gap-1">{isNativeApp() ? <Button size="sm" variant="outline" onClick={()=>shareContractDocument(d)}><Download className="w-4 h-4 mr-1"/>Compartir</Button> : <a href={d.dataUrl} download={d.name} className="inline-flex items-center justify-center h-8 px-3 border rounded-md hover:bg-slate-50"><Download className="w-4 h-4 mr-1"/>Descargar</a>}{canEdit&&<Button size="sm" variant="outline" onClick={()=>archiveDocument(d.id)}><Ban className="w-4 h-4 text-slate-500"/></Button>}</div></div>)}</div>}
           </div>
           <div className="grid xl:grid-cols-2 gap-4">
             <div className="bg-white border rounded-xl overflow-hidden">

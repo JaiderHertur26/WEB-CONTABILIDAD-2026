@@ -16,6 +16,7 @@ import {
   WidthType,
 } from 'docx';
 import { exportProfessionalWorkbook } from '@/lib/excel';
+import { isNativeApp, shareBlobFile, shareJsPdf } from '@/lib/nativeFiles';
 
 const money = (value) =>
   new Intl.NumberFormat('es-CO', {
@@ -454,7 +455,14 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
     doc.text(`Página ${page} de ${pageCount}`, 283, 204, { align: 'right' });
   }
 
-  doc.save(`Inventario_Activos_Fijos_${sanitize(meta.name)}_${meta.year}.pdf`);
+  const fileName = `Inventario_Activos_Fijos_${sanitize(meta.name)}_${meta.year}.pdf`;
+  if (isNativeApp()) {
+    void shareJsPdf(doc, fileName, 'Inventario de Activos Fijos')
+      .catch((error) => console.error('[HERTUR] No fue posible compartir el PDF de activos fijos.', error));
+    return;
+  }
+
+  doc.save(fileName);
 };
 const wordCell = (text, { bold = false, align = AlignmentType.LEFT, fill, color, size = 14 } = {}) =>
   new TableCell({
@@ -710,10 +718,22 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
   });
 
   const blob = await Packer.toBlob(doc);
+  const fileName = `Inventario_Activos_Fijos_${sanitize(meta.name)}_${meta.year}.docx`;
+
+  if (isNativeApp()) {
+    await shareBlobFile({
+      blob,
+      fileName,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      title: 'Inventario de Activos Fijos',
+    });
+    return;
+  }
+
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `Inventario_Activos_Fijos_${sanitize(meta.name)}_${meta.year}.docx`;
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

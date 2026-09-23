@@ -15,6 +15,7 @@ import { es } from 'date-fns/locale';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { resolveLiquidityAccount } from '@/lib/liquidityAccounts';
 import ContactSelector from '@/components/transactions/ContactSelector';
+import { createPrintTarget } from '@/lib/nativePrint';
 
 const MassIntentions = () => {
     const { activeCompany } = useCompany();
@@ -390,7 +391,7 @@ const MassIntentions = () => {
         if (!printRef.current) return;
         setIsPrinting(true);
         const printContent = printRef.current.innerHTML;
-        const printWindow = window.open('', '_blank', 'width=800,height=900');
+        const printWindow = createPrintTarget('width=800,height=900');
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(style => style.outerHTML).join('\n');
 
         printWindow.document.write(`

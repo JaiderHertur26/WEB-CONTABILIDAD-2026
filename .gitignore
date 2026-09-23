@@ -27,3 +27,8 @@ Thumbs.db
 /_inspect_leveldb_offsets.mjs
 /_scan_leveldb_history.mjs
 /_test_sync_reconciliation.mjs
+
+# Temporales locales de herramientas / pruebas Android
+/supabase/.temp/
+/hertur-*.png
+/hertur-*.xml

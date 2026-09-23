@@ -26,6 +26,7 @@ import { expandTransactionsByAllocation, getTransactionCategoryLabel } from '@/l
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { useCompanyData } from '@/hooks/useCompanyData';
+import { createPrintTarget } from '@/lib/nativePrint';
 import { useCompany } from '@/contexts/CompanyContext';
 import {
     format,
@@ -640,7 +641,7 @@ const BookClosings = () => {
 
     const executePrint = () => {
         setIsPrintModalOpen(false);
-        const printWindow = window.open('', '_blank', 'width=900,height=800');
+        const printWindow = createPrintTarget('width=900,height=800');
         const { start, end } = report.period;
         const formattedStart = format(start, "d 'de' MMMM, yyyy", { locale: es });
         const formattedEnd = format(end, "d 'de' MMMM, yyyy", { locale: es });
@@ -927,7 +928,7 @@ const BookClosings = () => {
 
     const executeExecutiveReportPrint = () => {
         setIsExecutiveReportModalOpen(false);
-        const printWindow = window.open('', '_blank', 'width=950,height=850');
+        const printWindow = createPrintTarget('width=950,height=850');
         const { start, end } = report.period;
         const formattedStart = format(start, "d 'de' MMMM 'de' yyyy", { locale: es });
         const formattedEnd = format(end, "d 'de' MMMM 'de' yyyy", { locale: es });

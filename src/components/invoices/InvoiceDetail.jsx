@@ -7,6 +7,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { exportToExcel } from '@/lib/excel';
 import { useCompany } from '@/contexts/CompanyContext';
+import { isNativeApp, shareJsPdf } from '@/lib/nativeFiles';
 
 const InvoiceDetail = ({ invoice, company }) => {
     const printRef = useRef(null);
@@ -53,7 +54,13 @@ const InvoiceDetail = ({ invoice, company }) => {
             const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
             
             pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            pdf.save(`${docTitle.replace(/\s+/g, '_')}_${invoice.invoiceNumber}.pdf`);
+            const fileName = `${docTitle.replace(/\s+/g, '_')}_${invoice.invoiceNumber}.pdf`;
+
+            if (isNativeApp()) {
+                await shareJsPdf(pdf, fileName, docTitle);
+            } else {
+                pdf.save(fileName);
+            }
         } catch (error) {
             console.error('Error generating PDF:', error);
         }
@@ -92,7 +99,7 @@ const InvoiceDetail = ({ invoice, company }) => {
                     <Download className="w-4 h-4 mr-2" /> Excel
                 </Button>
                 <Button size="sm" onClick={handlePrintPDF}>
-                    <Printer className="w-4 h-4 mr-2" /> Descargar PDF
+                    <Printer className="w-4 h-4 mr-2" /> {isNativeApp() ? 'Compartir PDF' : 'Descargar PDF'}
                 </Button>
             </div>
 

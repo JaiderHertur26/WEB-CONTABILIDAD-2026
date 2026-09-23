@@ -1,8 +1,10 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { Loader2 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import Layout from '@/components/Layout';
+import NativeAppBridge from '@/components/NativeAppBridge';
 import { Toaster } from '@/components/ui/toaster';
 import { LocalAuthProvider, useAuth } from '@/contexts/LocalAuthContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
@@ -29,6 +31,8 @@ const Inventory = lazy(() => import('@/pages/Inventory'));
 const Invoices = lazy(() => import('@/pages/Invoices'));
 const MassIntentions = lazy(() => import('@/pages/MassIntentions'));
 const Contracts = lazy(() => import('@/pages/Contracts'));
+
+const Router = Capacitor.isNativePlatform() ? HashRouter : BrowserRouter;
 
 const LoadingScreen = ({ message = 'Preparando tu espacio de trabajo...', compact = false }) => (
   <div className={compact
@@ -126,6 +130,7 @@ function App() {
       <LocalAuthProvider>
         <CompanyProvider>
           <Router>
+            <NativeAppBridge />
             <Toaster />
             <AppRoutes />
           </Router>

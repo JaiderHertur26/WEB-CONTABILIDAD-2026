@@ -1,4 +1,5 @@
 import XLSXStyle from 'xlsx-js-style';
+import { isNativeApp, shareBase64File } from '@/lib/nativeFiles';
 
 const XLSX = XLSXStyle?.default || XLSXStyle;
 
@@ -425,7 +426,26 @@ export const exportProfessionalWorkbook = ({
     );
   }
 
-  XLSX.writeFile(workbook, `${sanitizeFileName(fileName)}.xlsx`, {
+  const finalName = `${sanitizeFileName(fileName)}.xlsx`;
+
+  if (isNativeApp()) {
+    const base64 = XLSX.write(workbook, {
+      bookType: 'xlsx',
+      type: 'base64',
+      cellStyles: true,
+      compression: true,
+    });
+
+    void shareBase64File({
+      base64,
+      fileName: finalName,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      title: title || 'Reporte contable',
+    }).catch((error) => console.error('[HERTUR] No fue posible compartir el Excel.', error));
+    return;
+  }
+
+  XLSX.writeFile(workbook, finalName, {
     cellStyles: true,
     compression: true,
   });

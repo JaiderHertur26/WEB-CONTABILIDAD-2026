@@ -14,6 +14,7 @@ import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances, buildCashFlowFromLiquidity } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { isValid, parseISO } from 'date-fns';
+import { createPrintTarget } from '@/lib/nativePrint';
 
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
@@ -547,7 +548,7 @@ const Reports = () => {
   const executePrint = () => {
       try {
           setPrintConfigOpen(false);
-          const printWindow = window.open('', '_blank', 'width=1000,height=800');
+          const printWindow = createPrintTarget('width=1000,height=800');
           if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); return; }
 
           const companyName = activeCompany?.name || ' ';

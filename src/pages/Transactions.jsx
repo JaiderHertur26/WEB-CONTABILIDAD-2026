@@ -22,6 +22,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogDe
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import { isNativeApp, shareBase64File } from '@/lib/nativeFiles';
+import { createPrintTarget } from '@/lib/nativePrint';
 import { cleanBankNumber, parseBankDate, buildReconciliationFingerprint } from '@/lib/bankReconciliation';
 
 const cleanPrintedCompanyName = (name) => String(name || '').replace(/MAR[ÍI]A[\s\u00A0]*AUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
@@ -190,6 +194,25 @@ const Transactions = () => {
     const billingRef = useRef(null);
     const receiptRef = useRef(null); 
     const filteredPrintRef = useRef(null); // Ref para imprimir el reporte
+    const nativeApp = isNativeApp();
+    const [voucherPreviewScale, setVoucherPreviewScale] = useState(1);
+
+    useEffect(() => {
+        if (!nativeApp) {
+            setVoucherPreviewScale(1);
+            return undefined;
+        }
+
+        const updateScale = () => {
+            const voucherWidthPx = (215.9 / 25.4) * 96;
+            const availableWidth = Math.max(280, window.innerWidth - 32);
+            setVoucherPreviewScale(Math.min(1, availableWidth / voucherWidthPx));
+        };
+
+        updateScale();
+        window.addEventListener('resize', updateScale);
+        return () => window.removeEventListener('resize', updateScale);
+    }, [nativeApp]);
 
     const isRelevant = useMemo(() => (item) => {
         if (!item) return false;
@@ -1807,7 +1830,7 @@ const Transactions = () => {
         if (!filteredPrintRef.current) return;
         setIsPrinting(true);
         const printContent = filteredPrintRef.current.innerHTML;
-        const printWindow = window.open('', '_blank', 'width=1000,height=800');
+        const printWindow = createPrintTarget('width=1000,height=800');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
         
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(style => style.outerHTML).join('\n');
@@ -1880,7 +1903,7 @@ const Transactions = () => {
         }
 
         setIsPrinting(true);
-        const printWindow = window.open('', '_blank', 'width=1000,height=800');
+        const printWindow = createPrintTarget('width=1000,height=800');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
         // 🚀 Validación Legal: Máximo 31 días
@@ -2131,12 +2154,71 @@ const Transactions = () => {
         toast({ title: 'Excel profesional generado', description: `Comprobante ${voucherId} exportado correctamente.` });
     };
 
-    const handlePrintToPdf = () => {
+    const handlePrintToPdf = async () => {
         if (!voucherRef.current) return;
         setIsPrinting(true);
+
+        if (nativeApp) {
+            const element = voucherRef.current;
+            const previousZoom = element.style.zoom;
+
+            try {
+                element.style.zoom = '1';
+                await new Promise(resolve => requestAnimationFrame(resolve));
+
+                const canvas = await html2canvas(element, {
+                    scale: 2,
+                    backgroundColor: '#ffffff',
+                    useCORS: true,
+                    logging: false,
+                });
+
+                const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                const maxWidth = pageWidth - 16;
+                const maxHeight = pageHeight - 16;
+                const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
+                const imageWidth = canvas.width * ratio;
+                const imageHeight = canvas.height * ratio;
+                const x = (pageWidth - imageWidth) / 2;
+                const y = (pageHeight - imageHeight) / 2;
+
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', x, y, imageWidth, imageHeight, undefined, 'FAST');
+                const dataUri = pdf.output('datauristring');
+                const base64 = dataUri.split(',')[1];
+                const voucherNumber = transactionToPrint?.voucherNumber || 'Transaccion';
+
+                await shareBase64File({
+                    base64,
+                    fileName: `Comprobante_${voucherNumber}.pdf`,
+                    mimeType: 'application/pdf',
+                    title: 'Comprobante contable',
+                    text: 'Documento generado por HERTUR Contabilidad',
+                });
+
+                toast({ title: 'PDF listo', description: 'Puedes guardarlo o compartirlo desde Android.' });
+            } catch (error) {
+                console.error('[HERTUR] Error generando PDF nativo.', error);
+                toast({
+                    variant: 'destructive',
+                    title: 'No fue posible generar el PDF',
+                    description: 'Intenta nuevamente o utiliza la versión web.',
+                });
+            } finally {
+                element.style.zoom = previousZoom;
+                setIsPrinting(false);
+            }
+            return;
+        }
+
         const printContent = voucherRef.current.innerHTML;
-        const printWindow = window.open('', '_blank', 'width=900,height=700');
-        if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Por favor permite las ventanas emergentes (pop-ups) para imprimir." }); setIsPrinting(false); return; }
+        const printWindow = createPrintTarget('width=900,height=700');
+        if (!printWindow) {
+            toast({ variant: 'destructive', title: 'Bloqueador activado', description: 'Por favor permite las ventanas emergentes (pop-ups) para imprimir.' });
+            setIsPrinting(false);
+            return;
+        }
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
             .map(style => style.outerHTML)
             .join('\n');
@@ -2150,9 +2232,9 @@ const Transactions = () => {
                   <style>
                       @media print {
                           @page { margin: 10mm; size: auto; }
-                          body { 
-                              -webkit-print-color-adjust: exact !important; 
-                              print-color-adjust: exact !important; 
+                          body {
+                              -webkit-print-color-adjust: exact !important;
+                              print-color-adjust: exact !important;
                           }
                       }
                   </style>
@@ -2170,7 +2252,7 @@ const Transactions = () => {
             printWindow.print();
             printWindow.close();
             setIsPrinting(false);
-            toast({ title: "Documento procesado" });
+            toast({ title: 'Documento procesado' });
         }, 500);
     };
 
@@ -2246,7 +2328,7 @@ const Transactions = () => {
         if (!billingRef.current) return;
         setIsPrinting(true);
         const printContent = billingRef.current.innerHTML;
-        const printWindow = window.open('', '_blank', 'width=900,height=700');
+        const printWindow = createPrintTarget('width=900,height=700');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Por favor permite las ventanas emergentes (pop-ups) para imprimir." }); setIsPrinting(false); return; }
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(style => style.outerHTML).join('\n');
 
@@ -2290,7 +2372,7 @@ const Transactions = () => {
         if (!receiptRef.current) return;
         setIsPrinting(true);
         const printContent = receiptRef.current.innerHTML;
-        const printWindow = window.open('', '_blank', 'width=900,height=700');
+        const printWindow = createPrintTarget('width=900,height=700');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador activado", description: "Por favor permite las ventanas emergentes (pop-ups) para imprimir." }); setIsPrinting(false); return; }
         const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(style => style.outerHTML).join('\n');
 
@@ -2591,7 +2673,7 @@ const Transactions = () => {
         }
 
         setIsPrinting(true);
-        const printWindow = window.open('', '_blank', 'width=1000,height=800');
+        const printWindow = createPrintTarget('width=1000,height=800');
         if (!printWindow) { toast({ variant: 'destructive', title: "Bloqueador", description: "Permite los pop-ups para imprimir." }); setIsPrinting(false); return; }
 
         let totalAntDeb = 0, totalAntCred = 0, totalMovDeb = 0, totalMovCred = 0, totalNuevoDeb = 0, totalNuevoCred = 0;
@@ -3558,16 +3640,36 @@ const Transactions = () => {
 
             {/* Imprimir Comprobante Contable */}
             <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
-                <DialogContent className="max-w-6xl p-0 border-none bg-transparent shadow-none">
-                    <div className="bg-white rounded-lg overflow-hidden">
-                        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                            <h3 className="font-semibold">Vista Previa</h3>
-                            <div className="flex gap-2">
-                                <Button size="sm" variant="outline" onClick={handleExportVoucherExcel} className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"><FileSpreadsheet className="w-4 h-4 mr-2" />Excel</Button>
-                                <Button size="sm" onClick={handlePrintToPdf} disabled={isPrinting}>{isPrinting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Printer className="w-4 h-4 mr-2" />}Imprimir PDF</Button>
+                <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-6xl max-h-[94dvh] p-0 border-none bg-transparent shadow-none">
+                    <div className="bg-white rounded-xl overflow-hidden shadow-2xl">
+                        <div className="p-3 pr-12 sm:p-4 sm:pr-12 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-slate-50">
+                            <div>
+                                <h3 className="font-semibold text-slate-900">Vista Previa</h3>
+                                {nativeApp && <p className="text-xs text-slate-500 mt-0.5">Comprobante ajustado a la pantalla; el archivo conserva su tamaño de impresión.</p>}
+                            </div>
+                            <div className="flex gap-2 w-full sm:w-auto">
+                                <Button size="sm" variant="outline" onClick={handleExportVoucherExcel} className="flex-1 sm:flex-none bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                                    <FileSpreadsheet className="w-4 h-4 mr-2" />Excel
+                                </Button>
+                                <Button size="sm" onClick={handlePrintToPdf} disabled={isPrinting} className="flex-1 sm:flex-none">
+                                    {isPrinting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Printer className="w-4 h-4 mr-2" />}
+                                    {nativeApp ? 'Compartir PDF' : 'Imprimir PDF'}
+                                </Button>
                             </div>
                         </div>
-                        <div className="p-8 bg-slate-200 overflow-auto max-h-[80vh] flex justify-center"><div ref={voucherRef} className="bg-white shadow-2xl" style={{ width: '215.9mm', minHeight: '139.7mm' }}><Voucher transaction={transactionToPrint} /></div></div>
+                        <div className="p-2 sm:p-8 bg-slate-200 overflow-auto max-h-[78dvh] flex justify-center items-start">
+                            <div
+                                ref={voucherRef}
+                                className="bg-white shadow-2xl origin-top"
+                                style={{
+                                    width: '215.9mm',
+                                    minHeight: '139.7mm',
+                                    zoom: nativeApp ? voucherPreviewScale : 1,
+                                }}
+                            >
+                                <Voucher transaction={transactionToPrint} />
+                            </div>
+                        </div>
                     </div>
                 </DialogContent>
             </Dialog>

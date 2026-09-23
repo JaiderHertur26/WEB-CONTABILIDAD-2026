@@ -156,6 +156,34 @@ body {
   .app-workspace h1 {
     font-size: 1.7rem !important;
   }
+
+  button,
+  a,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+html.native-app,
+html.native-app body {
+  overscroll-behavior: none;
+}
+
+html.native-app main {
+  height: 100dvh;
+}
+
+html.native-app .app-topbar {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+html.native-app .app-sidebar {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html.native-app .app-workspace {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media print {
