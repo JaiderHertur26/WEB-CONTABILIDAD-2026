@@ -24,7 +24,6 @@ import { resolveLiquidityAccount, liquidityEndpointOptions } from '@/lib/liquidi
 import { isNativeApp, shareJsPdf } from '@/lib/nativeFiles';
 import ContactSelector from '@/components/transactions/ContactSelector';
 import AccountsLedgerHeader from '@/components/accounts/AccountsLedgerHeader';
-import MassIntentionSelector from '@/components/accounts/MassIntentionSelector';
 
 const Highlight = ({ text, highlight }) => {
   if (!highlight || !text) return <>{text}</>;
@@ -47,12 +46,9 @@ const getCategoryName = (code) => {
   return categories[code] || 'OTRAS';
 };
 
-const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onAbandon }) => {
+const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) => {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const selectedInSession = useRef(false);
-  const abandonScheduled = useRef(false);
-  const popoverContentRef = useRef(null);
   
   const selectedAccount = accounts.find(a => a.name === value);
   
@@ -69,67 +65,13 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onA
     return groups;
   }, {});
 
-  const closeParentIfAbandoned = () => {
-    if (selectedInSession.current || value || !onAbandon || abandonScheduled.current) return false;
-    abandonScheduled.current = true;
-    setOpen(false);
-    setSearchQuery("");
-    window.setTimeout(() => {
-      onAbandon();
-      window.setTimeout(() => { abandonScheduled.current = false; }, 0);
-    }, 0);
-    return true;
-  };
-
   const handleOpenChange = nextOpen => {
-    if (nextOpen) {
-      selectedInSession.current = false;
-      abandonScheduled.current = false;
-      setOpen(true);
-      return;
-    }
-    if (open && closeParentIfAbandoned()) return;
-    setOpen(false);
-    setSearchQuery("");
+    setOpen(nextOpen);
+    if (!nextOpen) setSearchQuery("");
   };
-
-  const handleAbandonedExit = event => {
-    if (selectedInSession.current || value || !onAbandon) return;
-    event.preventDefault();
-    closeParentIfAbandoned();
-  };
-
-  useEffect(() => {
-    if (!open || value || !onAbandon) return undefined;
-
-    const handlePointerOutside = event => {
-      if (popoverContentRef.current?.contains(event.target)) return;
-      closeParentIfAbandoned();
-    };
-    const handleFocusOutside = event => {
-      if (popoverContentRef.current?.contains(event.target)) return;
-      closeParentIfAbandoned();
-    };
-    const handleEscape = event => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      closeParentIfAbandoned();
-    };
-
-    document.addEventListener('pointerdown', handlePointerOutside, true);
-    document.addEventListener('touchstart', handlePointerOutside, true);
-    document.addEventListener('focusin', handleFocusOutside, true);
-    document.addEventListener('keydown', handleEscape, true);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerOutside, true);
-      document.removeEventListener('touchstart', handlePointerOutside, true);
-      document.removeEventListener('focusin', handleFocusOutside, true);
-      document.removeEventListener('keydown', handleEscape, true);
-    };
-  }, [open, value, onAbandon]);
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange} modal={true}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button variant="outline" role="combobox" aria-expanded={open} disabled={disabled} className="w-full justify-between bg-white border-slate-300 text-slate-900 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 text-left font-normal">
           {selectedAccount ? (
@@ -142,7 +84,7 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onA
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent ref={popoverContentRef} className="z-[60] w-[min(420px,calc(100vw-2rem))] p-0" align="start" onInteractOutside={handleAbandonedExit} onEscapeKeyDown={handleAbandonedExit} onFocusOutside={handleAbandonedExit}>
+      <PopoverContent className="z-[60] w-[min(420px,calc(100vw-2rem))] p-0" align="start">
         <Command shouldFilter={false} className="w-full">
           <CommandInput placeholder="Buscar por nombre o código..." value={searchQuery} onValueChange={setSearchQuery} className="h-10" />
           <CommandList className="max-h-[300px] overflow-y-auto">
@@ -154,7 +96,7 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onA
                     <CommandItem 
                       key={account.id || account.number} 
                       value={account.name} 
-                      onSelect={() => { selectedInSession.current = true; onChange(account.name); setOpen(false); setSearchQuery(""); }}
+                      onSelect={() => { onChange(account.name); setOpen(false); setSearchQuery(""); }}
                       className="cursor-pointer hover:bg-slate-100 aria-selected:bg-slate-100"
                     >
                       <Check className={cn("mr-2 h-4 w-4 text-blue-600 flex-shrink-0", value === account.name ? "opacity-100" : "opacity-0")} />
@@ -682,7 +624,7 @@ const AccountsReceivable = () => {
                 </>
             )}
         </div>
-        <ReceivableDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSaveReceivable} receivable={editingReceivable} accounts={accounts} contacts={contacts} massIntentions={massIntentions} />
+        <ReceivableDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSaveReceivable} receivable={editingReceivable} accounts={accounts} contacts={contacts} />
         <PaymentDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen} onSave={handleMarkAsCollected} receivable={receivableToPay} bankAccounts={bankAccounts} cashAccounts={cashAccounts} />
         <TrackingSheetDialog open={trackingDialogOpen} onOpenChange={setTrackingDialogOpen} onSave={handleSaveTracking} receivable={receivableForTracking} type="receivable" onPrint={openPrintPreview} canAdd={canAdd} />
         
@@ -828,7 +770,7 @@ const TrackingSheetDialog = ({ open, onOpenChange, onSave, receivable, type, onP
 };
 
 
-const ReceivableDialog = ({ open, onOpenChange, onSave, receivable, accounts, contacts, massIntentions }) => {
+const ReceivableDialog = ({ open, onOpenChange, onSave, receivable, accounts, contacts }) => {
     const defaultData = { customer: '', contactId: '', massIntentionId: '', description: '', issueDate: format(new Date(), 'yyyy-MM-dd'), dueDate: '', amount: '', linkedAccount: '' };
     const [data, setData] = useState(defaultData);
     const { toast } = useToast();
@@ -845,34 +787,6 @@ const ReceivableDialog = ({ open, onOpenChange, onSave, receivable, accounts, co
     const handleContactChange = contactId => {
         const contact = (contacts || []).find(c => String(c.id) === String(contactId));
         setData(prev => ({ ...prev, contactId, customer: contact?.name || prev.customer }));
-    };
-
-    const handleIntentionChange = intentionId => {
-        if (!intentionId) return setData(prev => ({ ...prev, massIntentionId: '' }));
-        const intention = (massIntentions || []).find(item => String(item.id) === String(intentionId));
-        if (!intention) return;
-        if (intention.receivableId && String(intention.receivableId) !== String(receivable?.id || '')) {
-            toast({ variant:'destructive', title:'Intención ya vinculada', description:'Esta intención ya pertenece a otra cuenta por cobrar.' });
-            return;
-        }
-        if (intention.transactionId && String(intention.receivableId || '') !== String(receivable?.id || '')) {
-            toast({ variant:'destructive', title:'Ofrenda ya recibida', description:'Esta intención ya tiene comprobante de ingreso y no debe causarse otra vez como CxC.' });
-            return;
-        }
-        if (intention.receivableId && String(intention.receivableId) !== String(receivable?.id || '')) {
-            toast({ variant:'destructive', title:'Intención ya vinculada', description:'Esta intención ya tiene una Cuenta por Cobrar asociada.' });
-            return;
-        }
-        const contact = (contacts || []).find(c => String(c.id) === String(intention.contactId));
-        setData(prev => ({
-            ...prev,
-            massIntentionId: intention.id,
-            contactId: intention.contactId || prev.contactId,
-            customer: contact?.name || intention.contact || prev.customer,
-            description: prev.description || `Intención de Misa: ${intention.name || 'Sin nombre'}`,
-            amount: prev.amount || (Number(intention.amount || 0) > 0 ? String(intention.amount) : ''),
-            linkedAccount: intention.category || prev.linkedAccount,
-        }));
     };
 
     const handleSubmit = e => {
@@ -895,13 +809,12 @@ const ReceivableDialog = ({ open, onOpenChange, onSave, receivable, accounts, co
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 pt-2 md:grid-cols-2">
                     <div className="md:col-span-2 space-y-1.5"><Label>Contacto</Label><ContactSelector contacts={contacts || []} value={data.contactId || ''} onChange={handleContactChange} placeholder="Seleccionar contacto..." /></div>
-                    <div className="md:col-span-2 space-y-1.5"><Label>Intención de Misa vinculada <span className="font-normal text-slate-400">(Opcional)</span></Label><MassIntentionSelector intentions={massIntentions || []} value={data.massIntentionId || ''} onChange={handleIntentionChange} excludeCollected excludeReceivable placeholder="Vincular intención pendiente..." /></div>
                     <div className="md:col-span-2 space-y-1.5"><Label>Cliente</Label><input required value={data.customer} onChange={e=>setData({...data,customer:e.target.value})} className={inputClass}/></div>
                     <div className="md:col-span-2 space-y-1.5"><Label>Descripción</Label><input required value={data.description} onChange={e=>setData({...data,description:e.target.value})} className={inputClass}/></div>
                     <div className="space-y-1.5"><Label>Fecha de Emisión</Label><input type="date" required value={data.issueDate} onChange={e=>setData({...data,issueDate:e.target.value})} className={inputClass}/></div>
                     <div className="space-y-1.5"><Label>Fecha de Vencimiento</Label><input type="date" required value={data.dueDate} onChange={e=>setData({...data,dueDate:e.target.value})} className={inputClass}/></div>
                     <div className="space-y-1.5"><Label>Monto</Label><input type="number" step="0.01" min="0.01" required value={data.amount} onChange={e=>setData({...data,amount:e.target.value})} className={inputClass}/></div>
-                    <div className="space-y-1.5"><Label>Contrapartida (Cuenta de Ingreso)</Label><AccountSelector accounts={incomeAccounts} value={data.linkedAccount} onChange={value=>setData({...data,linkedAccount:value})} onAbandon={!receivable ? ()=>onOpenChange(false) : undefined} placeholder="Seleccionar Ingreso"/></div>
+                    <div className="space-y-1.5"><Label>Contrapartida (Cuenta de Ingreso)</Label><AccountSelector accounts={incomeAccounts} value={data.linkedAccount} onChange={value=>setData({...data,linkedAccount:value})} placeholder="Seleccionar Ingreso"/></div>
                     <div className="md:col-span-2 grid grid-cols-2 gap-2 pt-3"><DialogClose asChild><Button type="button" variant="outline" className="rounded-xl">Cancelar</Button></DialogClose><Button type="submit" className="rounded-xl bg-emerald-600 hover:bg-emerald-700">Guardar cuenta</Button></div>
                 </form>
             </DialogContent>
