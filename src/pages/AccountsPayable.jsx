@@ -52,6 +52,8 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onA
     const [open, setOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
   const selectedInSession = useRef(false);
+  const abandonScheduled = useRef(false);
+  const popoverContentRef = useRef(null);
 
     const selectedAccount = accounts.find(a => a.name === value);
 
@@ -68,17 +70,64 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onA
         return groups;
     }, {});
 
+    const closeParentIfAbandoned = () => {
+        if (selectedInSession.current || value || !onAbandon || abandonScheduled.current) return false;
+        abandonScheduled.current = true;
+        setOpen(false);
+        setSearchQuery("");
+        window.setTimeout(() => {
+            onAbandon();
+            window.setTimeout(() => { abandonScheduled.current = false; }, 0);
+        }, 0);
+        return true;
+    };
+
     const handleOpenChange = nextOpen => {
         if (nextOpen) {
             selectedInSession.current = false;
+            abandonScheduled.current = false;
             setOpen(true);
             return;
         }
-        const abandoned = open && !selectedInSession.current && !value;
+        if (open && closeParentIfAbandoned()) return;
         setOpen(false);
         setSearchQuery("");
-        if (abandoned && onAbandon) setTimeout(onAbandon, 0);
     };
+
+    const handleAbandonedExit = event => {
+        if (selectedInSession.current || value || !onAbandon) return;
+        event.preventDefault();
+        closeParentIfAbandoned();
+    };
+
+    useEffect(() => {
+        if (!open || value || !onAbandon) return undefined;
+
+        const handlePointerOutside = event => {
+            if (popoverContentRef.current?.contains(event.target)) return;
+            closeParentIfAbandoned();
+        };
+        const handleFocusOutside = event => {
+            if (popoverContentRef.current?.contains(event.target)) return;
+            closeParentIfAbandoned();
+        };
+        const handleEscape = event => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            closeParentIfAbandoned();
+        };
+
+        document.addEventListener('pointerdown', handlePointerOutside, true);
+        document.addEventListener('touchstart', handlePointerOutside, true);
+        document.addEventListener('focusin', handleFocusOutside, true);
+        document.addEventListener('keydown', handleEscape, true);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerOutside, true);
+            document.removeEventListener('touchstart', handlePointerOutside, true);
+            document.removeEventListener('focusin', handleFocusOutside, true);
+            document.removeEventListener('keydown', handleEscape, true);
+        };
+    }, [open, value, onAbandon]);
 
     return (
         <Popover open={open} onOpenChange={handleOpenChange} modal={true}>
@@ -94,7 +143,7 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onA
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="z-[60] w-[min(420px,calc(100vw-2rem))] p-0" align="start">
+            <PopoverContent ref={popoverContentRef} className="z-[60] w-[min(420px,calc(100vw-2rem))] p-0" align="start" onInteractOutside={handleAbandonedExit} onEscapeKeyDown={handleAbandonedExit} onFocusOutside={handleAbandonedExit}>
                 <Command shouldFilter={false} className="w-full">
                     <CommandInput placeholder="Buscar por nombre o código..." value={searchQuery} onValueChange={setSearchQuery} className="h-10" />
                     <CommandList className="max-h-[300px] overflow-y-auto">
