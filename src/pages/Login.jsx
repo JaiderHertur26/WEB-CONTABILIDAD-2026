@@ -10,7 +10,8 @@ import {
   User, Lock, Building, Shield, Key, Phone, MapPin, 
   Hash, Plus, Trash2, CornerDownRight, Layers, 
   AlertCircle, ArrowRight, Save, Network, CheckCircle2,
-  Search, ChevronLeft, SearchX
+  Search, ChevronLeft, SearchX, Eye, EyeOff, Sparkles,
+  BarChart3, WalletCards, ShieldCheck
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from '@/components/ui/label';
@@ -24,6 +25,7 @@ const Login = () => {
   // Login States
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -250,68 +252,127 @@ const Login = () => {
   return (
     <>
       <Helmet><title>Acceso · HERTUR Contabilidad</title></Helmet>
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-             <div className="absolute -top-[30%] -left-[10%] w-[70%] h-[70%] rounded-full bg-blue-900/20 blur-3xl"></div>
-             <div className="absolute top-[40%] -right-[10%] w-[60%] h-[60%] rounded-full bg-indigo-900/20 blur-3xl"></div>
+      <div className="relative min-h-[100dvh] overflow-y-auto bg-slate-950 px-3 py-3 sm:px-6 sm:py-6">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+             <div className="absolute -left-[12%] -top-[28%] h-[70%] w-[70%] rounded-full bg-blue-700/20 blur-3xl"></div>
+             <div className="absolute -right-[8%] top-[35%] h-[62%] w-[62%] rounded-full bg-indigo-700/15 blur-3xl"></div>
+             <div className="absolute inset-0 opacity-[0.08] bg-[linear-gradient(rgba(255,255,255,0.11)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.11)_1px,transparent_1px)] bg-[size:44px_44px]"></div>
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className={cn(
-              "w-full bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all duration-500 relative z-10 border border-slate-800/50",
-              regStep === 2 ? "max-w-5xl" : "max-w-md"
+        <div className={cn(
+            "relative z-10 mx-auto flex min-h-[calc(100dvh-1.5rem)] w-full items-stretch sm:min-h-[calc(100dvh-3rem)]",
+            regStep === 2 ? "max-w-5xl" : "max-w-6xl lg:grid lg:grid-cols-[1.05fr_0.95fr]"
+        )}>
+          {regStep === 1 && (
+            <motion.aside
+              initial={{ opacity: 0, x: -18 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.45 }}
+              className="relative hidden overflow-hidden rounded-l-[32px] border border-r-0 border-white/10 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-900 p-10 text-white shadow-[0_32px_90px_-44px_rgba(15,23,42,0.95)] lg:flex lg:flex-col lg:justify-between"
+            >
+              <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-blue-400/15 blur-3xl"></div>
+              <div className="relative">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-100">
+                  <Sparkles className="h-3.5 w-3.5" /> Plataforma financiera
+                </div>
+                <h2 className="mt-7 max-w-xl text-4xl font-black leading-[1.05] tracking-[-0.045em]">
+                  Contabilidad clara.<br />Decisiones con control.
+                </h2>
+                <p className="mt-5 max-w-lg text-[15px] leading-7 text-slate-300">
+                  HERTUR integra operación contable, tesorería, cartera, reportes y gestión administrativa en una experiencia segura para web y móvil.
+                </p>
+              </div>
+
+              <div className="relative grid gap-3">
+                {[
+                  { icon: BarChart3, title: 'Visión ejecutiva', text: 'Indicadores y reportes listos para decidir.' },
+                  { icon: WalletCards, title: 'Operación integrada', text: 'Movimientos, bancos, cartera y obligaciones conectados.' },
+                  { icon: ShieldCheck, title: 'Acceso por entidad', text: 'Cada organización conserva su información y permisos.' },
+                ].map(({ icon: FeatureIcon, title, text }) => (
+                  <div key={title} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.07] p-4 backdrop-blur">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-400/10 ring-1 ring-blue-300/15">
+                      <FeatureIcon className="h-5 w-5 text-blue-200" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-extrabold text-white">{title}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">{text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="relative flex items-center justify-between border-t border-white/10 pt-5 text-[11px] font-semibold text-slate-400">
+                <span>HERTUR · Sistema Contable & Financiero</span>
+                <span className="inline-flex items-center gap-1.5 text-emerald-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> Acceso seguro
+                </span>
+              </div>
+            </motion.aside>
           )}
-        >
-           <div className="bg-white p-8 text-center border-b border-slate-100 relative overflow-hidden">
-                <div className="flex flex-col items-center justify-center gap-3">
-                    <div className="relative">
-                        <div className="absolute inset-2 rounded-3xl bg-blue-500/20 blur-xl"></div>
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98, y: 14 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className={cn(
+                "relative flex w-full flex-col overflow-hidden border border-slate-200/80 bg-white shadow-[0_32px_90px_-46px_rgba(15,23,42,0.75)] transition-all duration-500",
+                regStep === 2
+                  ? "mx-auto max-w-5xl rounded-[28px]"
+                  : "rounded-[28px] lg:rounded-l-none lg:rounded-r-[32px]"
+            )}
+          >
+           <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-b from-white to-slate-50/70 px-5 py-5 text-center sm:px-7 sm:py-6">
+                <div className="pointer-events-none absolute -right-12 -top-16 h-36 w-36 rounded-full bg-blue-500/10 blur-3xl"></div>
+                <div className="relative flex items-center justify-center gap-3 text-left sm:gap-4">
+                    <div className="relative shrink-0">
+                        <div className="absolute inset-1 rounded-2xl bg-blue-500/20 blur-lg"></div>
                         <img
                             src="/hertur-contabilidad-mark.svg?v=20260921b"
                             alt="HERTUR Contabilidad"
-                            className="relative w-20 h-20 drop-shadow-xl"
+                            className="relative h-14 w-14 drop-shadow-lg sm:h-16 sm:w-16"
                         />
                     </div>
-                    <div>
-                        <p className="text-[11px] font-extrabold text-blue-600 uppercase tracking-[0.34em] mb-1">HERTUR</p>
-                        <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                            Contabilidad
-                        </h1>
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-widest mt-1">Sistema Contable &amp; Financiero</p>
+                    <div className="min-w-0">
+                        <p className="text-[10px] font-extrabold uppercase tracking-[0.28em] text-blue-600">HERTUR</p>
+                        <h1 className="mt-0.5 text-xl font-black tracking-[-0.035em] text-slate-950 sm:text-2xl">Contabilidad</h1>
+                        <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.13em] text-slate-400 sm:text-[11px]">Sistema Contable &amp; Financiero</p>
                     </div>
                 </div>
            </div>
 
-           <div className="p-6 md:p-8">
+           <div className="flex-1 p-4 sm:p-6 md:p-7">
                 <Tabs defaultValue="login" className="w-full">
                     {regStep === 1 && (
-                        <TabsList className="grid w-full grid-cols-2 mb-8 bg-slate-100 p-1 h-12 rounded-xl">
-                            <TabsTrigger value="login" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full">Entrar al Sistema</TabsTrigger>
-                            <TabsTrigger value="register" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm h-full">Registrar Entidad</TabsTrigger>
+                        <TabsList className="mb-6 grid h-11 w-full grid-cols-2 rounded-xl border border-slate-200 bg-slate-100/80 p-1 sm:mb-7">
+                            <TabsTrigger value="login" className="h-full rounded-lg text-xs font-extrabold data-[state=active]:bg-white data-[state=active]:text-slate-950 data-[state=active]:shadow-sm sm:text-sm">Entrar</TabsTrigger>
+                            <TabsTrigger value="register" className="h-full rounded-lg text-xs font-extrabold data-[state=active]:bg-white data-[state=active]:text-slate-950 data-[state=active]:shadow-sm sm:text-sm">Registrar entidad</TabsTrigger>
                         </TabsList>
                     )}
 
                     <TabsContent value="login" className="mt-0 outline-none">
                         <AnimatePresence mode="wait">
                             {!selectedCompanyId ? (
-                                <motion.div key="selector" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
+                                <motion.div key="selector" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 sm:space-y-5">
+                                    <div>
+                                        <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-blue-600">Acceso seguro</p>
+                                        <h2 className="mt-1 text-xl font-black tracking-[-0.03em] text-slate-950 sm:text-2xl">Selecciona tu espacio</h2>
+                                        <p className="mt-1.5 text-sm leading-5 text-slate-500">Elige la entidad a la que deseas ingresar o utiliza el acceso administrativo.</p>
+                                    </div>
+
                                     <button
                                         onClick={() => handleCompanySelect('general_admin')}
-                                        className="w-full flex items-center justify-between p-4 rounded-xl border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 transition-colors shadow-sm"
+                                        className="group flex w-full items-center justify-between rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50/50 p-4 text-violet-800 shadow-sm transition-all hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-md"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <Shield className="w-5 h-5" />
-                                            <span className="font-bold text-sm">Acceso Administrador General</span>
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm"><Shield className="h-5 w-5" /></div>
+                                            <div className="text-left"><span className="block text-sm font-extrabold">Administrador General</span><span className="mt-0.5 block text-[11px] font-medium text-violet-500">Gestión global del sistema</span></div>
                                         </div>
-                                        <ArrowRight className="w-4 h-4 opacity-50" />
+                                        <ArrowRight className="h-4 w-4 opacity-40 transition-transform group-hover:translate-x-1" />
                                     </button>
 
                                     <div className="relative flex items-center">
                                         <div className="flex-grow border-t border-slate-200"></div>
-                                        <span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-semibold tracking-wider">O selecciona tu entidad</span>
+                                        <span className="mx-3 flex-shrink-0 text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-400">O selecciona tu entidad</span>
                                         <div className="flex-grow border-t border-slate-200"></div>
                                     </div>
 
@@ -321,26 +382,26 @@ const Login = () => {
                                             type="text" 
                                             value={searchQuery} 
                                             onChange={(e) => setSearchQuery(e.target.value)} 
-                                            className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm" 
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm font-medium text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60"
                                             placeholder="Buscar por nombre o NIT..." 
                                         />
                                     </div>
 
-                                    <div className="max-h-[260px] overflow-y-auto space-y-2 pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full">
+                                    <div className="max-h-[250px] space-y-2 overflow-y-auto pr-1 sm:max-h-[280px] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar]:w-1.5">
                                         {filteredCompanies.length > 0 ? (
                                             filteredCompanies.map(company => (
                                                 <button
                                                     key={company.id}
                                                     onClick={() => handleCompanySelect(company.id)}
-                                                    className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
+                                                    className="group flex w-full items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-3 text-left shadow-[0_8px_24px_-22px_rgba(15,23,42,0.5)] transition-all hover:border-blue-300 hover:bg-blue-50/60 hover:shadow-sm"
                                                 >
                                                     <div className="flex items-center gap-3 overflow-hidden">
-                                                        <div className="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center shrink-0 group-hover:bg-blue-100 transition-colors">
+                                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 ring-1 ring-slate-200 transition-colors group-hover:bg-blue-100 group-hover:ring-blue-200">
                                                             <Building className="w-5 h-5 text-slate-500 group-hover:text-blue-600" />
                                                         </div>
                                                         <div className="overflow-hidden">
-                                                            <p className="font-semibold text-slate-800 text-sm truncate">{company.name}</p>
-                                                            <p className="text-xs text-slate-400 font-mono mt-0.5">NIT: {company.doc}</p>
+                                                            <p className="truncate text-sm font-extrabold text-slate-900">{company.name}</p>
+                                                            <p className="mt-0.5 font-mono text-[11px] font-semibold text-slate-400">NIT: {company.doc}</p>
                                                         </div>
                                                     </div>
                                                     <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 shrink-0 opacity-0 group-hover:opacity-100 transition-all transform translate-x-[-10px] group-hover:translate-x-0" />
@@ -360,20 +421,20 @@ const Login = () => {
                                     </div>
                                 </motion.div>
                             ) : (
-                                <motion.div key="credentials" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <button onClick={() => setSelectedCompanyId(null)} className="text-sm text-slate-500 hover:text-blue-600 flex items-center transition-colors font-medium">
+                                <motion.div key="credentials" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-5">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <button onClick={() => setSelectedCompanyId(null)} className="flex items-center text-xs font-bold text-slate-500 transition-colors hover:text-blue-600">
                                             <ChevronLeft className="w-4 h-4 mr-0.5" /> Volver a selección
                                         </button>
                                     </div>
 
-                                    <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-4">
-                                        <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm", selectedCompanyId === 'general_admin' ? "bg-purple-100 text-purple-600" : "bg-blue-100 text-blue-600")}>
+                                    <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/50 p-4 shadow-sm">
+                                        <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1", selectedCompanyId === 'general_admin' ? "bg-violet-100 text-violet-600 ring-violet-200" : "bg-blue-100 text-blue-600 ring-blue-200")}>
                                             {selectedCompanyId === 'general_admin' ? <Shield className="w-6 h-6" /> : <Building className="w-6 h-6" />}
                                         </div>
                                         <div className="overflow-hidden">
-                                            <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Ingresando a</p>
-                                            <p className="text-base font-bold text-slate-900 truncate">
+                                            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Ingresando a</p>
+                                            <p className="mt-0.5 truncate text-sm font-black text-slate-950 sm:text-base">
                                                 {selectedCompanyId === 'general_admin' ? 'Administración General' : companies.find(c => c.id === selectedCompanyId)?.name}
                                             </p>
                                         </div>
@@ -381,21 +442,36 @@ const Login = () => {
 
                                     <form onSubmit={handleLoginSubmit} className="space-y-5">
                                         <div className="space-y-2">
-                                            <Label className="text-xs font-bold text-slate-700 uppercase">Usuario</Label>
+                                            <Label className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-slate-600">Usuario</Label>
                                             <div className="relative group">
                                                 <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
-                                                <input type="text" autoFocus value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-white shadow-sm rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Ingresa tu usuario" />
+                                                <input type="text" autoFocus autoComplete="username" value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)} className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm font-semibold text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" placeholder="Ingresa tu usuario" />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <Label className="text-xs font-bold text-slate-700 uppercase">Contraseña</Label>
+                                            <Label className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-slate-600">Contraseña</Label>
                                             <div className="relative group">
                                                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
-                                                <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="w-full pl-10 pr-4 h-12 border border-slate-200 bg-white shadow-sm rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="••••••••" />
+                                                <input
+                                                    type={showLoginPassword ? 'text' : 'password'}
+                                                    autoComplete="current-password"
+                                                    value={loginPassword}
+                                                    onChange={(e) => setLoginPassword(e.target.value)}
+                                                    className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-12 text-sm font-semibold text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60"
+                                                    placeholder="••••••••"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowLoginPassword(prev => !prev)}
+                                                    className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                                    aria-label={showLoginPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                                                >
+                                                    {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                </button>
                                             </div>
                                         </div>
                                         
-                                        <Button type="submit" className="w-full h-12 text-base bg-slate-900 hover:bg-slate-800 shadow-lg rounded-xl font-medium tracking-wide transition-all active:scale-95 mt-2">
+                                        <Button type="submit" className="mt-1 h-12 w-full rounded-xl bg-gradient-to-r from-blue-700 to-blue-600 text-sm font-extrabold tracking-wide text-white shadow-lg shadow-blue-900/15 transition-all hover:from-blue-600 hover:to-blue-500 active:scale-[0.99] sm:text-base">
                                             Entrar al Sistema <ArrowRight className="w-5 h-5 ml-2" />
                                         </Button>
                                     </form>
@@ -406,10 +482,10 @@ const Login = () => {
 
                     <TabsContent value="register" className="mt-0">
                         {regStep === 1 && (
-                            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
-                                <div className="bg-blue-50 p-5 rounded-xl flex gap-3 items-start border border-blue-100">
-                                    <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
-                                    <div className="text-sm text-blue-800 leading-relaxed">
+                            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-5">
+                                <div className="flex items-start gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-cyan-50/50 p-4 shadow-sm">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white"><AlertCircle className="h-4 w-4" /></div>
+                                    <div className="text-sm leading-6 text-blue-900">
                                         Para comenzar el registro, ingresa el <strong>NIT</strong> y el <strong>Código de Activación</strong> emitido por el Administrador General.
                                     </div>
                                 </div>
@@ -418,25 +494,25 @@ const Login = () => {
                                         <Label>NIT / Documento Empresa Raíz</Label>
                                         <div className="relative">
                                             <Hash className="absolute left-3 top-3.5 text-slate-400 w-4 h-4" />
-                                            <input value={rootAuth.doc} onChange={e => setRootAuth({...rootAuth, doc: e.target.value})} className="w-full pl-10 h-12 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: 900123456" />
+                                            <input value={rootAuth.doc} onChange={e => setRootAuth({...rootAuth, doc: e.target.value})} className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm font-semibold outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" placeholder="Ej: 900123456" />
                                         </div>
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Código de Activación</Label>
                                         <div className="relative">
                                             <Key className="absolute left-3 top-3.5 text-slate-400 w-4 h-4" />
-                                            <input value={rootAuth.serial} onChange={e => setRootAuth({...rootAuth, serial: e.target.value})} className="w-full pl-10 h-12 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" placeholder="Pegar código seguro..." />
+                                            <input value={rootAuth.serial} onChange={e => setRootAuth({...rootAuth, serial: e.target.value})} className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 font-mono text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" placeholder="Pegar código seguro..." />
                                         </div>
                                     </div>
-                                    <Button onClick={handleStartRegistration} className="w-full bg-slate-900 hover:bg-slate-800 h-12 rounded-xl text-base font-medium">
+                                    <Button onClick={handleStartRegistration} className="h-12 w-full rounded-xl bg-slate-950 text-sm font-extrabold text-white shadow-lg shadow-slate-900/10 hover:bg-slate-800 sm:text-base">
                                         Validar y Continuar <ArrowRight className="w-4 h-4 ml-2" />
                                     </Button>
                                 </div>
                             </motion.div>
                         )}
                         {regStep === 2 && (
-                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col md:flex-row gap-6 h-[500px]">
-                                <div className="w-full md:w-1/3 flex flex-col border-r pr-6 gap-4">
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex min-h-[500px] flex-col gap-5 md:h-[500px] md:flex-row md:gap-6">
+                                <div className="flex w-full flex-col gap-4 md:w-1/3 md:border-r md:border-slate-200 md:pr-6">
                                     <h3 className="font-semibold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wide">
                                         <Layers className="w-4 h-4" /> Estructura
                                     </h3>
@@ -471,8 +547,8 @@ const Login = () => {
                                                 <span className="bg-blue-100 text-blue-700 text-[10px] font-extrabold px-2 py-1 rounded uppercase tracking-wider">Empresa Matriz</span>
                                             )}
                                         </div>
-                                        <div className="grid grid-cols-2 gap-5 mb-6">
-                                            <div className="space-y-2 col-span-2">
+                                        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
+                                            <div className="space-y-2 sm:col-span-2">
                                                 <Label>Nombre de la Empresa / Razón Social</Label>
                                                 <div className="relative">
                                                     <Building className="absolute left-3 top-3 text-slate-400 w-4 h-4" />
@@ -494,7 +570,7 @@ const Login = () => {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="space-y-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
+                                        <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
                                             <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
                                                 <Lock className="w-3 h-3" /> Credenciales de Acceso
                                             </p>
@@ -503,7 +579,7 @@ const Login = () => {
                                                     <Label className="text-xs">Usuario Administrador</Label>
                                                     <input value={formData.username} onChange={e => handleFormChange('username', e.target.value)} className="w-full p-2.5 border rounded-lg text-sm bg-white" placeholder="Ej: admin" />
                                                 </div>
-                                                <div className="grid grid-cols-2 gap-4">
+                                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                                     <div className="space-y-1">
                                                         <Label className="text-xs text-green-700 font-semibold">Clave Maestra</Label>
                                                         <input type="password" value={formData.password} onChange={e => handleFormChange('password', e.target.value)} className="w-full p-2.5 border border-green-200 rounded-lg text-sm bg-white focus:ring-green-500" placeholder="Acceso Total" />
@@ -516,9 +592,9 @@ const Login = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="pt-4 mt-4 border-t flex justify-end gap-3">
+                                    <div className="mt-4 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end sm:gap-3">
                                         <Button variant="outline" onClick={() => setRegStep(1)}>Cancelar</Button>
-                                        <Button className="bg-green-600 hover:bg-green-700" onClick={handleFinalizeRegistration}>
+                                        <Button className="rounded-xl bg-emerald-600 font-bold text-white hover:bg-emerald-500" onClick={handleFinalizeRegistration}>
                                             <Save className="w-4 h-4 mr-2" /> Guardar Registro
                                         </Button>
                                     </div>
@@ -528,10 +604,11 @@ const Login = () => {
                     </TabsContent>
                 </Tabs>
            </div>
-           <div className="bg-slate-50 p-4 border-t border-slate-100 text-center text-xs text-slate-400 font-medium">
-               &copy; {new Date().getFullYear()} JaiderHerTur26. Todos los derechos reservados.
+           <div className="border-t border-slate-100 bg-slate-50/80 px-4 py-3 text-center text-[10px] font-semibold text-slate-400 sm:text-xs">
+               &copy; {new Date().getFullYear()} HERTUR · Acceso protegido
            </div>
         </motion.div>
+      </div>
       </div>
     </>
   );
