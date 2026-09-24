@@ -14,7 +14,7 @@ const ContactSelector = ({ contacts, value, onChange, placeholder = "Seleccionar
         return [...contacts].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     }, [contacts]);
 
-    const selectedContact = contacts?.find(c => c.id === value);
+    const selectedContact = contacts?.find(c => String(c.id) === String(value));
 
     const getBadgeColor = (cat) => {
         switch(cat) {
@@ -48,7 +48,7 @@ const ContactSelector = ({ contacts, value, onChange, placeholder = "Seleccionar
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[400px] p-0 z-[9999]" align="start">
+            <PopoverContent className="z-[9999] w-[min(420px,calc(100vw-2rem))] p-0" align="start">
                 <Command>
                     <CommandInput placeholder="Buscar contacto..." />
                     <CommandList>
@@ -59,12 +59,12 @@ const ContactSelector = ({ contacts, value, onChange, placeholder = "Seleccionar
                                     key={c.id}
                                     value={c.name}
                                     onSelect={() => {
-                                        onChange(c.id === value ? "" : c.id);
+                                        onChange(String(c.id) === String(value) ? "" : c.id);
                                         setOpen(false);
                                     }}
                                     className="cursor-pointer"
                                 >
-                                    <Check className={cn("mr-2 h-4 w-4", value === c.id ? "opacity-100" : "opacity-0")} />
+                                    <Check className={cn("mr-2 h-4 w-4", String(value) === String(c.id) ? "opacity-100" : "opacity-0")} />
                                     <div className="flex flex-col w-full">
                                         <div className="flex justify-between items-center">
                                             <span className="font-medium text-slate-900">{c.name}</span>

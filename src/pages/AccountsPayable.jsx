@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Plus, Download, Edit2, Trash2, Search, CheckCircle, ClipboardList, Printer, Loader2, Lock, Check, ChevronsUpDown, RotateCcw } from 'lucide-react';
@@ -23,6 +23,9 @@ import { cn } from '@/lib/utils';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { resolveLiquidityAccount, liquidityEndpointOptions } from '@/lib/liquidityAccounts';
 import { isNativeApp, shareJsPdf } from '@/lib/nativeFiles';
+import ContactSelector from '@/components/transactions/ContactSelector';
+import AccountsLedgerHeader from '@/components/accounts/AccountsLedgerHeader';
+import MassIntentionSelector from '@/components/accounts/MassIntentionSelector';
 
 const Highlight = ({ text, highlight }) => {
     if (!highlight || !text) return <>{text}</>;
@@ -45,9 +48,10 @@ const getCategoryName = (code) => {
     return categories[code] || 'OTRAS';
 };
 
-const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) => {
+const AccountSelector = ({ accounts, value, onChange, disabled, placeholder, onAbandon }) => {
     const [open, setOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
+  const selectedInSession = useRef(false);
 
     const selectedAccount = accounts.find(a => a.name === value);
 
@@ -64,8 +68,20 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) =
         return groups;
     }, {});
 
+    const handleOpenChange = nextOpen => {
+        if (nextOpen) {
+            selectedInSession.current = false;
+            setOpen(true);
+            return;
+        }
+        const abandoned = open && !selectedInSession.current && !value;
+        setOpen(false);
+        setSearchQuery("");
+        if (abandoned && onAbandon) setTimeout(onAbandon, 0);
+    };
+
     return (
-        <Popover open={open} onOpenChange={setOpen} modal={true}>
+        <Popover open={open} onOpenChange={handleOpenChange} modal={true}>
             <PopoverTrigger asChild>
                 <Button variant="outline" role="combobox" aria-expanded={open} disabled={disabled} className="w-full justify-between bg-white border-slate-300 text-slate-900 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 text-left font-normal">
                     {selectedAccount ? (
@@ -78,7 +94,7 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) =
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[400px] p-0 z-[60]" align="start">
+            <PopoverContent className="z-[60] w-[min(420px,calc(100vw-2rem))] p-0" align="start">
                 <Command shouldFilter={false} className="w-full">
                     <CommandInput placeholder="Buscar por nombre o código..." value={searchQuery} onValueChange={setSearchQuery} className="h-10" />
                     <CommandList className="max-h-[300px] overflow-y-auto">
@@ -90,7 +106,7 @@ const AccountSelector = ({ accounts, value, onChange, disabled, placeholder }) =
                                     <CommandItem
                                         key={account.id || account.number}
                                         value={account.name}
-                                        onSelect={() => { onChange(account.name); setOpen(false); setSearchQuery(""); }}
+                                        onSelect={() => { selectedInSession.current = true; onChange(account.name); setOpen(false); setSearchQuery(""); }}
                                         className="cursor-pointer hover:bg-slate-100 aria-selected:bg-slate-100"
                                     >
                                         <Check className={cn("mr-2 h-4 w-4 text-blue-600 flex-shrink-0", value === account.name ? "opacity-100" : "opacity-0")} />
@@ -121,6 +137,8 @@ const AccountsPayable = () => {
     const [cashAccounts] = useCompanyData('cash_accounts');
     const [fiscalYears] = useCompanyData('fiscal_years');
     const [monthlyClosings] = useCompanyData('monthly_closings');
+    const [contacts] = useCompanyData('contacts');
+    const [massIntentions, saveMassIntentions] = useCompanyData('mass_intentions');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
     const [trackingDialogOpen, setTrackingDialogOpen] = useState(false);
@@ -175,6 +193,20 @@ const AccountsPayable = () => {
         if (!canEdit && editingPayable) return;
 
         const { isNew, ...data } = payableData;
+        const selectedContact = data.contactId
+            ? (contacts || []).find(contact => String(contact.id) === String(data.contactId))
+            : null;
+        if (selectedContact) {
+            data.supplier = selectedContact.name;
+            data.contact = selectedContact.name;
+        }
+        const linkedIntention = data.massIntentionId
+            ? (massIntentions || []).find(item => String(item.id) === String(data.massIntentionId))
+            : null;
+        if (linkedIntention?.payableId && String(linkedIntention.payableId) !== String(editingPayable?.id || '')) {
+            toast({ variant:'destructive', title:'Intención ya vinculada', description:'Esta intención ya tiene una Cuenta por Pagar asociada.' });
+            return;
+        }
         const amount = Number(data.amount || 0);
         if (!Number.isFinite(amount) || amount <= 0) {
             toast({ variant:'destructive', title:'Monto inválido', description:'La cuenta por pagar debe ser mayor a cero.' });
@@ -193,9 +225,11 @@ const AccountsPayable = () => {
 
         let updatedPayables;
         let updatedTransactions = [...(transactions || [])];
+        let savedPayableId = editingPayable?.id || null;
 
         if (isNew) {
             const newPayableId = Date.now().toString();
+            savedPayableId = newPayableId;
             const voucherNumber = getNextVoucherNumber('adjustment', data.issueDate);
             const ap = payableAccount();
 
@@ -218,6 +252,10 @@ const AccountsPayable = () => {
                 description: `Causación CxP: ${data.description}`,
                 amount,
                 category: data.linkedAccount,
+                contactId: data.contactId || '',
+                contact: data.contact || data.supplier || '',
+                sourceModule: data.massIntentionId ? 'mass_intentions' : 'accounts_payable',
+                massIntentionId: data.massIntentionId || '',
                 debitAccount: { code: String(expense.number), name: expense.name },
                 creditAccount: ap,
                 isPayableAccrual: true,
@@ -272,6 +310,10 @@ const AccountsPayable = () => {
                     description: `Causación CxP: ${data.description}`,
                     amount,
                     category: data.linkedAccount,
+                    contactId: data.contactId || '',
+                    contact: data.contact || data.supplier || '',
+                    sourceModule: data.massIntentionId ? 'mass_intentions' : 'accounts_payable',
+                    massIntentionId: data.massIntentionId || '',
                     debitAccount: { code: String(expense.number), name: expense.name },
                     creditAccount: ap,
                     destination: undefined,
@@ -285,6 +327,20 @@ const AccountsPayable = () => {
 
         saveTransactions(updatedTransactions);
         savePayables(updatedPayables);
+
+        const previousMassIntentionId = editingPayable?.massIntentionId || '';
+        if (previousMassIntentionId || data.massIntentionId) {
+            saveMassIntentions((massIntentions || []).map(item => {
+                if (String(item.id) === String(previousMassIntentionId) && String(previousMassIntentionId) !== String(data.massIntentionId || '')) {
+                    return { ...item, payableId: '' };
+                }
+                if (String(item.id) === String(data.massIntentionId || '')) {
+                    return { ...item, payableId: savedPayableId };
+                }
+                return item;
+            }));
+        }
+
         setDialogOpen(false);
     };
 
@@ -320,6 +376,11 @@ const AccountsPayable = () => {
         }
         saveTransactions((transactions || []).filter(t => t.id !== accrual?.id));
         savePayables((payables || []).filter(p => p.id !== id));
+        if (target?.massIntentionId) {
+            saveMassIntentions((massIntentions || []).map(item =>
+                String(item.id) === String(target.massIntentionId) ? { ...item, payableId: '' } : item
+            ));
+        }
         toast({ title: "Cuenta por pagar eliminada", description: "Se retiró también su causación contable." });
     };
 
@@ -414,6 +475,9 @@ const AccountsPayable = () => {
             description: `Pago CxP: ${payable.description}`,
             amount: paymentAmount,
             category: ap.name,
+            contactId: payable.contactId || '',
+            contact: payable.contact || payable.supplier || '',
+            massIntentionId: payable.massIntentionId || '',
             destination: origin,
             debitAccount: ap,
             creditAccount: { code: liquidity.code, name: liquidity.name },
@@ -594,55 +658,108 @@ const AccountsPayable = () => {
         })), `Cuentas_Por_Pagar`);
     };
 
-    const filteredPayables = (payables || []).filter(p =>
-        p.supplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.description.toLowerCase().includes(searchTerm.toLowerCase())
-    ).sort((a, b) => accountingDateValue(a.dueDate) - accountingDateValue(b.dueDate));
+    const filteredPayables = (payables || []).filter(p => {
+        const search = searchTerm.toLowerCase();
+        return String(p.supplier || '').toLowerCase().includes(search) ||
+            String(p.contact || '').toLowerCase().includes(search) ||
+            String(p.description || '').toLowerCase().includes(search);
+    }).sort((a, b) => accountingDateValue(a.dueDate) - accountingDateValue(b.dueDate));
+
+    const ledgerStats = useMemo(() => {
+        const today = format(new Date(), 'yyyy-MM-dd');
+        return (payables || []).reduce((stats, item) => {
+            const paid = item.paidAmount != null
+                ? Number(item.paidAmount || 0)
+                : (item.payments || []).filter(p => !p.reversedAt).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+            const balance = Math.max(0, Number(item.amount || 0) - paid);
+            if (!['Pagado', 'Anulada'].includes(item.status)) stats.outstanding += balance;
+            if (['Pendiente', 'Parcial'].includes(item.status) && item.dueDate && item.dueDate < today) stats.overdue += 1;
+            if (item.status === 'Parcial') stats.partial += 1;
+            if (item.massIntentionId) stats.massLinked += 1;
+            return stats;
+        }, { outstanding: 0, overdue: 0, partial: 0, massLinked: 0 });
+    }, [payables]);
 
     return (
         <>
             <Helmet><title>Cuentas por Pagar - JaiderHerTur26</title></Helmet>
-            <div className="space-y-6">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div><h1 className="text-4xl font-bold text-slate-900">Cuentas por Pagar</h1><p className="text-slate-600">Gestiona tus deudas y obligaciones con proveedores.</p></div>
-                    <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1" />{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
-                        {canAdd && <Button onClick={() => { setEditingPayable(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-red-600 hover:bg-red-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
-                    </div>
-                </motion.div>
-
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-lg p-6 border flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px] relative"><Label>Buscar:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Proveedor o descripción..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full mt-1 pl-10 pr-4 py-2 border rounded-lg" /></div>
-                    <div className="flex gap-2 flex-wrap"><Button onClick={handleExport} variant="outline"><Download className="w-4 h-4 mr-2" /> Exportar</Button></div>
-                </motion.div>
+            <div className="space-y-5 sm:space-y-6">
+                <AccountsLedgerHeader
+                    kind="payable"
+                    activeCompany={activeCompany}
+                    isReadOnly={isReadOnly}
+                    isConsolidatedReadOnly={isConsolidatedReadOnly}
+                    canAdd={canAdd}
+                    stats={ledgerStats}
+                    searchTerm={searchTerm}
+                    setSearchTerm={setSearchTerm}
+                    onNew={() => { setEditingPayable(null); setDialogOpen(true); }}
+                    onExport={handleExport}
+                />
 
                 {filteredPayables.length === 0 ? (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16 bg-white rounded-xl shadow-lg border">
-                        <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
-                        <p className="text-slate-500">¡Felicidades! No tienes cuentas por pagar pendientes.</p>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-3xl border border-slate-200 bg-white py-16 text-center shadow-sm">
+                        <CheckCircle className="mx-auto mb-4 h-14 w-14 text-emerald-400" />
+                        <p className="font-semibold text-slate-700">No hay cuentas por pagar en esta búsqueda.</p>
+                        <p className="mt-1 text-sm text-slate-400">Las obligaciones aparecerán aquí cuando registres una nueva cuenta.</p>
                     </motion.div>
                 ) : (
-                    <div className="bg-white rounded-xl shadow-lg border overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[820px] text-sm">
-                        <thead className="bg-slate-50"><tr>{['Proveedor', 'Descripción', 'Vencimiento', 'Monto', 'Estado', 'Acciones'].map(h => <th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
-                        <tbody className="divide-y">{filteredPayables.map(p => (<tr key={p.id} className={`hover:bg-slate-50 ${['Pagado','Anulada'].includes(p.status) ? 'text-slate-400' : ''}`}>
-                            <td className="p-3 font-medium">{p.supplier}</td><td className="p-3">{p.description}{p.contractManaged&&<div className="text-[11px] text-blue-600 font-semibold">Contrato · trazabilidad protegida</div>}</td><td className="p-3">{format(parseAccountingDate(p.dueDate), 'dd/MM/yyyy', { locale: es })}</td><td className="p-3 font-mono">${parseFloat(p.amount).toLocaleString('es-ES')}{p.contractManaged&&<div className="text-[11px] text-amber-700">Saldo: ${Math.max(0,Number(p.amount||0)-Number(p.paidAmount != null ? p.paidAmount : (p.status==='Pagado'?p.amount:0))).toLocaleString('es-CO')}</div>}</td>
-                            <td className="p-3"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${p.status === 'Pagado' ? 'bg-green-100 text-green-800' : p.status === 'Parcial' ? 'bg-blue-100 text-blue-800' : p.status === 'Anulada' ? 'bg-slate-200 text-slate-600' : 'bg-yellow-100 text-yellow-800'}`}>{p.status}</span></td>
-                            <td className="p-3"><div className="flex gap-1">
-                                {['Pendiente','Parcial'].includes(p.status) && (
-                                    <>
-                                        {!p.contractManaged&&<Button size="icon" variant="ghost" className="hover:text-blue-600" onClick={() => { setPayableForTracking(p); setTrackingDialogOpen(true); }} title="Hoja de Apuntes"><ClipboardList className="w-4 h-4" /></Button>}
-                                        {canAdd && <Button size="icon" variant="ghost" className="hover:text-green-600" onClick={() => { setPayableToPay(p); setPaymentDialogOpen(true); }} title="Registrar pago / abono oficial"><CheckCircle className="w-4 h-4" /></Button>}
-                                    </>
-                                )}
-                                {p.contractManaged&&canEdit&&(p.payments||[]).some(pay=>!pay.reversedAt)&&<Button size="icon" variant="ghost" className="hover:text-amber-600" onClick={()=>handleReverseLastContractPayment(p)} title="Reversar último pago contractual"><RotateCcw className="w-4 h-4"/></Button>}
-                                {canEdit && !p.contractManaged && <Button size="icon" variant="ghost" onClick={() => { setEditingPayable(p); setDialogOpen(true); }}><Edit2 className="w-4 h-4" /></Button>}
-                                {canDelete && !p.contractManaged && <Button size="icon" variant="ghost" className="hover:text-red-600" onClick={() => handleDeletePayable(p.id)}><Trash2 className="w-4 h-4" /></Button>}
-                            </div></td>
-                        </tr>))}</tbody>
-                    </table></div>
+                    <>
+                        <div className="space-y-3 md:hidden">
+                            {filteredPayables.map(p => {
+                                const paid = p.paidAmount != null ? Number(p.paidAmount || 0) : (p.payments || []).filter(x=>!x.reversedAt).reduce((sum,x)=>sum+Number(x.amount||0),0);
+                                const balance = Math.max(0, Number(p.amount || 0) - paid);
+                                const overdue = ['Pendiente','Parcial'].includes(p.status) && p.dueDate && p.dueDate < format(new Date(), 'yyyy-MM-dd');
+                                return (
+                                    <article key={p.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${overdue ? 'border-l-4 border-l-amber-500' : 'border-slate-200'}`}>
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="font-bold text-slate-950">{p.supplier || p.contact || 'Sin proveedor'}</span>
+                                                    {p.massIntentionId && <span className="rounded-full bg-[#f3ede5] px-2 py-1 text-[9px] font-extrabold uppercase tracking-wide text-[#6f5438]">Intención de Misa</span>}
+                                                    {p.contractManaged && <span className="rounded-full bg-blue-50 px-2 py-1 text-[9px] font-extrabold uppercase tracking-wide text-blue-700">Contrato</span>}
+                                                </div>
+                                                <p className="mt-1 text-sm leading-5 text-slate-600">{p.description}</p>
+                                            </div>
+                                            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${p.status==='Pagado'?'bg-emerald-50 text-emerald-700':p.status==='Parcial'?'bg-blue-50 text-blue-700':p.status==='Anulada'?'bg-slate-100 text-slate-500':'bg-amber-50 text-amber-700'}`}>{p.status}</span>
+                                        </div>
+                                        <div className="mt-4 grid grid-cols-3 gap-2">
+                                            <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Vence</p><p className="mt-1 text-xs font-bold text-slate-700">{format(parseAccountingDate(p.dueDate),'dd/MM/yyyy',{locale:es})}</p></div>
+                                            <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Original</p><p className="mt-1 whitespace-nowrap font-mono text-[11px] font-bold text-slate-800">${Number(p.amount||0).toLocaleString('es-CO')}</p></div>
+                                            <div className="rounded-xl bg-rose-50 p-2.5"><p className="text-[9px] font-bold uppercase tracking-wide text-rose-600">Saldo</p><p className="mt-1 whitespace-nowrap font-mono text-[11px] font-black text-rose-800">${balance.toLocaleString('es-CO')}</p></div>
+                                        </div>
+                                        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                                            {['Pendiente','Parcial'].includes(p.status) && !p.contractManaged && <Button variant="outline" className="rounded-xl" onClick={()=>{setPayableForTracking(p);setTrackingDialogOpen(true)}}><ClipboardList className="mr-2 h-4 w-4"/>Apuntes</Button>}
+                                            {['Pendiente','Parcial'].includes(p.status) && canAdd && <Button className="rounded-xl bg-rose-600 hover:bg-rose-700" onClick={()=>{setPayableToPay(p);setPaymentDialogOpen(true)}}><CheckCircle className="mr-2 h-4 w-4"/>Pagar</Button>}
+                                            {p.contractManaged&&canEdit&&(p.payments||[]).some(pay=>!pay.reversedAt)&&<Button variant="outline" className="rounded-xl text-amber-700" onClick={()=>handleReverseLastContractPayment(p)}><RotateCcw className="mr-2 h-4 w-4"/>Reversar</Button>}
+                                            {canEdit&&!p.contractManaged&&<Button variant="outline" className="rounded-xl" onClick={()=>{setEditingPayable(p);setDialogOpen(true)}}><Edit2 className="mr-2 h-4 w-4"/>Editar</Button>}
+                                            {canDelete&&!p.contractManaged&&<Button variant="outline" className="rounded-xl border-rose-200 text-rose-700" onClick={()=>handleDeletePayable(p.id)}><Trash2 className="mr-2 h-4 w-4"/>Eliminar</Button>}
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                        <div className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm md:block">
+                            <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-sm">
+                                <thead className="bg-slate-950 text-slate-200"><tr>{['Proveedor / Contacto','Descripción','Vencimiento','Monto / Saldo','Estado','Acciones'].map(h=><th key={h} className="p-3 text-left font-semibold">{h}</th>)}</tr></thead>
+                                <tbody className="divide-y divide-slate-100">{filteredPayables.map(p=>{
+                                    const paid=p.paidAmount!=null?Number(p.paidAmount||0):(p.payments||[]).filter(x=>!x.reversedAt).reduce((s,x)=>s+Number(x.amount||0),0);
+                                    const balance=Math.max(0,Number(p.amount||0)-paid);
+                                    return <tr key={p.id} className="transition-colors hover:bg-rose-50/30">
+                                        <td className="p-3"><div className="font-bold text-slate-900">{p.supplier}</div><div className="mt-1 flex gap-2">{p.massIntentionId&&<span className="text-[10px] font-bold uppercase tracking-wide text-[#8b6f4e]">Intención de Misa</span>}{p.contractManaged&&<span className="text-[10px] font-bold uppercase tracking-wide text-blue-700">Contrato protegido</span>}</div></td>
+                                        <td className="p-3 text-slate-600">{p.description}</td>
+                                        <td className="p-3 whitespace-nowrap">{format(parseAccountingDate(p.dueDate),'dd/MM/yyyy',{locale:es})}</td>
+                                        <td className="p-3"><div className="font-mono font-bold">${Number(p.amount||0).toLocaleString('es-CO')}</div><div className="text-[11px] text-rose-700">Saldo: ${balance.toLocaleString('es-CO')}</div></td>
+                                        <td className="p-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${p.status==='Pagado'?'bg-emerald-100 text-emerald-800':p.status==='Parcial'?'bg-blue-100 text-blue-800':p.status==='Anulada'?'bg-slate-200 text-slate-600':'bg-amber-100 text-amber-800'}`}>{p.status}</span></td>
+                                        <td className="p-3"><div className="flex gap-1">{['Pendiente','Parcial'].includes(p.status)&&!p.contractManaged&&<Button size="icon" variant="ghost" onClick={()=>{setPayableForTracking(p);setTrackingDialogOpen(true)}}><ClipboardList className="h-4 w-4"/></Button>}{['Pendiente','Parcial'].includes(p.status)&&canAdd&&<Button size="icon" variant="ghost" className="text-rose-700" onClick={()=>{setPayableToPay(p);setPaymentDialogOpen(true)}}><CheckCircle className="h-4 w-4"/></Button>}{p.contractManaged&&canEdit&&(p.payments||[]).some(pay=>!pay.reversedAt)&&<Button size="icon" variant="ghost" className="text-amber-600" onClick={()=>handleReverseLastContractPayment(p)}><RotateCcw className="h-4 w-4"/></Button>}{canEdit&&!p.contractManaged&&<Button size="icon" variant="ghost" onClick={()=>{setEditingPayable(p);setDialogOpen(true)}}><Edit2 className="h-4 w-4"/></Button>}{canDelete&&!p.contractManaged&&<Button size="icon" variant="ghost" className="text-rose-600" onClick={()=>handleDeletePayable(p.id)}><Trash2 className="h-4 w-4"/></Button>}</div></td>
+                                    </tr>
+                                })}</tbody>
+                            </table></div>
+                        </div>
+                    </>
                 )}
             </div>
-            <PayableDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSavePayable} payable={editingPayable} accounts={accounts} />
+            <PayableDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleSavePayable} payable={editingPayable} accounts={accounts} contacts={contacts} massIntentions={massIntentions} />
             <PaymentDialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen} onSave={handleMarkAsPaid} payable={payableToPay} bankAccounts={bankAccounts} cashAccounts={cashAccounts} />
             <TrackingSheetDialog open={trackingDialogOpen} onOpenChange={setTrackingDialogOpen} onSave={handleSaveTracking} payable={payableForTracking} type="payable" onPrint={openPrintPreview} canAdd={canAdd} />
 
@@ -788,50 +905,75 @@ const TrackingSheetDialog = ({ open, onOpenChange, onSave, payable, type, onPrin
 };
 
 
-const PayableDialog = ({ open, onOpenChange, onSave, payable, accounts }) => {
-    const defaultData = { supplier: '', description: '', issueDate: format(new Date(), 'yyyy-MM-dd'), dueDate: '', amount: '', linkedAccount: '' };
+const PayableDialog = ({ open, onOpenChange, onSave, payable, accounts, contacts, massIntentions }) => {
+    const defaultData = { supplier: '', contactId: '', massIntentionId: '', description: '', issueDate: format(new Date(), 'yyyy-MM-dd'), dueDate: '', amount: '', linkedAccount: '' };
     const [data, setData] = useState(defaultData);
     const { toast } = useToast();
 
     useEffect(() => {
-        if (open) {
-            if (payable) setData(payable);
-            else setData(defaultData);
-        }
+        if (!open) return;
+        setData(payable ? { ...defaultData, ...payable } : defaultData);
     }, [payable, open]);
+
+    const expenseAccounts = Array.isArray(accounts)
+        ? accounts.filter(a => a && a.number && String(a.number).startsWith('5')).sort((a,b)=>(a.name || '').localeCompare(b.name || ''))
+        : [];
+
+    const handleContactChange = contactId => {
+        const contact = (contacts || []).find(c => String(c.id) === String(contactId));
+        setData(prev => ({ ...prev, contactId, supplier: contact?.name || prev.supplier }));
+    };
+
+    const handleIntentionChange = intentionId => {
+        if (!intentionId) return setData(prev => ({ ...prev, massIntentionId: '' }));
+        const intention = (massIntentions || []).find(item => String(item.id) === String(intentionId));
+        if (!intention) return;
+        if (intention.payableId && String(intention.payableId) !== String(payable?.id || '')) {
+            toast({ variant:'destructive', title:'Intención ya vinculada', description:'Esta intención ya tiene una Cuenta por Pagar asociada.' });
+            return;
+        }
+        const contact = (contacts || []).find(c => String(c.id) === String(intention.contactId));
+        setData(prev => ({
+            ...prev,
+            massIntentionId: intention.id,
+            contactId: intention.contactId || prev.contactId,
+            supplier: contact?.name || intention.contact || prev.supplier,
+            description: prev.description || `Obligación vinculada a intención de Misa: ${intention.name || 'Sin nombre'}`,
+        }));
+    };
 
     const handleSubmit = e => {
         e.preventDefault();
         if (!data.linkedAccount) {
-            toast({ variant: 'destructive', title: 'Campo Requerido', description: 'Debes seleccionar la cuenta de gasto contrapartida.' });
+            toast({ variant:'destructive', title:'Campo requerido', description:'Debes seleccionar la cuenta de gasto contrapartida.' });
             return;
         }
         onSave({ ...data, isNew: !payable });
     };
 
-    const expenseAccounts = Array.isArray(accounts)
-        ? accounts
-            .filter(a => a && a.number && a.number.toString().startsWith("5")) // 5 = EGRESOS
-            .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-        : [];
+    const inputClass = 'h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-rose-300 focus:bg-white focus:ring-4 focus:ring-rose-100/60';
 
-    return (<Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{payable ? 'Editar' : 'Nueva'} Cuenta por Pagar</DialogTitle></DialogHeader><form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
-        <div className="md:col-span-2 space-y-1"><Label>Proveedor</Label><input required value={data.supplier} onChange={e => setData({ ...data, supplier: e.target.value })} className="w-full p-2 border rounded-lg" /></div>
-        <div className="md:col-span-2 space-y-1"><Label>Descripción</Label><input required value={data.description} onChange={e => setData({ ...data, description: e.target.value })} className="w-full p-2 border rounded-lg" /></div>
-        <div className="space-y-1"><Label>Fecha de Emisión</Label><input type="date" required value={data.issueDate} onChange={e => setData({ ...data, issueDate: e.target.value })} className="w-full p-2 border rounded-lg" /></div>
-        <div className="space-y-1"><Label>Fecha de Vencimiento</Label><input type="date" required value={data.dueDate} onChange={e => setData({ ...data, dueDate: e.target.value })} className="w-full p-2 border rounded-lg" /></div>
-        <div className="space-y-1"><Label>Monto</Label><input type="number" step="0.01" required value={data.amount} onChange={e => setData({ ...data, amount: e.target.value })} className="w-full p-2 border rounded-lg" /></div>
-        <div className="space-y-1">
-            <Label>Contrapartida (Cuenta de Gasto)</Label>
-            <AccountSelector
-                accounts={expenseAccounts}
-                value={data.linkedAccount}
-                onChange={value => setData({ ...data, linkedAccount: value })}
-                placeholder="Seleccionar Gasto"
-            />
-        </div>
-        <div className="md:col-span-2 flex justify-end gap-2 pt-4"><DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose><Button type="submit" className="bg-red-600 hover:bg-red-700">Guardar</Button></div>
-    </form></DialogContent></Dialog>);
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-xl">
+                <DialogHeader>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-rose-600">Obligaciones</p>
+                    <DialogTitle>{payable ? 'Editar' : 'Nueva'} Cuenta por Pagar</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 pt-2 md:grid-cols-2">
+                    <div className="md:col-span-2 space-y-1.5"><Label>Contacto / Proveedor</Label><ContactSelector contacts={contacts || []} value={data.contactId || ''} onChange={handleContactChange} placeholder="Seleccionar contacto..." /></div>
+                    <div className="md:col-span-2 space-y-1.5"><Label>Intención de Misa vinculada <span className="font-normal text-slate-400">(Opcional)</span></Label><MassIntentionSelector intentions={massIntentions || []} value={data.massIntentionId || ''} onChange={handleIntentionChange} excludePayable placeholder="Vincular intención..." /></div>
+                    <div className="md:col-span-2 space-y-1.5"><Label>Proveedor</Label><input required value={data.supplier} onChange={e=>setData({...data,supplier:e.target.value})} className={inputClass}/></div>
+                    <div className="md:col-span-2 space-y-1.5"><Label>Descripción</Label><input required value={data.description} onChange={e=>setData({...data,description:e.target.value})} className={inputClass}/></div>
+                    <div className="space-y-1.5"><Label>Fecha de Emisión</Label><input type="date" required value={data.issueDate} onChange={e=>setData({...data,issueDate:e.target.value})} className={inputClass}/></div>
+                    <div className="space-y-1.5"><Label>Fecha de Vencimiento</Label><input type="date" required value={data.dueDate} onChange={e=>setData({...data,dueDate:e.target.value})} className={inputClass}/></div>
+                    <div className="space-y-1.5"><Label>Monto</Label><input type="number" step="0.01" min="0.01" required value={data.amount} onChange={e=>setData({...data,amount:e.target.value})} className={inputClass}/></div>
+                    <div className="space-y-1.5"><Label>Contrapartida (Cuenta de Gasto)</Label><AccountSelector accounts={expenseAccounts} value={data.linkedAccount} onChange={value=>setData({...data,linkedAccount:value})} onAbandon={!payable ? ()=>onOpenChange(false) : undefined} placeholder="Seleccionar Gasto"/></div>
+                    <div className="md:col-span-2 grid grid-cols-2 gap-2 pt-3"><DialogClose asChild><Button type="button" variant="outline" className="rounded-xl">Cancelar</Button></DialogClose><Button type="submit" className="rounded-xl bg-rose-600 hover:bg-rose-700">Guardar cuenta</Button></div>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
 };
 
 const PaymentDialog = ({ open, onOpenChange, onSave, payable, bankAccounts, cashAccounts }) => {

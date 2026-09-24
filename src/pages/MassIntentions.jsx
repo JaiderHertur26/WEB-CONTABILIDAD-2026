@@ -165,6 +165,19 @@ const MassIntentions = () => {
         const intentionToDelete = (intentions || []).find(i => i.id === id);
         if (!intentionToDelete) return;
 
+        if (intentionToDelete.receivableId || intentionToDelete.payableId) {
+            const links = [
+                intentionToDelete.receivableId ? 'Cuenta por Cobrar' : null,
+                intentionToDelete.payableId ? 'Cuenta por Pagar' : null,
+            ].filter(Boolean).join(' y ');
+            toast({
+                variant: 'destructive',
+                title: 'Intención con vínculo financiero',
+                description: `Esta intención está vinculada a ${links}. Primero desvincula o elimina esa cuenta para conservar la trazabilidad.`
+            });
+            return;
+        }
+
         const linkedTransaction = intentionToDelete.transactionId
             ? (transactions || []).find(t => String(t.id) === String(intentionToDelete.transactionId))
             : null;
@@ -477,6 +490,12 @@ const MassIntentions = () => {
                         <p className="font-medium text-slate-800 truncate" title={`${prefix}${cleanName}`}>{prefix}{cleanName}</p>
                         {intention.offeredBy && <p className="text-[11px] text-slate-500 italic truncate" title={`Ofrece: ${intention.offeredBy}`}>Ofrece: {intention.offeredBy}</p>}
                         {intention.amount > 0 && <p className="text-[11px] text-slate-400 mt-0.5 truncate">Ofrenda: ${parseFloat(intention.amount).toLocaleString('es-CO')} | <span className="font-semibold">{intention.category}</span>{voucherLabel ? ` | Comp. ${voucherLabel}` : ''}</p>}
+                        {(intention.receivableId || intention.payableId) && (
+                            <div className="mt-1 flex flex-wrap gap-1.5">
+                                {intention.receivableId && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-emerald-700">CxC vinculada</span>}
+                                {intention.payableId && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rose-700">CxP vinculada</span>}
+                            </div>
+                        )}
                         {isAccountingProtected && <p className="text-[10px] text-amber-700 font-semibold mt-0.5 flex items-center gap-1"><Lock className="w-3 h-3" /> Protegida por cierre contable</p>}
                     </div>
                 </div>
