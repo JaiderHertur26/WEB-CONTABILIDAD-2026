@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Helmet } from 'react-helmet';
-import { motion } from 'framer-motion';
-import { Download, Calendar, Printer } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
@@ -16,6 +14,7 @@ import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance
 import { isValid, parseISO } from 'date-fns';
 import { createPrintTarget } from '@/lib/nativePrint';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
+import FinancialReportsView from '@/components/reports/FinancialReportsView';
 
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
@@ -798,129 +797,24 @@ const Reports = () => {
       }
   };
 
-  const renderSheetTable = (items) => (items.map((item, index) => {
-      const leadingSpaces = Math.max(String(item.item || '').search(/\S/), 0);
-      const dynamicPadding = leadingSpaces > 0 ? (leadingSpaces * 8) + 'px' : '0px';
-
-      return (
-          <tr key={index} className={`border-b last:border-none ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''}`}>
-              <td className={`py-2 ${item.isBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${item.isSubtotal ? 'font-semibold text-slate-800' : ''}`} style={{ paddingLeft: dynamicPadding }}>
-                  {item.item}
-              </td>
-              <td className={`py-2 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.isSubtotal ? 'font-semibold text-slate-800' : ''}`}>
-                  {item.amount != null ? (
-                      <span className={item.amount < -0.01 ? 'text-slate-900' : ''}>
-                          ${" "} 
-                          {item.amount < -0.01 
-                              ? `(${Math.abs(item.amount).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` 
-                              : Math.abs(item.amount || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                  ) : ''}
-              </td>
-          </tr>
-      );
-  }));
-
   return (
     <>
       <Helmet><title>Reportes - JaiderHerTur26</title></Helmet>
-      <div className="space-y-8">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row justify-between md:items-center gap-4">
-            <h1 className="text-4xl font-bold text-slate-900 mb-2">Reportes Financieros</h1>
-            
-            {/* 🚀 Nuevo bloque de Rango de Fechas */}
-            <div className="flex flex-wrap items-center gap-4">
-                <div className="flex items-center space-x-2">
-                    <Calendar className="w-5 h-5 text-slate-500" />
-                    <Label className="font-medium text-slate-700">Desde:</Label>
-                    <input 
-                        type="date" 
-                        value={startDate} 
-                        onChange={e => setStartDate(e.target.value)} 
-                        className="border border-slate-300 rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                </div>
-                <div className="flex items-center space-x-2">
-                    <Label className="font-medium text-slate-700">Hasta:</Label>
-                    <input 
-                        type="date" 
-                        value={endDate} 
-                        max={todayDateKey}
-                        onChange={e => setEndDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)} 
-                        className="border border-slate-300 rounded-md px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                </div>
-            </div>
-            
-        </motion.div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"><div className="bg-green-100 p-6 rounded-lg border border-green-200"><p className="text-sm text-green-800">Ingresos Operacionales (P&L)</p><p className="text-2xl font-bold text-green-900">${reportData.summary.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-red-100 p-6 rounded-lg border border-red-200"><p className="text-sm text-red-800">Costos y Gastos (P&L)</p><p className="text-2xl font-bold text-red-900">${reportData.summary.totalExpenses.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-blue-100 p-6 rounded-lg border border-blue-200"><p className="text-sm text-blue-800">Utilidad Neta</p><p className="text-2xl font-bold text-blue-900">${reportData.summary.netProfit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p></div><div className="bg-purple-100 p-6 rounded-lg border border-purple-200"><p className="text-sm text-purple-800">Margen de Ganancia</p><p className="text-2xl font-bold text-purple-900">{reportData.summary.profitMargin}%</p></div></div>
-        
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <div className="bg-white rounded-xl shadow-lg border">
-                <div className="flex justify-between items-center p-6 border-b">
-                    <h2 className="text-xl font-bold text-slate-900">Balance General</h2>
-                    <div className="flex gap-2">
-                        <Button onClick={() => handlePrintClick('balance')} className="bg-blue-600 hover:bg-blue-700 text-white"><Printer className="w-4 h-4 mr-2" /> Imprimir PDF</Button>
-                        <Button onClick={handleExportBalanceSheet} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
-                    </div>
-                </div>
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8"><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Activos</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.assets)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Activos</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.assets?.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tbody></table></div><div><h3 className="text-lg font-semibold mb-2 text-blue-700">Pasivos y Patrimonio</h3><table className="w-full"><tbody>{renderSheetTable(reportData.balanceSheet.liabilities)}</tbody></table><table className="w-full mt-2"><tbody>{renderSheetTable(reportData.balanceSheet.equity)}</tbody></table><table className="w-full mt-2"><tbody><tr className="border-t-2 border-slate-900"><td className="py-2 font-bold">Total Pasivo + Patrimonio</td><td className="py-2 text-right font-mono font-bold">${reportData.balanceSheet.totals.liabilitiesAndEquity?.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td></tr></tbody></table></div></div><div className={`p-4 text-center border-t text-sm font-semibold ${Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{Math.abs(reportData.balanceSheet.totals.assets - reportData.balanceSheet.totals.liabilitiesAndEquity) < 0.01 ? '¡El balance está cuadrado!' : 'El balance no está cuadrado'}</div>
-            </div>
-        </motion.div>
-        
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-            <div className="bg-white rounded-xl shadow-lg border">
-                <div className="flex justify-between items-center p-6 border-b">
-                    <h2 className="text-xl font-bold text-slate-900">Estado de Resultados</h2>
-                    <div className="flex gap-2">
-                        <Button onClick={() => handlePrintClick('pnl')} className="bg-blue-600 hover:bg-blue-700 text-white"><Printer className="w-4 h-4 mr-2" /> Imprimir PDF</Button>
-                        <Button onClick={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
-                    </div>
-                </div>
-                <div className="p-6"><table className="w-full"><tbody>{reportData.incomeStatement.map((item, index) => (<tr key={index} className={`border-b last:border-none ${item.isTotal ? 'bg-blue-100/50' : ''} ${item.isSubtotal ? 'bg-slate-50' : ''} ${item.isTopBorder ? 'border-t-2 border-slate-300' : ''}`}><td className={`py-3 ${item.isBold ? 'font-bold text-slate-900' : 'text-slate-600'} pl-${Math.max(String(item.item).search(/\\S/), 0) * 2}`}>{item.item.trim()}</td><td className={`py-3 text-right font-mono ${item.isBold ? 'font-bold' : ''} ${item.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}>{item.amount != null ? `$${parseFloat(item.amount).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td></tr>))}</tbody></table></div>
-            </div>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-            <div className="bg-white rounded-xl shadow-lg border">
-                <div className="flex justify-between items-center p-6 border-b">
-                    <h2 className="text-xl font-bold text-slate-900">Flujo de Efectivo</h2>
-                    <div className="flex gap-2">
-                        <Button onClick={() => handlePrintClick('cashflow')} className="bg-blue-600 hover:bg-blue-700 text-white"><Printer className="w-4 h-4 mr-2" /> Imprimir PDF</Button>
-                        <Button onClick={handleExportCashFlow} variant="outline"><Download className="w-4 h-4 mr-2" /> Excel</Button>
-                    </div>
-                </div>
-                <div className="p-6">
-                    <table className="w-full text-sm">
-                        <tbody>
-                            <tr className="border-b"><td className="py-2 font-bold text-slate-800" colSpan="2">Fuentes:</td></tr>
-                            <tr className="border-b"><td className="py-2 pl-4 text-slate-600">Disponible Inicial (Caja-Bancos)</td><td className="py-2 text-right font-mono">${(reportData.cashFlow?.initial || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Más: Entradas reales de efectivo del período</td><td className="py-2 text-right font-mono font-bold text-green-700">${(reportData.cashFlow?.totalSources || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            {(reportData.cashFlow?.sources || []).map((source, index) => (
-                                <tr key={"cash-source-" + index} className="border-b"><td className="py-1.5 pl-9 text-slate-600">{source.item}</td><td className="py-1.5 text-right font-mono text-slate-700">${(source.amount || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            ))}
-                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Disponible</td><td className="py-2 text-right font-mono font-bold text-slate-900">${((reportData.cashFlow?.initial || 0) + (reportData.cashFlow?.totalSources || 0)).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            
-                            <tr className="border-b mt-4"><td className="py-2 font-bold text-slate-800" colSpan="2"><br/>Usos de Fondo:</td></tr>
-                            <tr className="border-b bg-slate-50"><td className="py-2 pl-4 font-bold text-slate-800">Menos: Salidas reales de efectivo del período</td><td className="py-2 text-right font-mono font-bold text-red-700">${(reportData.cashFlow?.totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            {(reportData.cashFlow?.uses || []).map((use, index) => (
-                                <tr key={"cash-use-" + index} className="border-b"><td className="py-1.5 pl-9 text-slate-600">{use.item}</td><td className="py-1.5 text-right font-mono text-slate-700">${(use.amount || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            ))}
-                            <tr className="border-b-2 border-slate-800"><td className="py-2 pl-4 font-bold text-slate-900">Total Usos de Fondo</td><td className="py-2 text-right font-mono font-bold text-slate-900">${(reportData.cashFlow?.totalUses || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                            
-                            <tr className="bg-blue-100/50"><td className="py-3 pl-4 font-bold text-blue-900 text-lg">Saldo Disponible Final</td><td className="py-3 text-right font-mono font-bold text-blue-900 text-lg">${(reportData.cashFlow?.final || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
-                        </tbody>
-                    </table>
-                    <div className={`mt-4 p-3 rounded-lg text-sm font-semibold text-center ${Math.abs(reportData.cashFlow?.reconciliationDifference || 0) < 0.01 ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
-                        {Math.abs(reportData.cashFlow?.reconciliationDifference || 0) < 0.01
-                            ? 'Flujo de efectivo conciliado con los saldos reales de Caja y Bancos.'
-                            : `Diferencia de conciliación: $${Math.abs(reportData.cashFlow?.reconciliationDifference || 0).toLocaleString('es-CO', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`}
-                    </div>
-                </div>
-            </div>
-        </motion.div>
-      </div>
+      <FinancialReportsView
+        activeCompany={activeCompany}
+        isConsolidated={isConsolidated}
+        startDate={startDate}
+        setStartDate={setStartDate}
+        endDate={endDate}
+        setEndDate={setEndDate}
+        effectiveEndDate={effectiveEndDate}
+        todayDateKey={todayDateKey}
+        reportData={reportData}
+        onPrint={handlePrintClick}
+        onExportBalance={handleExportBalanceSheet}
+        onExportPnl={() => handleExportReport(reportData.incomeStatement, 'Estado_de_Resultados')}
+        onExportCashFlow={handleExportCashFlow}
+      />
 
       <Dialog open={printConfigOpen} onOpenChange={setPrintConfigOpen}>
         <DialogContent className="sm:max-w-md">
