@@ -3530,10 +3530,10 @@ const Transactions = () => {
                                                     <Calendar className="w-5 h-5 opacity-70" /> {month} {selectedYear}
                                                 </h3>
                                             </div>
-                                            <div className="p-6 space-y-8">
+                                            <div className="space-y-8 p-4 sm:p-6">
                                                 {Object.entries(days).sort(([a],[b])=>parseInt(b)-parseInt(a)).map(([day, docs]) => (
-                                                    <div key={day} className="relative pl-12 md:pl-16 pt-2 border-l-2 border-blue-100">
-                                                        <div className="absolute -left-[14px] top-0 z-10 bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full border-2 border-white shadow-sm whitespace-nowrap">
+                                                    <div key={day} className="relative pt-12 md:border-l-2 md:border-blue-100 md:pl-16 md:pt-2">
+                                                        <div className="absolute left-0 top-0 z-10 whitespace-nowrap rounded-full border-2 border-white bg-blue-100 px-3 py-1 text-xs font-bold text-blue-800 shadow-sm md:-left-[14px]">
                                                             Día {day}
                                                         </div>
                                                         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-6">
