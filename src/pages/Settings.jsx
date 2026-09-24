@@ -15,6 +15,7 @@ import { storage } from '@/lib/storage';
 import { syncWrite, adminCompanyContentSummary, adminRestoreCompanyDirectory } from '@/lib/secureApi';
 import { COMPANY_DATA_SUFFIXES } from '@/lib/companyDataKeys';
 import { isNativeApp, shareBlobFile } from '@/lib/nativeFiles';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const Settings = () => {
     const { activeCompany, companies, setCompanies, isGeneralAdmin, updateCompanyCredentials } = useCompany();
@@ -438,11 +439,21 @@ const Settings = () => {
     return (
         <>
             <Helmet><title>Ajustes</title></Helmet>
-            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="max-w-4xl mx-auto space-y-8">
-                <div className="flex justify-between items-center">
-                    <div><h1 className="text-4xl font-bold text-slate-900">Ajustes</h1><p className="text-slate-600">Configuración general y datos.</p></div>
-                     {isReadOnly && <div className="flex items-center text-slate-400 text-sm font-semibold bg-slate-100 px-3 py-1 rounded-full border"><Lock className="w-4 h-4 mr-1"/> Modo Lectura</div>}
-                </div>
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-6xl space-y-6 sm:space-y-8">
+                <ProfessionalModuleHero
+                    eyebrow="Configuración del sistema"
+                    title="Ajustes"
+                    subtitle="Administra identidad de la entidad, credenciales, respaldo, restauración y sincronización segura desde un solo lugar."
+                    activeCompany={activeCompany}
+                    icon={Server}
+                    accent="emerald"
+                    badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">Solo lectura</span> : null}
+                    metrics={[
+                        { label: 'Modo', value: isGeneralAdmin ? 'Administrador' : 'Entidad' },
+                        { label: 'Entidades', value: (companies || []).length },
+                        { label: 'Sincronización', value: 'V3 Segura' },
+                    ]}
+                />
 
                 {isGeneralAdmin && restoreReport?.mode === 'admin-structure' && (
                     <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 shadow-sm">
@@ -483,18 +494,18 @@ const Settings = () => {
                                 </div>
                             </motion.div>
                         ) : (
-                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                             <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
                                 <div className="flex items-center gap-2"><Building className="w-5 h-5 text-blue-600" /><div><h2 className="font-bold text-slate-800 leading-tight">Perfil</h2>{activeCompany?.doc && <p className="text-xs text-slate-500 font-mono">NIT: {activeCompany.doc}</p>}</div></div>
                                 <span className="text-xs text-slate-400 bg-white px-2 py-1 rounded border">ID: {activeCompany?.id}</span>
                             </div>
                             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-4">
-                                    <div className="space-y-2"><Label>Nombre</Label><div className="relative"><Building className="absolute left-3 top-3 text-slate-400 w-4 h-4" /><input disabled={isReadOnly} value={profileData.name} onChange={e => setProfileData({...profileData, name: e.target.value})} className="w-full pl-9 p-2 border rounded-md text-sm outline-none focus:border-blue-500" /></div></div>
-                                    <div className="space-y-2"><Label>Dirección</Label><div className="relative"><MapPin className="absolute left-3 top-3 text-slate-400 w-4 h-4" /><input disabled={isReadOnly} value={profileData.address} onChange={e => setProfileData({...profileData, address: e.target.value})} className="w-full pl-9 p-2 border rounded-md text-sm outline-none focus:border-blue-500" /></div></div>
-                                    <div className="space-y-2"><Label>Teléfono</Label><div className="relative"><Phone className="absolute left-3 top-3 text-slate-400 w-4 h-4" /><input disabled={isReadOnly} value={profileData.phone} onChange={e => setProfileData({...profileData, phone: e.target.value})} className="w-full pl-9 p-2 border rounded-md text-sm outline-none focus:border-blue-500" /></div></div>
+                                    <div className="space-y-2"><Label>Nombre</Label><div className="relative"><Building className="absolute left-3 top-3 text-slate-400 w-4 h-4" /><input disabled={isReadOnly} value={profileData.name} onChange={e => setProfileData({...profileData, name: e.target.value})} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" /></div></div>
+                                    <div className="space-y-2"><Label>Dirección</Label><div className="relative"><MapPin className="absolute left-3 top-3 text-slate-400 w-4 h-4" /><input disabled={isReadOnly} value={profileData.address} onChange={e => setProfileData({...profileData, address: e.target.value})} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" /></div></div>
+                                    <div className="space-y-2"><Label>Teléfono</Label><div className="relative"><Phone className="absolute left-3 top-3 text-slate-400 w-4 h-4" /><input disabled={isReadOnly} value={profileData.phone} onChange={e => setProfileData({...profileData, phone: e.target.value})} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" /></div></div>
                                 </div>
-                                <div className="bg-yellow-50/50 border border-yellow-100 rounded-lg p-4 space-y-4"><div className="flex items-center gap-2 text-yellow-800 font-semibold text-sm"><Shield className="w-4 h-4" /> Credenciales</div><div className="space-y-2"><Label className="text-xs">Usuario</Label><div className="relative"><User className="absolute left-3 top-2.5 text-slate-400 w-3.5 h-3.5" /><input disabled={isReadOnly} value={profileData.username} onChange={e => setProfileData({...profileData, username: e.target.value})} className="w-full pl-8 p-2 border rounded-md text-sm bg-white" /></div></div><p className="text-xs text-yellow-900 mt-2">Para cambiar la contraseña, ve a "Mi Organización".</p></div>
+                                <div className="bg-yellow-50/50 border border-yellow-100 rounded-lg p-4 space-y-4"><div className="flex items-center gap-2 text-yellow-800 font-semibold text-sm"><Shield className="w-4 h-4" /> Credenciales</div><div className="space-y-2"><Label className="text-xs">Usuario</Label><div className="relative"><User className="absolute left-3 top-2.5 text-slate-400 w-3.5 h-3.5" /><input disabled={isReadOnly} value={profileData.username} onChange={e => setProfileData({...profileData, username: e.target.value})} className="h-11 w-full rounded-xl border border-amber-200 bg-white pl-8 pr-3 text-sm outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-100/60" /></div></div><p className="text-xs text-yellow-900 mt-2">Para cambiar la contraseña, ve a "Mi Organización".</p></div>
                             </div>
                         </motion.div>
                         )}
@@ -503,7 +514,7 @@ const Settings = () => {
                     </>
                 )}
                 
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl shadow-sm border p-6 space-y-4">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="space-y-4 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-6">
                     <div className="flex items-center justify-between"><div className="flex items-center"><Server className="w-6 h-6 text-green-600 mr-3" /><h2 className="text-xl font-bold text-slate-900">Datos</h2></div><span className="text-xs font-medium px-2 py-1 bg-green-100 text-green-800 rounded-full">V3 Sync Seguro</span></div>
                     
                     {isGeneralAdmin ? (
@@ -521,7 +532,7 @@ const Settings = () => {
             </motion.div>
             
             <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-                <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-hidden flex flex-col">
+                <DialogContent className="flex w-[calc(100vw-1rem)] max-h-[92dvh] flex-col overflow-hidden sm:max-w-[640px]">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 text-xl">
                             <FileJson className="w-6 h-6 text-blue-600" />

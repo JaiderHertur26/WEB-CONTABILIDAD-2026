@@ -12,6 +12,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useCompany } from '@/contexts/CompanyContext';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 // Standard accounting classes definition
 const ACCOUNT_CLASSES = {
@@ -396,27 +397,36 @@ const Accounts = () => {
       </Helmet>
 
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900">Plan de Cuentas</h1>
-            <p className="text-slate-600">Estructura contable jerárquica</p>
-          </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <Button onClick={handleExport} variant="outline" size="sm"><Download className="w-4 h-4 mr-2" />Exportar</Button>
-            {canImport && <Button asChild variant="outline" size="sm"><label className="cursor-pointer"><Upload className="w-4 h-4 mr-2" />Cargar Excel<input type="file" ref={fileInputRef} accept=".xlsx,.xls" onChange={handleImport} className="hidden" /></label></Button>}
-            {canAdd && <Button onClick={() => { setEditingAccount(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700" size="sm"><Plus className="w-4 h-4 mr-2" />Nueva Cuenta</Button>}
-            {isReadOnly && <div className="flex items-center text-slate-400 text-xs ml-2 bg-slate-100 px-2 py-1 rounded"><Lock className="w-3 h-3 mr-1"/> Lectura</div>}
-          </div>
-        </div>
+        <ProfessionalModuleHero
+          eyebrow="Estructura contable"
+          title="Plan de Cuentas"
+          subtitle="Administra la jerarquía PUC, protege cuentas con historia y conserva la trazabilidad de movimientos, bancos y cajas."
+          activeCompany={activeCompany}
+          icon={BookOpen}
+          accent="blue"
+          badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">Solo lectura</span> : null}
+          metrics={[
+            { label: 'Cuentas', value: (accounts || []).length },
+            { label: 'Visibles', value: displayRows.length },
+            { label: 'Clases PUC', value: (accounts || []).filter(account => String(account.number || '').length === 1).length },
+          ]}
+          actions={
+            <>
+              <Button onClick={handleExport} variant="outline" className="h-10 rounded-xl border-white/15 bg-white/10 text-white hover:bg-white/15 hover:text-white"><Download className="mr-2 h-4 w-4" />Exportar</Button>
+              {canImport && <Button asChild variant="outline" className="h-10 whitespace-nowrap rounded-xl border-white/15 bg-white/10 px-3 text-sm text-white hover:bg-white/15 hover:text-white"><label className="cursor-pointer"><Upload className="mr-2 h-4 w-4" />Cargar Excel<input type="file" ref={fileInputRef} accept=".xlsx,.xls" onChange={handleImport} className="hidden" /></label></Button>}
+              {canAdd && <Button onClick={() => { setEditingAccount(null); setDialogOpen(true); }} className="col-span-2 h-10 rounded-xl bg-blue-600 font-bold text-white hover:bg-blue-500 sm:col-span-1"><Plus className="mr-2 h-4 w-4" />Nueva cuenta</Button>}
+            </>
+          }
+        />
 
-        <div className="bg-white rounded-xl shadow-sm p-4 border border-slate-200">
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
           <div className="relative max-w-xl">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input type="text" placeholder="Buscar cuenta..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+            <input type="text" placeholder="Buscar cuenta..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-9 pr-4 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+        <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
             <div className="md:hidden divide-y divide-slate-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
                 {displayRows.length === 0 ? (
                     <div className="p-12 text-center text-slate-400"><BookOpen className="w-12 h-12 mx-auto mb-3 opacity-20"/><p>No se encontraron cuentas</p></div>
@@ -459,7 +469,7 @@ const Accounts = () => {
                 })}
             </div>
             <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
-            <div className="grid min-w-[720px] grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            <div className="grid min-w-[720px] grid-cols-12 gap-4 border-b border-slate-900 bg-slate-950 px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-300">
                 <div className="col-span-6 sm:col-span-4">Código / Cuenta</div>
                 <div className="col-span-3 sm:col-span-6">Nombre</div>
                 <div className="col-span-3 sm:col-span-2 text-right">Nivel</div>
@@ -520,18 +530,18 @@ const AccountDialog = ({ open, onOpenChange, account, onSave }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader><DialogTitle>{account ? 'Editar Cuenta' : 'Nueva Cuenta'}</DialogTitle></DialogHeader>
         <form onSubmit={(e) => { e.preventDefault(); onSave(formData); }} className="space-y-4 py-2">
           <div className="space-y-2">
             <Label htmlFor="number">Código (PUC)</Label>
             <div className="relative">
-                <input id="number" required value={formData.number} onChange={(e) => setFormData({...formData, number: e.target.value.replace(/[^0-9]/g, '')})} className={cn("w-full pl-3 pr-24 py-2 border rounded-lg font-mono text-lg tracking-wider focus:ring-2 focus:ring-blue-500 outline-none transition-all", !levelPreview ? "border-slate-300" : "border-blue-300 bg-blue-50/30")} placeholder="Ej: 110505" />
+                <input id="number" required value={formData.number} onChange={(e) => setFormData({...formData, number: e.target.value.replace(/[^0-9]/g, '')})} className={cn("h-12 w-full rounded-xl border bg-slate-50/70 pl-3 pr-24 font-mono text-lg tracking-wider outline-none transition-all focus:ring-4 focus:ring-blue-100/60", !levelPreview ? "border-slate-200" : "border-blue-300 bg-blue-50/40")} placeholder="Ej: 110505" />
                 {levelPreview && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-md uppercase">{levelPreview.label}</span>}
             </div>
             <p className="text-xs text-slate-500 flex items-center gap-1"><AlertCircle className="w-3 h-3"/> Estructura: 1, 2, 4, 6, 8, 10...</p>
           </div>
-          <div className="space-y-2"><Label htmlFor="name">Nombre</Label><input id="name" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ej: CAJA GENERAL" /></div>
+          <div className="space-y-2"><Label htmlFor="name">Nombre</Label><input id="name" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" placeholder="Ej: CAJA GENERAL" /></div>
           <DialogFooter className="pt-4"><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button><Button type="submit" className="bg-blue-600 hover:bg-blue-700">Guardar</Button></DialogFooter>
         </form>
       </DialogContent>

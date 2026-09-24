@@ -15,6 +15,7 @@ import { format } from 'date-fns';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { resolveLiquidityAccount } from '@/lib/liquidityAccounts';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const CashAccounts = () => {
   const { isConsolidated, activeCompany } = useCompany();
@@ -311,10 +312,25 @@ const CashAccounts = () => {
     <>
       <Helmet><title>Cajas - JaiderHerTur26</title></Helmet>
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div><h1 className="text-4xl font-bold text-slate-900">Cajas</h1><p className="text-slate-600">Administra Cajas Menores y Mayores</p></div>
-          {canAdd && <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Caja</Button>}
-        </div>
+        <ProfessionalModuleHero
+          eyebrow="Tesorería interna"
+          title="Cajas"
+          subtitle="Administra Caja Principal, cajas menores y mayores con saldos, fuentes de apertura y vinculación contable."
+          activeCompany={activeCompany}
+          icon={Wallet}
+          accent="cyan"
+          badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">Solo lectura</span> : null}
+          metrics={[
+            { label: 'Cajas', value: allAccounts.length },
+            { label: 'Saldo total', value: '$ ' + allAccounts.reduce((sum, account) => sum + Number(calculateCurrentBalance(account) || 0), 0).toLocaleString('es-CO', { maximumFractionDigits: 0 }) },
+            { label: 'Principal', value: allAccounts.some(account => account.isMain) ? 'Activa' : 'Pendiente' },
+          ]}
+          actions={canAdd ? (
+            <Button onClick={() => handleOpenDialog()} className="col-span-2 h-10 rounded-xl bg-cyan-600 font-bold text-white hover:bg-cyan-500 sm:col-span-1">
+              <Plus className="mr-2 h-4 w-4" />Nueva caja
+            </Button>
+          ) : null}
+        />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {allAccounts.map(account => {
             const currentBalance = calculateCurrentBalance(account);
@@ -322,7 +338,7 @@ const CashAccounts = () => {
             const difference = currentBalance - initialBalance;
             const isMain = account.isMain;
             return (
-              <motion.div key={account.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={cn("p-6 rounded-xl shadow-sm border hover:shadow-md transition-shadow relative flex flex-col justify-between", isMain ? "bg-emerald-50/50 border-emerald-100" : "bg-white border-slate-200")}>
+              <motion.div key={account.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={cn("relative flex flex-col justify-between rounded-3xl border p-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] transition-all hover:-translate-y-0.5 hover:shadow-lg", isMain ? "bg-emerald-50/50 border-emerald-100" : "bg-white border-slate-200")}>
                 <div>
                   <div className="flex justify-between items-start mb-4">
                     <div className={cn("p-3 rounded-lg", isMain ? "bg-emerald-100 text-emerald-700" : account.type === 'Mayor' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600')}>{isMain ? <Landmark className="w-6 h-6" /> : (account.type === 'Mayor' ? <Banknote className="w-6 h-6" /> : <Wallet className="w-6 h-6" />)}</div>
@@ -350,7 +366,7 @@ const CashAccounts = () => {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-xl">
           <DialogHeader><DialogTitle>{editingAccount ? `Editar ${editingAccount.isMain ? 'Caja Principal' : 'Caja'}` : 'Nueva Caja'}</DialogTitle></DialogHeader>
           {isReadOnly && editingAccount ? (
             <div className="bg-amber-50 text-amber-800 p-4 rounded-lg flex items-center gap-2 mb-4"><AlertTriangle className="w-5 h-5" />Modo Solo Lectura: No puedes modificar la configuración de las cajas.</div>

@@ -11,6 +11,7 @@ import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const RealEstates = () => {
     const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
@@ -378,27 +379,39 @@ const RealEstates = () => {
         <>
             <Helmet><title>Propiedades y Oficinas - JaiderHerTur26</title></Helmet>
             <div className="space-y-6">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div><h1 className="text-4xl font-bold text-slate-900">Propiedades y Oficinas</h1></div>
-                    <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
-                        {canEdit && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="w-full sm:w-auto border-purple-200 text-purple-700 hover:bg-purple-50">Depreciación Fiscal</Button>}
-                        {canAdd && <Button onClick={() => { setEditingEstate(null); setDialogOpen(true); }} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Propiedad</Button>}
-                    </div>
-                </motion.div>
+                <ProfessionalModuleHero
+                    eyebrow="Patrimonio inmobiliario"
+                    title="Propiedades y Oficinas"
+                    subtitle="Controla inmuebles, oficinas, valores históricos, depreciación fiscal y estado patrimonial con trazabilidad."
+                    activeCompany={activeCompany}
+                    icon={Building}
+                    accent="blue"
+                    badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">{isConsolidatedReadOnly ? 'Solo lectura' : 'Acceso parcial'}</span> : null}
+                    metrics={[
+                        { label: 'Propiedades', value: filteredEstates.length },
+                        { label: 'Activas', value: filteredEstates.filter(item => item.status !== 'Dado de Baja').length },
+                        { label: 'Depreciación', value: depreciationYear },
+                    ]}
+                    actions={
+                        <>
+                            {canEdit && <Button onClick={() => setDepreciationDialogOpen(true)} variant="outline" className="h-10 whitespace-nowrap rounded-xl border-white/15 bg-white/10 px-3 text-sm text-white hover:bg-white/15 hover:text-white">Depreciación</Button>}
+                            {canAdd && <Button onClick={() => { setEditingEstate(null); setDialogOpen(true); }} className="h-10 whitespace-nowrap rounded-xl bg-blue-600 px-3 text-sm font-bold text-white hover:bg-blue-500"><Plus className="mr-2 h-4 w-4" />Nueva propiedad</Button>}
+                        </>
+                    }
+                />
                 
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-lg p-6 border">
-                    <div className="relative"><Label>Buscar Propiedad:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar por nombre o dirección..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full mt-1 pl-10 pr-4 py-2 border rounded-lg" /></div>
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+                    <div className="relative"><Label>Buscar Propiedad:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar por nombre o dirección..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" /></div>
                 </motion.div>
 
                 {filteredEstates.length === 0 ? (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16 bg-white rounded-xl shadow-lg border">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-3xl border border-slate-200 bg-white py-16 text-center shadow-sm">
                         <Building className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                         <p className="text-slate-500">No hay propiedades registradas.</p>
                     </motion.div>
                 ) : (
-                    <div className="bg-white rounded-xl shadow-lg border overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[980px] text-sm">
-                        <thead className="bg-slate-50">
+                    <div className="overflow-x-auto overscroll-x-contain touch-pan-x rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[980px] text-sm">
+                        <thead className="bg-slate-950 text-slate-200">
                             <tr>
                                 {['Nombre', 'Dirección', 'Fecha', 'Estado', 'Valor Original', 'Deprec. Acumulada', 'Valor Neto', 'Acciones'].map(h => 
                                     <th key={h} className="p-3 text-left font-semibold">{h}</th>
@@ -458,7 +471,7 @@ const EstateDialog = ({ open, onOpenChange, onSave, estate }) => {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-lg">
                 <DialogHeader><DialogTitle>{estate ? 'Editar' : 'Nueva'} Propiedad</DialogTitle></DialogHeader>
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 pt-4">
                     <div className="space-y-1"><Label>Nombre</Label><input required value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full p-2 border rounded-lg" placeholder="Ej: Templo Principal, Despacho Parroquial"/></div>

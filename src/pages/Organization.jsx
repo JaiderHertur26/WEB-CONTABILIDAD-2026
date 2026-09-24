@@ -150,20 +150,20 @@ const Organization = () => {
         <>
             <Helmet><title>Mi Organización - JaiderHerTur26</title></Helmet>
             <div className="max-w-6xl mx-auto space-y-5 sm:space-y-7">
-                <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-                    <div className="hidden sm:flex items-start justify-between gap-4">
+                <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-[28px] bg-slate-950 p-5 text-white shadow-[0_24px_70px_-40px_rgba(15,23,42,0.9)] sm:p-6">
+                    <div className="flex items-start justify-between gap-4">
                         <div>
                             <div className="flex items-center gap-3">
-                                <div className="rounded-2xl bg-blue-600 p-2.5 text-white shadow-sm"><Network className="h-5 w-5" /></div>
+                                <div className="rounded-2xl bg-blue-500/15 p-2.5 text-blue-100 ring-1 ring-blue-400/20"><Network className="h-5 w-5" /></div>
                                 <div>
-                                    <h1 className="text-3xl font-bold tracking-tight text-slate-900">Mi Organización</h1>
-                                    <p className="mt-1 text-sm text-slate-500">Estructura, accesos y entidades vinculadas.</p>
+                                    <h1 className="company-hero-title text-3xl font-black tracking-[-0.035em] text-white">Mi Organización</h1>
+                                    <p className="mt-1 text-sm text-slate-300">Estructura, accesos y entidades vinculadas.</p>
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="hidden gap-2 sm:flex">
                              <Dialog open={isSecurityDialogOpen} onOpenChange={setIsSecurityDialogOpen}>
-                                <DialogTrigger asChild>{canModify ? <Button variant="outline" className="border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button> : <span className="hidden" />}</DialogTrigger>
+                                <DialogTrigger asChild>{canModify ? <Button variant="outline" className="border-white/15 bg-white/10 text-white shadow-none hover:bg-white/15 hover:text-white"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button> : <span className="hidden" />}</DialogTrigger>
                                 <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-lg max-h-[92dvh] overflow-y-auto">
                                     <DialogHeader><DialogTitle>Cambiar Contraseña Global</DialogTitle><DialogDescription>La sesión actual ya acredita tu identidad. La nueva clave se almacenará únicamente como hash.</DialogDescription></DialogHeader>
                                     {isReadOnly ? (
@@ -172,22 +172,22 @@ const Organization = () => {
                                         <form onSubmit={handleSecuritySave} className="space-y-4 py-2">
                                             <div className="space-y-2"><Label>Nueva Contraseña</Label><input type="password" required className="w-full p-2.5 border rounded-xl" value={securityData.newPassword} onChange={e => setSecurityData({...securityData, newPassword: e.target.value})} /></div>
                                             <div className="space-y-2"><Label>Confirmar Nueva Contraseña</Label><input type="password" required className="w-full p-2.5 border rounded-xl" value={securityData.confirmPassword} onChange={e => setSecurityData({...securityData, confirmPassword: e.target.value})} /></div>
-                                            <Button type="submit" className="w-full bg-slate-900">Actualizar Contraseña</Button>
+                                            <Button type="submit" className="h-11 w-full rounded-xl bg-slate-950 font-bold text-white hover:bg-slate-800">Actualizar Contraseña</Button>
                                         </form>
                                     )}
                                 </DialogContent>
                             </Dialog>
                             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                                <DialogTrigger asChild>{canModify ? <Button onClick={handleOpenCreate} className="bg-blue-600 hover:bg-blue-700 shadow-sm"><Plus className="w-4 h-4 mr-2" /> Nueva entidad</Button> : <span className="hidden" />}</DialogTrigger>
+                                <DialogTrigger asChild>{canModify ? <Button onClick={handleOpenCreate} className="bg-blue-600 font-bold text-white shadow-sm hover:bg-blue-500"><Plus className="w-4 h-4 mr-2" /> Nueva entidad</Button> : <span className="hidden" />}</DialogTrigger>
                                 <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-2xl max-h-[92dvh] overflow-y-auto">
                                     <DialogHeader><DialogTitle>{editingId ? 'Editar entidad vinculada' : 'Crear entidad vinculada'}</DialogTitle><DialogDescription>Configure identidad y credenciales de acceso para esta entidad.</DialogDescription></DialogHeader>
                                     <form onSubmit={handleSave} className="space-y-5 py-3">
                                         <div className="space-y-4">
-                                            <div className="space-y-2"><Label>Nombre</Label><input required disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
-                                            <div className="space-y-2"><Label>Usuario</Label><input required disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>
+                                            <div className="space-y-2"><Label>Nombre</Label><input required disabled={isReadOnly} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60 disabled:bg-slate-100" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+                                            <div className="space-y-2"><Label>Usuario</Label><input required disabled={isReadOnly} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60 disabled:bg-slate-100" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="space-y-2"><Label>Clave Global {editingId ? '(dejar vacía para conservar)' : ''}</Label><input required={!editingId} type="password" disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
-                                                <div className="space-y-2"><Label>Clave Parcial</Label><input type="password" disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.partialPassword} onChange={e => setFormData({...formData, partialPassword: e.target.value})} /></div>
+                                                <div className="space-y-2"><Label>Clave Global {editingId ? '(dejar vacía para conservar)' : ''}</Label><input required={!editingId} type="password" disabled={isReadOnly} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60 disabled:bg-slate-100" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
+                                                <div className="space-y-2"><Label>Clave Parcial</Label><input type="password" disabled={isReadOnly} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60 disabled:bg-slate-100" value={formData.partialPassword} onChange={e => setFormData({...formData, partialPassword: e.target.value})} /></div>
                                             </div>
                                         </div>
                                         <div className="pt-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-2"><Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>{canModify && <Button type="submit" className="bg-green-600 hover:bg-green-700">Guardar</Button>}</div>
@@ -198,19 +198,19 @@ const Organization = () => {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 shadow-sm">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-slate-200">
                             <Layers3 className="h-3.5 w-3.5" /> {organizationScope.length} {organizationScope.length === 1 ? 'entidad' : 'entidades'}
                         </span>
-                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold shadow-sm ${accessLevel === 'full' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold ${accessLevel === 'full' ? 'border-emerald-300/20 bg-emerald-300/10 text-emerald-100' : 'border-amber-300/20 bg-amber-300/10 text-amber-100'}`}>
                             <BadgeCheck className="h-3.5 w-3.5" /> {accessLevel === 'full' ? 'Acceso Total' : 'Acceso Parcial'}
                         </span>
-                        {isConsolidatedReadOnly && <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-bold text-violet-700 shadow-sm">Consolidada · Solo lectura</span>}
+                        {isConsolidatedReadOnly && <span className="rounded-full border border-violet-300/20 bg-violet-300/10 px-3 py-1.5 text-[11px] font-bold text-violet-100">Consolidada · Solo lectura</span>}
                     </div>
 
                     {canModify && (
                         <div className="grid grid-cols-2 gap-2 sm:hidden">
-                            <Button variant="outline" onClick={() => setIsSecurityDialogOpen(true)} className="h-11 rounded-xl border-slate-200 bg-white text-slate-700 shadow-sm"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button>
-                            <Button onClick={handleOpenCreate} className="h-11 rounded-xl bg-blue-600 shadow-sm hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva entidad</Button>
+                            <Button variant="outline" onClick={() => setIsSecurityDialogOpen(true)} className="h-11 whitespace-nowrap rounded-xl border-white/15 bg-white/10 px-3 text-sm text-white shadow-none hover:bg-white/15 hover:text-white"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button>
+                            <Button onClick={handleOpenCreate} className="h-11 whitespace-nowrap rounded-xl bg-blue-600 px-3 text-sm font-bold text-white shadow-sm hover:bg-blue-500"><Plus className="w-4 h-4 mr-2" /> Nueva entidad</Button>
                         </div>
                     )}
                 </motion.div>

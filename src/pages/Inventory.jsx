@@ -13,9 +13,12 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import ProductCodeDialog from '@/components/inventory/ProductCodeDialog';
 import { ensureProductCodes, productSearchText, sanitizeProductCode } from '@/lib/productCodes';
+import { useCompany } from '@/contexts/CompanyContext';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const Inventory = () => {
     const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
+    const { activeCompany } = useCompany();
     const [products, saveProducts] = useCompanyData('inventory');
     const [accounts] = useCompanyData('accounts');
     const [transactions, saveTransactions] = useCompanyData('transactions');
@@ -166,16 +169,28 @@ const Inventory = () => {
         <>
             <Helmet><title>Inventario - JaiderHerTur26</title></Helmet>
             <div className="space-y-6">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Tienda</h1><p className="text-slate-600">Productos, existencias, costo promedio, precio de venta y etiquetas QR / código de barras.</p></div>
-                    <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
-                        {canAdd && <Button onClick={() => { setEditingProduct(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Producto / Donación</Button>}
-                    </div>
-                </motion.div>
+                <ProfessionalModuleHero
+                    eyebrow="Tienda e inventario"
+                    title="Inventario de Tienda"
+                    subtitle="Productos, existencias, costo promedio, precio de venta y etiquetas QR / código de barras en una sola vista."
+                    activeCompany={activeCompany}
+                    icon={Package}
+                    accent="emerald"
+                    badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">{isConsolidatedReadOnly ? 'Solo lectura' : 'Acceso parcial'}</span> : null}
+                    metrics={[
+                        { label: 'Productos', value: (products || []).length },
+                        { label: 'Valor inventario', value: '$ ' + totalInventoryValue.toLocaleString('es-CO', { maximumFractionDigits: 0 }) },
+                        { label: 'Sin existencias', value: (products || []).filter(p => Number(p.quantity || 0) <= 0).length },
+                    ]}
+                    actions={canAdd ? (
+                        <Button onClick={() => { setEditingProduct(null); setDialogOpen(true); }} className="col-span-2 h-10 rounded-xl bg-emerald-600 font-bold text-white hover:bg-emerald-500 sm:col-span-1">
+                            <Plus className="mr-2 h-4 w-4" />Nuevo producto
+                        </Button>
+                    ) : null}
+                />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-xl shadow p-6 border-l-4 border-blue-600">
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                         <div className="flex items-center justify-between">
                             <div><p className="text-sm font-medium text-slate-500">Valor Total Inventario</p><h3 className="text-2xl font-bold text-slate-900">${totalInventoryValue.toLocaleString('es-CO', { minimumFractionDigits: 2 })}</h3></div>
                             <div className="p-3 bg-blue-50 rounded-full"><Package className="w-6 h-6 text-blue-600" /></div>
@@ -183,16 +198,16 @@ const Inventory = () => {
                     </motion.div>
                 </div>
 
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-lg p-6 border flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px] relative"><Label>Buscar:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Nombre, categoría, SKU o código de barras..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full mt-1 pl-10 pr-4 py-2 border rounded-lg" /></div>
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-wrap items-end gap-4 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-5">
+                    <div className="flex-1 min-w-[200px] relative"><Label>Buscar:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Nombre, categoría, SKU o código de barras..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm outline-none transition focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100/60" /></div>
                 </motion.div>
 
-                <div className="bg-white rounded-xl shadow-lg border overflow-hidden">
+                <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                     <div className="md:hidden space-y-3 p-3">
                         {filteredProducts.length === 0 ? (
                             <div className="p-8 text-center text-slate-500">No se encontraron productos.</div>
                         ) : filteredProducts.map(product => (
-                            <article key={product.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <article key={product.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                         <h3 className="font-bold text-slate-900 break-words">{product.name}</h3>
@@ -290,7 +305,7 @@ const ProductDialog = ({ open, onOpenChange, onSave, product }) => {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-xl overflow-y-auto max-h-[90vh]">
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader><DialogTitle>{product ? 'Editar' : 'Nuevo'} Producto</DialogTitle></DialogHeader>
                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
                     <div className="space-y-1"><Label>Nombre</Label><input required value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full p-2 border rounded-md" placeholder="Ej: Camándula de Madera" /></div>

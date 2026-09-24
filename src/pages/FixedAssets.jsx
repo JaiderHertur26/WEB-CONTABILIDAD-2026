@@ -13,6 +13,7 @@ import * as XLSX from 'xlsx';
 import { usePermission } from '@/hooks/usePermission';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { toAccountingDateInput } from '@/lib/accountingDate';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const FixedAssets = () => {
     const { canEdit, canDelete, canAdd, canImport, isReadOnly, isConsolidatedReadOnly } = usePermission();
@@ -456,17 +457,29 @@ const FixedAssets = () => {
         <>
         <Helmet><title>Activos Fijos - Sistema de Contabilidad</title></Helmet>
         <div className="space-y-6">
-            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div><h1 className="text-4xl font-bold text-slate-900">Inventario de Activos Fijos</h1></div>
-                <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1"/>{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
-                    {canAdd && <Button onClick={() => { setEditingAsset(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nuevo Activo</Button>}
-                </div>
-            </motion.div>
+            <ProfessionalModuleHero
+                eyebrow="Control patrimonial"
+                title="Inventario de Activos Fijos"
+                subtitle="Gestiona bienes, estado, ubicación, depreciación y valor neto por vigencia con trazabilidad contable."
+                activeCompany={activeCompany}
+                icon={Archive}
+                accent="violet"
+                badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">{isConsolidatedReadOnly ? 'Solo lectura' : 'Acceso parcial'}</span> : null}
+                metrics={[
+                    { label: 'Año', value: yearFilter || '—' },
+                    { label: 'Activos visibles', value: filteredAssets.length },
+                    { label: 'En servicio', value: filteredAssets.filter(asset => asset.status !== 'Dado de Baja').length },
+                ]}
+                actions={canAdd ? (
+                    <Button onClick={() => { setEditingAsset(null); setDialogOpen(true); }} className="col-span-2 h-10 rounded-xl bg-violet-600 font-bold text-white hover:bg-violet-500 sm:col-span-1">
+                        <Plus className="mr-2 h-4 w-4" />Nuevo activo
+                    </Button>
+                ) : null}
+            />
             
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white rounded-xl shadow-lg p-6 border flex flex-wrap gap-4 items-end">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-wrap items-end gap-4 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-5">
                 <div className="flex-1 min-w-[150px]"><Label>Filtrar por Año:</Label><select value={yearFilter} onChange={e => setYearFilter(e.target.value)} className="w-full mt-1 p-2 border rounded-lg"><option value="" disabled>Selecciona año</option>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select></div>
-                <div className="flex-1 min-w-[200px] relative"><Label>Buscar Activo:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full mt-1 pl-10 pr-4 py-2 border rounded-lg" /></div>
+                <div className="flex-1 min-w-[200px] relative"><Label>Buscar Activo:</Label><Search className="absolute left-3 top-10 transform -translate-y-1/2 text-slate-400 w-5 h-5" /><input type="text" placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm outline-none transition focus:border-violet-300 focus:bg-white focus:ring-4 focus:ring-violet-100/60" /></div>
                 <div className="flex gap-2 flex-wrap">
                     {canAdd && <Button onClick={() => setNewYearDialogOpen(true)} variant="outline"><CalendarPlus className="w-4 h-4 mr-2"/>Añadir Año</Button>}
                     {canImport && <Button onClick={() => setImportDialogOpen(true)} variant="outline"><Upload className="w-4 h-4 mr-2" /> Importar</Button>}
@@ -484,14 +497,14 @@ const FixedAssets = () => {
             </motion.div>
 
             {filteredAssets.length === 0 ? (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16 bg-white rounded-xl shadow-lg border">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-3xl border border-slate-200 bg-white py-16 text-center shadow-sm">
                     <Archive className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                     <p className="text-slate-500">No hay activos registrados para el año {yearFilter}.</p>
                 </motion.div>
             ) : (
-                <div className="bg-white rounded-xl shadow-lg border overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[1120px] text-sm">
+                <div className="overflow-x-auto overscroll-x-contain touch-pan-x rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]" style={{ WebkitOverflowScrolling: 'touch' }}><table className="w-full min-w-[1120px] text-sm">
                     {/* NUEVO: REORDEN DEL HEADER DE LA TABLA PARA COINCIDIR CON EL DOCUMENTO EXPORTADO */}
-                    <thead className="bg-slate-50">
+                    <thead className="bg-slate-950 text-slate-200">
                         <tr>
                             {['Cant.', 'Activo', 'Categoría', 'Uso', 'Estado', 'Lugar', 'V. Original', 'Deprec.', 'V. Neto', 'Acciones'].map(h => 
                                 <th key={h} className="p-3 text-left font-semibold whitespace-nowrap">{h}</th>
@@ -541,7 +554,7 @@ const AssetDialog = ({ open, onOpenChange, onSave, asset }) => {
 
     const handleSubmit = e => { e.preventDefault(); onSave(data); };
 
-    return(<Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>{asset ? 'Editar' : 'Nuevo'} Activo Fijo</DialogTitle></DialogHeader><form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+    return(<Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{asset ? 'Editar' : 'Nuevo'} Activo Fijo</DialogTitle></DialogHeader><form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
         <div className="space-y-1"><Label>Nombre del Activo</Label><input required value={data.name} onChange={e => setData({...data, name: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
         <div className="space-y-1"><Label>Cantidad</Label><input type="number" required value={data.quantity} onChange={e => setData({...data, quantity: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
         <div className="space-y-1"><Label>Marca/Modelo/Serie</Label><input value={data.model || ''} onChange={e => setData({...data, model: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
@@ -727,7 +740,7 @@ const ImportDialog = ({ open, onOpenChange, onImport }) => {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Importar Activos Fijos desde Excel</DialogTitle>
                     <DialogDescription>

@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import ContactSelector from '@/components/transactions/ContactSelector';
 import { usePermission } from '@/hooks/usePermission';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const Invoices = () => {
   const { activeCompany } = useCompany();
@@ -289,15 +290,23 @@ const Invoices = () => {
       <Helmet><title>Facturación - JaiderHerTur26</title></Helmet>
       
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900 mb-2">Facturación y Compras</h1>
-            <p className="text-slate-600">Emite documentos desde transacciones reales, evita doble facturación y conserva la trazabilidad con Tienda e Inventario.</p>
-          </div>
-        </div>
+        <ProfessionalModuleHero
+          eyebrow="Ciclo comercial"
+          title="Facturación y Compras"
+          subtitle="Emite documentos desde transacciones reales, evita doble facturación y conserva la trazabilidad con Tienda e Inventario."
+          activeCompany={activeCompany}
+          icon={FileCheck}
+          accent="blue"
+          badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">Solo lectura</span> : null}
+          metrics={[
+            { label: 'Ventas emitidas', value: (invoices || []).length },
+            { label: 'Compras registradas', value: (purchaseInvoices || []).length },
+            { label: 'Vista', value: mainTab === 'sales' ? 'Ventas' : 'Compras' },
+          ]}
+        />
 
         <Tabs value={mainTab} onValueChange={setMainTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-8 bg-slate-100 p-1 rounded-xl">
+            <TabsList className="mb-6 grid w-full grid-cols-2 rounded-2xl border border-slate-200 bg-slate-100/80 p-1 shadow-sm" >
                 <TabsTrigger value="sales" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm px-2 py-3 text-xs sm:text-base leading-tight text-center whitespace-normal">
                     <ShoppingCart className="w-4 h-4 mr-2"/> Facturas de Venta
                 </TabsTrigger>
@@ -309,13 +318,13 @@ const Invoices = () => {
             {/* ===================== SALES TAB CONTENT ===================== */}
             <TabsContent value="sales" className="space-y-6">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
+                    <TabsList className="grid w-full grid-cols-2 rounded-2xl border border-slate-200 bg-slate-100/80 p-1 lg:w-[420px]">
                         <TabsTrigger value="generate">Generar Facturas</TabsTrigger>
                         <TabsTrigger value="history">Historial Facturas</TabsTrigger>
                     </TabsList>
                     
                     <TabsContent value="generate" className="space-y-6 mt-6">
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-6">
                             <div className="flex items-center gap-2 mb-4 text-blue-800 font-semibold">
                                 <Filter className="w-4 h-4" />
                                 <h3>Filtrar Ventas Pendientes</h3>
@@ -327,16 +336,16 @@ const Invoices = () => {
                                 </div>
                                 <div className="space-y-1">
                                     <Label>Desde</Label>
-                                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-full px-3 py-2 border rounded-md bg-slate-50 border-slate-200" />
+                                    <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
                                 </div>
                                 <div className="space-y-1">
                                     <Label>Hasta</Label>
-                                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-full px-3 py-2 border rounded-md bg-slate-50 border-slate-200" />
+                                    <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
                                 </div>
                             </div>
                         </motion.div>
 
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                             <div className="p-4 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-blue-50/30">
                                 <div className="text-sm text-slate-500">Mostrando {filteredSales.length} ventas encontradas</div>
                                 <Button onClick={handleOpenGenerateModal} disabled={!canAdd || selectedSales.length === 0} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
@@ -374,7 +383,7 @@ const Invoices = () => {
                             </div>
                             <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-sm text-left">
-                                    <thead className="bg-white text-slate-600 font-semibold border-b">
+                                    <thead className="border-b border-slate-900 bg-slate-950 font-semibold text-slate-200">
                                         <tr>
                                             <th className="px-4 py-3 w-10"><button onClick={toggleSelectAllSales} className="flex items-center text-slate-400 hover:text-slate-600">{filteredSales.length > 0 && selectedSales.length === filteredSales.length ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5"/>}</button></th>
                                             <th className="px-4 py-3">Fecha</th>
@@ -423,7 +432,7 @@ const Invoices = () => {
                             </Select>
                         </div>
 
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                             <div className="md:hidden divide-y divide-slate-100">
                                 {filteredHistorySales.length === 0 ? (
                                     <div className="p-8 text-center text-slate-400">No hay documentos generados.</div>
@@ -496,13 +505,13 @@ const Invoices = () => {
             {/* ===================== PURCHASES TAB CONTENT ===================== */}
             <TabsContent value="purchases" className="space-y-6">
                 <Tabs value={activePurchaseTab} onValueChange={setActivePurchaseTab} className="w-full">
-                    <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
+                    <TabsList className="grid w-full grid-cols-2 rounded-2xl border border-slate-200 bg-slate-100/80 p-1 lg:w-[420px]">
                         <TabsTrigger value="generate">Generar Doc. Compra</TabsTrigger>
                         <TabsTrigger value="history">Historial Compras</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="generate" className="space-y-6 mt-6">
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-6">
                             <div className="flex items-center gap-2 mb-4 text-orange-800 font-semibold">
                                 <Filter className="w-4 h-4" />
                                 <h3>Filtrar Compras Pendientes</h3>
@@ -514,16 +523,16 @@ const Invoices = () => {
                                 </div>
                                 <div className="space-y-1">
                                     <Label>Desde</Label>
-                                    <input type="date" value={dateFromPurchase} onChange={e => setDateFromPurchase(e.target.value)} className="w-full px-3 py-2 border rounded-md bg-slate-50 border-slate-200" />
+                                    <input type="date" value={dateFromPurchase} onChange={e => setDateFromPurchase(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
                                 </div>
                                 <div className="space-y-1">
                                     <Label>Hasta</Label>
-                                    <input type="date" value={dateToPurchase} onChange={e => setDateToPurchase(e.target.value)} className="w-full px-3 py-2 border rounded-md bg-slate-50 border-slate-200" />
+                                    <input type="date" value={dateToPurchase} onChange={e => setDateToPurchase(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
                                 </div>
                             </div>
                         </motion.div>
 
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                             <div className="p-4 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-orange-50/30">
                                 <div className="text-sm text-slate-500">Mostrando {filteredPurchases.length} compras encontradas</div>
                                 <Button onClick={handleOpenGeneratePurchaseModal} disabled={!canAdd || selectedPurchases.length === 0} className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700">
@@ -561,7 +570,7 @@ const Invoices = () => {
                             </div>
                             <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-sm text-left">
-                                    <thead className="bg-white text-slate-600 font-semibold border-b">
+                                    <thead className="border-b border-slate-900 bg-slate-950 font-semibold text-slate-200">
                                         <tr>
                                             <th className="px-4 py-3 w-10"><button onClick={toggleSelectAllPurchases} className="flex items-center text-slate-400 hover:text-slate-600">{filteredPurchases.length > 0 && selectedPurchases.length === filteredPurchases.length ? <CheckSquare className="w-5 h-5 text-orange-600"/> : <Square className="w-5 h-5"/>}</button></th>
                                             <th className="px-4 py-3">Fecha</th>
@@ -609,7 +618,7 @@ const Invoices = () => {
                                 </SelectContent>
                             </Select>
                         </div>
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                             <div className="md:hidden divide-y divide-slate-100">
                                 {filteredHistoryPurchases.length === 0 ? (
                                     <div className="p-8 text-center text-slate-400">No hay documentos de compra generados.</div>
@@ -684,7 +693,7 @@ const Invoices = () => {
 
       {/* GENERATE SALES INVOICE MODAL */}
       <Dialog open={isGenerateModalOpen} onOpenChange={setIsGenerateModalOpen}>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-[600px]">
                 <DialogHeader>
                     <DialogTitle>Confirmar Factura de Venta</DialogTitle>
                     <DialogDescription>Agrupando ventas para el cliente seleccionado.</DialogDescription>
@@ -715,7 +724,7 @@ const Invoices = () => {
 
       {/* GENERATE PURCHASE INVOICE MODAL */}
       <Dialog open={isGeneratePurchaseModalOpen} onOpenChange={setIsGeneratePurchaseModalOpen}>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-[600px]">
                 <DialogHeader>
                     <DialogTitle>Confirmar Documento de Compra</DialogTitle>
                     <DialogDescription>Agrupando compras del proveedor seleccionado.</DialogDescription>
@@ -746,7 +755,7 @@ const Invoices = () => {
 
       {/* DELETE MODAL */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-            <DialogContent className="sm:max-w-[400px]">
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-[400px]">
                 <DialogHeader>
                     <DialogTitle className="text-red-600">Eliminar Documento</DialogTitle>
                     <DialogDescription>
@@ -766,7 +775,7 @@ const Invoices = () => {
 
       {/* DETAIL MODAL */}
       <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-            <DialogContent className="max-w-[850px] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-[850px]">
                 {viewInvoice && (
                     <InvoiceDetail invoice={viewInvoice} company={activeCompany} />
                 )}
