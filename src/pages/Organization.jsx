@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Building, Plus, Network, Trash2, ShieldCheck, MapPin, Phone, User, Lock, Info, Edit2, Key, CreditCard, Shield, AlertTriangle } from 'lucide-react';
+import { Building, Plus, Network, Trash2, MapPin, Phone, User, Edit2, Shield, AlertTriangle, ArrowRight, CornerUpLeft, Layers3, BadgeCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCompany } from '@/contexts/CompanyContext';
 import { useToast } from '@/components/ui/use-toast';
@@ -149,135 +149,196 @@ const Organization = () => {
     return (
         <>
             <Helmet><title>Mi Organización - JaiderHerTur26</title></Helmet>
-            <div className="max-w-6xl mx-auto space-y-8">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="max-w-6xl mx-auto space-y-5 sm:space-y-7">
+                <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+                    <div className="hidden sm:flex items-start justify-between gap-4">
                         <div>
-                            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-2"><Network className="w-8 h-8 text-blue-600" /> Mi Organización</h1>
-                            <p className="text-slate-600 mt-1">Estructura organizacional, niveles de acceso y seguridad.</p>
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600">
-                                    {organizationScope.length} {organizationScope.length === 1 ? 'entidad' : 'entidades'} en el alcance
-                                </span>
-                                <span className={`rounded-full border px-2.5 py-1 font-semibold ${accessLevel === 'full' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                                    {accessLevel === 'full' ? 'Acceso Total' : 'Acceso Parcial'}
-                                </span>
-                                {isConsolidatedReadOnly && <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 font-semibold text-violet-700">Vista Consolidada · Solo lectura</span>}
+                            <div className="flex items-center gap-3">
+                                <div className="rounded-2xl bg-blue-600 p-2.5 text-white shadow-sm"><Network className="h-5 w-5" /></div>
+                                <div>
+                                    <h1 className="text-3xl font-bold tracking-tight text-slate-900">Mi Organización</h1>
+                                    <p className="mt-1 text-sm text-slate-500">Estructura, accesos y entidades vinculadas.</p>
+                                </div>
                             </div>
                         </div>
                         <div className="flex gap-2">
                              <Dialog open={isSecurityDialogOpen} onOpenChange={setIsSecurityDialogOpen}>
-                                <DialogTrigger asChild>{canModify ? <Button variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-100"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button> : <span className="hidden" />}</DialogTrigger>
-                                <DialogContent>
+                                <DialogTrigger asChild>{canModify ? <Button variant="outline" className="border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button> : <span className="hidden" />}</DialogTrigger>
+                                <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-lg max-h-[92dvh] overflow-y-auto">
                                     <DialogHeader><DialogTitle>Cambiar Contraseña Global</DialogTitle><DialogDescription>La sesión actual ya acredita tu identidad. La nueva clave se almacenará únicamente como hash.</DialogDescription></DialogHeader>
                                     {isReadOnly ? (
                                         <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg flex items-center gap-2 text-amber-800"><AlertTriangle className="w-5 h-5"/> No tienes permisos para modificar la seguridad.</div>
                                     ) : (
                                         <form onSubmit={handleSecuritySave} className="space-y-4 py-2">
-                                            <div className="space-y-2"><Label>Nueva Contraseña</Label><input type="password" required className="w-full p-2 border rounded-md" value={securityData.newPassword} onChange={e => setSecurityData({...securityData, newPassword: e.target.value})} /></div>
-                                            <div className="space-y-2"><Label>Confirmar Nueva Contraseña</Label><input type="password" required className="w-full p-2 border rounded-md" value={securityData.confirmPassword} onChange={e => setSecurityData({...securityData, confirmPassword: e.target.value})} /></div>
+                                            <div className="space-y-2"><Label>Nueva Contraseña</Label><input type="password" required className="w-full p-2.5 border rounded-xl" value={securityData.newPassword} onChange={e => setSecurityData({...securityData, newPassword: e.target.value})} /></div>
+                                            <div className="space-y-2"><Label>Confirmar Nueva Contraseña</Label><input type="password" required className="w-full p-2.5 border rounded-xl" value={securityData.confirmPassword} onChange={e => setSecurityData({...securityData, confirmPassword: e.target.value})} /></div>
                                             <Button type="submit" className="w-full bg-slate-900">Actualizar Contraseña</Button>
                                         </form>
                                     )}
                                 </DialogContent>
                             </Dialog>
                             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                                <DialogTrigger asChild>{canModify ? <Button onClick={handleOpenCreate} className="bg-blue-600 hover:bg-blue-700 shadow-lg"><Plus className="w-4 h-4 mr-2" /> Nueva entidad vinculada</Button> : <span className="hidden" />}</DialogTrigger>
-                                <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+                                <DialogTrigger asChild>{canModify ? <Button onClick={handleOpenCreate} className="bg-blue-600 hover:bg-blue-700 shadow-sm"><Plus className="w-4 h-4 mr-2" /> Nueva entidad</Button> : <span className="hidden" />}</DialogTrigger>
+                                <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-2xl max-h-[92dvh] overflow-y-auto">
                                     <DialogHeader><DialogTitle>{editingId ? 'Editar entidad vinculada' : 'Crear entidad vinculada'}</DialogTitle><DialogDescription>Configure identidad y credenciales de acceso para esta entidad.</DialogDescription></DialogHeader>
-                                    <form onSubmit={handleSave} className="space-y-6 py-4">
+                                    <form onSubmit={handleSave} className="space-y-5 py-3">
                                         <div className="space-y-4">
-                                            <div className="space-y-2"><Label>Nombre</Label><input required disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
-                                            <div className="space-y-2"><Label>Usuario</Label><input required disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>
-                                             <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2"><Label>Clave Global {editingId ? '(dejar vacía para conservar)' : ''}</Label><input required={!editingId} type="password" disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
-                                                <div className="space-y-2"><Label>Clave Parcial</Label><input type="password" disabled={isReadOnly} className="w-full p-2 border rounded-md disabled:bg-slate-100" value={formData.partialPassword} onChange={e => setFormData({...formData, partialPassword: e.target.value})} /></div>
+                                            <div className="space-y-2"><Label>Nombre</Label><input required disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+                                            <div className="space-y-2"><Label>Usuario</Label><input required disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div className="space-y-2"><Label>Clave Global {editingId ? '(dejar vacía para conservar)' : ''}</Label><input required={!editingId} type="password" disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
+                                                <div className="space-y-2"><Label>Clave Parcial</Label><input type="password" disabled={isReadOnly} className="w-full p-2.5 border rounded-xl disabled:bg-slate-100" value={formData.partialPassword} onChange={e => setFormData({...formData, partialPassword: e.target.value})} /></div>
                                             </div>
                                         </div>
-                                        <div className="pt-2 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>{canModify && <Button type="submit" className="bg-green-600 hover:bg-green-700">Guardar</Button>}</div>
+                                        <div className="pt-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-2"><Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>{canModify && <Button type="submit" className="bg-green-600 hover:bg-green-700">Guardar</Button>}</div>
                                     </form>
                                 </DialogContent>
                             </Dialog>
                         </div>
                     </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 shadow-sm">
+                            <Layers3 className="h-3.5 w-3.5" /> {organizationScope.length} {organizationScope.length === 1 ? 'entidad' : 'entidades'}
+                        </span>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold shadow-sm ${accessLevel === 'full' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                            <BadgeCheck className="h-3.5 w-3.5" /> {accessLevel === 'full' ? 'Acceso Total' : 'Acceso Parcial'}
+                        </span>
+                        {isConsolidatedReadOnly && <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-bold text-violet-700 shadow-sm">Consolidada · Solo lectura</span>}
+                    </div>
+
+                    {canModify && (
+                        <div className="grid grid-cols-2 gap-2 sm:hidden">
+                            <Button variant="outline" onClick={() => setIsSecurityDialogOpen(true)} className="h-11 rounded-xl border-slate-200 bg-white text-slate-700 shadow-sm"><Shield className="w-4 h-4 mr-2" /> Seguridad</Button>
+                            <Button onClick={handleOpenCreate} className="h-11 rounded-xl bg-blue-600 shadow-sm hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva entidad</Button>
+                        </div>
+                    )}
                 </motion.div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 shadow-sm relative">
-                        <div className="absolute -top-3 -left-3 bg-blue-600 text-white p-2 rounded-lg shadow-md"><Building className="w-6 h-6" /></div>
-                        <div className="ml-8">
-                            <p className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600">Entidad activa</p>
-                            <h3 className="mt-1 text-lg font-bold text-blue-900">{activeCompany?.name}</h3>
-                            <p className="text-sm text-blue-700">{activeCompany?.parentId ? 'Entidad vinculada' : 'Entidad principal / matriz'}</p>
-                            <div className="mt-4 space-y-2 text-sm text-blue-800">
-                                {activeCompany?.doc && <div className="font-mono">NIT / Documento: {activeCompany.doc}</div>}
-                                <div className="flex items-center gap-2"><MapPin className="w-4 h-4"/> {activeCompany?.address || 'Sin dirección'}</div>
-                                <div className="flex items-center gap-2"><Phone className="w-4 h-4"/> {activeCompany?.phone || 'Sin teléfono'}</div>
+                <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-5 lg:gap-7">
+                    <motion.section
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-700 via-blue-700 to-indigo-800 text-white shadow-[0_18px_50px_-28px_rgba(30,64,175,0.75)]"
+                    >
+                        <div className="p-5 sm:p-6">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+                                        <Building className="h-5 w-5" />
+                                    </div>
+                                    <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-100">Entidad activa</p>
+                                </div>
+                                <span className="shrink-0 rounded-full bg-white/12 px-2.5 py-1 text-[10px] font-bold text-blue-50 ring-1 ring-white/15">
+                                    {activeCompany?.parentId ? 'Vinculada' : 'Principal'}
+                                </span>
+                            </div>
+                            <h2 className="mt-4 text-2xl font-bold leading-tight tracking-tight text-white sm:text-[28px]">{activeCompany?.name}</h2>
+                            <div className="mt-4 grid grid-cols-2 gap-2.5">
+                                {activeCompany?.doc && (
+                                    <div className="min-w-0 rounded-xl bg-white/10 px-3 py-2.5 ring-1 ring-white/10">
+                                        <span className="block text-[10px] font-semibold uppercase tracking-wide text-blue-100">NIT / Documento</span>
+                                        <span className="mt-0.5 block truncate text-sm font-bold text-white">{activeCompany.doc}</span>
+                                    </div>
+                                )}
+                                <div className="flex min-w-0 items-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm ring-1 ring-white/10">
+                                    <Phone className="h-4 w-4 shrink-0 text-blue-100" />
+                                    <span className="truncate font-semibold">{activeCompany?.phone || 'Sin teléfono'}</span>
+                                </div>
+                                <div className="col-span-2 flex min-w-0 items-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm ring-1 ring-white/10">
+                                    <MapPin className="h-4 w-4 shrink-0 text-blue-100" />
+                                    <span className="truncate">{activeCompany?.address || 'Sin dirección'}</span>
+                                </div>
                             </div>
                             {activeParent && (
                                 <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    className="mt-4 border-blue-200 bg-white/70 text-blue-700 hover:bg-white"
+                                    className="mt-4 h-10 max-w-full rounded-xl border-white/20 bg-white/10 px-3 text-white hover:bg-white/20 hover:text-white"
                                     onClick={() => handleSwitchCompany(activeParent.id)}
                                 >
-                                    Volver a {activeParent.name}
+                                    <CornerUpLeft className="mr-2 h-4 w-4 shrink-0" />
+                                    <span className="truncate">Volver a {activeParent.name}</span>
                                 </Button>
                             )}
                         </div>
-                    </div>
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between gap-3">
-                            <h4 className="font-semibold text-slate-500 text-sm uppercase tracking-wider">Estructura vinculada</h4>
-                            <span className="text-xs font-semibold text-slate-400">{linkedCompanies.length} vinculadas</span>
+                        <div className="border-t border-white/10 bg-black/5 px-5 py-3 text-xs text-blue-100 sm:px-6">
+                            {linkedCompanies.length > 0
+                                ? linkedCompanies.length + ' ' + (linkedCompanies.length === 1 ? 'entidad vinculada' : 'entidades vinculadas') + ' dentro de este alcance'
+                                : 'Esta entidad no tiene dependencias vinculadas'}
+                        </div>
+                    </motion.section>
+                    <section className="space-y-3">
+                        <div className="flex items-center justify-between gap-3 px-0.5">
+                            <div>
+                                <h3 className="text-sm font-extrabold uppercase tracking-[0.12em] text-slate-600">Estructura vinculada</h3>
+                                <p className="mt-0.5 text-xs text-slate-400">Abre una entidad para trabajar en ella de forma individual.</p>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">{linkedCompanies.length}</span>
                         </div>
                         {linkedCompanies.length === 0 ? (
-                            <div className="text-center p-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                                <Network className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                                <p className="text-slate-500">No hay entidades vinculadas.</p>
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
+                                <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400"><Network className="h-6 w-6" /></div>
+                                <p className="mt-3 font-semibold text-slate-700">Sin entidades vinculadas</p>
+                                <p className="mt-1 text-sm text-slate-500">Cuando agregues una dependencia, aparecerá aquí.</p>
                             </div>
                         ) : (
                             linkedCompanies
                                 .slice()
                                 .sort((a, b) => getDepth(a) - getDepth(b) || String(a.name || '').localeCompare(String(b.name || ''), 'es'))
-                                .map(sub => {
+                                .map((sub, index) => {
                                     const depth = getDepth(sub);
                                     const parent = companyById.get(String(sub.parentId || sub.parent_id || ''));
                                     return (
-                                        <motion.div
+                                        <motion.article
                                             key={sub.id}
-                                            initial={{ opacity: 0, x: 20 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-all"
-                                            style={{ marginLeft: Math.min((depth - 1) * 18, 54) }}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: Math.min(index * 0.05, 0.2) }}
+                                            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-blue-200 hover:shadow-md"
                                         >
-                                            <div className="flex justify-between items-start gap-3">
-                                                <div className="flex gap-3 min-w-0">
-                                                    <div className="bg-indigo-100 text-indigo-600 p-2 rounded-lg h-fit"><Building className="w-5 h-5" /></div>
-                                                    <div className="min-w-0">
+                                            <div className="p-4 sm:p-5">
+                                                <div className="flex min-w-0 items-start gap-3.5">
+                                                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                                                        <Building className="h-5 w-5" />
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
                                                         <div className="flex flex-wrap items-center gap-2">
-                                                            <h3 className="font-bold text-slate-900">{sub.name}</h3>
-                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Nivel {depth}</span>
+                                                            <h4 className="min-w-0 text-[17px] font-bold leading-snug text-slate-900 sm:text-lg">{sub.name}</h4>
+                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-500">Nivel {depth}</span>
                                                         </div>
-                                                        <p className="mt-1 text-xs text-slate-500">Depende de: {parent?.name || activeCompany?.name || 'Entidad principal'}</p>
-                                                        <div className="mt-2 text-sm text-slate-600 flex flex-wrap gap-4">
-                                                            <span className="flex items-center gap-1"><User className="w-3 h-3"/> {sub.username || 'Sin usuario'}</span>
+                                                        <p className="mt-1.5 truncate text-xs text-slate-500" title={parent?.name || activeCompany?.name || 'Entidad principal'}>
+                                                            Depende de · <span className="font-semibold text-slate-600">{parent?.name || activeCompany?.name || 'Entidad principal'}</span>
+                                                        </p>
+                                                        <div className="mt-2.5 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-600">
+                                                            <User className="h-3.5 w-3.5 shrink-0" />
+                                                            <span className="truncate">{sub.username || 'Sin usuario asignado'}</span>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="flex gap-1 shrink-0">
-                                                    <Button variant="outline" size="sm" onClick={() => handleSwitchCompany(sub.id)} title="Trabajar en esta entidad">
-                                                        Abrir
-                                                    </Button>
-                                                    {canModify && <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(sub)} title="Editar entidad"><Edit2 className="w-4 h-4" /></Button>}
-                                                    {canModify && <Button variant="ghost" size="icon" onClick={() => handleDelete(sub.id)} className="text-red-600" title="Eliminar entidad"><Trash2 className="w-4 h-4" /></Button>}
-                                                </div>
                                             </div>
-                                        </motion.div>
+                                            <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-3 py-2.5 sm:px-4">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleSwitchCompany(sub.id)}
+                                                    className="h-9 flex-1 justify-between rounded-xl border-slate-200 bg-white px-3 font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                                    title="Trabajar en esta entidad"
+                                                >
+                                                    <span>Abrir entidad</span><ArrowRight className="h-4 w-4" />
+                                                </Button>
+                                                {canModify && (
+                                                    <>
+                                                        <Button variant="outline" size="icon" onClick={() => handleOpenEdit(sub)} className="h-9 w-9 shrink-0 rounded-xl border-slate-200 bg-white text-slate-600" title="Editar entidad"><Edit2 className="h-4 w-4" /></Button>
+                                                        <Button variant="outline" size="icon" onClick={() => handleDelete(sub.id)} className="h-9 w-9 shrink-0 rounded-xl border-red-100 bg-white text-red-600 hover:bg-red-50 hover:text-red-700" title="Eliminar entidad"><Trash2 className="h-4 w-4" /></Button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </motion.article>
                                     );
                                 })
                         )}
-                    </div>
+                    </section>
                 </div>
             </div>
         </>
