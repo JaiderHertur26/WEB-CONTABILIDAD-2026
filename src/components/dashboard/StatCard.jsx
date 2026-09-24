@@ -48,7 +48,7 @@ const StatCard = ({
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
-      className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.025),0_12px_28px_rgba(15,23,42,0.045)]"
+      className="group relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-[0_14px_38px_-28px_rgba(15,23,42,0.35)] transition-shadow hover:shadow-[0_20px_46px_-28px_rgba(15,23,42,0.4)] sm:p-5"
       title={tooltip || undefined}
     >
       <div className={cn('absolute inset-x-0 top-0 h-[3px]', styles.accent)} />
@@ -57,7 +57,7 @@ const StatCard = ({
           <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-slate-400">
             {title}
           </p>
-          <p className={cn('mt-3 truncate text-[1.65rem] font-extrabold tracking-[-0.045em]', styles.value)}>
+          <p className={cn('mt-3 truncate font-mono text-[1.35rem] font-black tracking-[-0.045em] sm:text-[1.65rem]', styles.value)}>
             {value}
           </p>
         </div>

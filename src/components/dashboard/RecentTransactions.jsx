@@ -25,7 +25,7 @@ const RecentTransactions = () => {
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.28 }}
-      className="hertur-surface overflow-hidden rounded-2xl"
+      className="hertur-surface overflow-hidden rounded-3xl border border-slate-200/80 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]"
     >
       <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>

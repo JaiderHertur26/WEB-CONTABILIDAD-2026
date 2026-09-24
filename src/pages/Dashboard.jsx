@@ -1,26 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { TrendingUp, TrendingDown, DollarSign, PiggyBank, Building, Building2, Info, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, PiggyBank, Info } from 'lucide-react';
 import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import StatCard from '@/components/dashboard/StatCard';
+import DashboardHero from '@/components/dashboard/DashboardHero';
 import RecentTransactions from '@/components/dashboard/RecentTransactions';
 import ContractTaxAlert from '@/components/contracts/ContractTaxAlert';
 import { Label } from '@/components/ui/label';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { format, startOfMonth, subMonths, eachMonthOfInterval, startOfDay, endOfDay, startOfYear, endOfYear, isBefore, isAfter, isWithinInterval } from 'date-fns';
-import { Switch } from '@/components/ui/switch';
-import { cn } from '@/lib/utils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { parseAccountingDate, getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 
 const Dashboard = () => {
   const { activeCompany, companies, isConsolidated, toggleConsolidation } = useCompany();
+  const navigate = useNavigate();
   const [transactionsData, , isTransactionsLoaded] = useCompanyData('transactions');
   const [initialBalanceData, , isInitialBalanceLoaded] = useCompanyData('initialBalance');
   const [bankAccountsData, , isBankAccountsLoaded] = useCompanyData('bankAccounts');
@@ -501,53 +501,20 @@ const Dashboard = () => {
       </Helmet>
 
       <div className="space-y-6 lg:space-y-7">
-        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="hertur-surface rounded-2xl p-5 sm:p-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-                <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-600">Visión ejecutiva</p>
-                <div className="flex flex-wrap items-center gap-2.5">
-                    <h1 className="text-4xl font-bold text-slate-900">Dashboard financiero</h1>
-                    {isConsolidated && <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-violet-700">Consolidado</span>}
-                </div>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Una lectura clara de la posición financiera, la liquidez y el comportamiento del período.</p>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-                <Select value={selectedYear} onValueChange={handleYearChange}>
-                    <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white shadow-sm sm:w-[132px]">
-                        <Calendar className="w-4 h-4 mr-2 text-slate-500" />
-                        <SelectValue placeholder="Año" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {availableYears.map(year => (
-                            <SelectItem key={year} value={year}>{year}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-
-                {hasSubCompanies && (
-                    <div className="flex items-center space-x-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 shadow-sm transition-colors hover:bg-white">
-                        <Switch 
-                            id="consolidation-mode"
-                            checked={isConsolidated}
-                            onCheckedChange={toggleConsolidation}
-                            className="data-[state=checked]:bg-purple-600"
-                        />
-                        <Label htmlFor="consolidation-mode" className="cursor-pointer flex items-center gap-2">
-                            {isConsolidated ? <Building2 className="w-5 h-5 text-purple-600" /> : <Building className="w-5 h-5 text-slate-400" />}
-                            <div className="flex flex-col leading-tight">
-                                <span className={isConsolidated ? "font-bold text-purple-700" : "font-medium text-slate-600"}>
-                                    {isConsolidated ? "Vista Consolidada" : "Vista Individual"}
-                                </span>
-                                {isConsolidated && <span className="text-[10px] text-purple-600 font-medium">Incluye toda la estructura vinculada</span>}
-                            </div>
-                        </Label>
-                    </div>
-                )}
-            </div>
-          </div>
-        </motion.div>
-        
+        <DashboardHero
+          activeCompany={activeCompany}
+          selectedYear={selectedYear}
+          availableYears={availableYears}
+          onYearChange={handleYearChange}
+          hasSubCompanies={hasSubCompanies}
+          isConsolidated={isConsolidated}
+          onToggleConsolidation={toggleConsolidation}
+          stats={stats}
+          periodLabel={format(dateRange.from, 'dd/MM/yyyy') + ' – ' + format(dateRange.to, 'dd/MM/yyyy')}
+          cutoffLabel={format(parseAccountingDate(selectedCutoffDate), 'dd/MM/yyyy')}
+          onNewTransaction={() => navigate('/transactions')}
+          onReports={() => navigate('/reports')}
+        />
         {isConsolidated && (
             <div className="flex items-center gap-3 rounded-2xl border border-violet-200/80 bg-violet-50/70 px-4 py-3 text-sm text-violet-800 shadow-sm">
                 <Info className="w-5 h-5 flex-shrink-0" />
@@ -564,25 +531,24 @@ const Dashboard = () => {
           <StatCard title="Liquidez Total" value={`$${stats.cashBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={PiggyBank} trend="static" color="purple" tooltip="Caja principal + cajas auxiliares + bancos + aportes/inversiones" caption={`Corte: ${selectedCutoffDate}`} />
         </div>
 
-        <div className="grid grid-cols-1 gap-6 items-start">
-          <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.12 }} className="hertur-surface w-full rounded-2xl p-5 sm:p-6">
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.8fr)]">
+          <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.12 }} className="hertur-surface w-full rounded-3xl border border-slate-200/80 p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-6">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
               <h3 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
                   Ingresos vs Gastos <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-1 rounded-full">P&L</span>
               </h3>
-              <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-100 w-full lg:w-auto">
+              <div className="grid w-full grid-cols-1 gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 sm:grid-cols-2 lg:w-auto">
                 <div className="flex items-center gap-2">
                   <Label htmlFor="startDate" className="text-xs font-medium text-slate-500 uppercase">Desde</Label>
-                  <input type="date" id="startDate" max={todayDateKey} value={format(dateRange.from, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'from')} className="text-sm border border-slate-300 rounded-md pl-2 pr-2 py-1 focus:ring-2 focus:ring-blue-500 w-32 bg-white" />
+                  <input type="date" id="startDate" max={todayDateKey} value={format(dateRange.from, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'from')} className="h-9 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100/60" />
                 </div>
-                <div className="hidden sm:block w-px h-4 bg-slate-300"></div>
                 <div className="flex items-center gap-2">
                   <Label htmlFor="endDate" className="text-xs font-medium text-slate-500 uppercase">Hasta</Label>
-                  <input type="date" id="endDate" max={todayDateKey} value={format(dateRange.to, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'to')} className="text-sm border border-slate-300 rounded-md pl-2 pr-2 py-1 focus:ring-2 focus:ring-blue-500 w-32 bg-white" />
+                  <input type="date" id="endDate" max={todayDateKey} value={format(dateRange.to, 'yyyy-MM-dd')} onChange={(e) => handleDateRangeChange(e, 'to')} className="h-9 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100/60" />
                 </div>
               </div>
             </div>
-            <div className="h-[350px] w-full">
+            <div className="h-[300px] w-full sm:h-[350px]">
                 <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
@@ -597,7 +563,7 @@ const Dashboard = () => {
             </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.18 }} className="hertur-surface flex h-full w-full flex-col rounded-2xl p-5 sm:p-6">
+          <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.18 }} className="hertur-surface flex h-full w-full flex-col rounded-3xl border border-slate-200/80 p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-6">
             <h3 className="text-xl font-semibold text-slate-900 mb-4">Gastos por Categoría</h3>
             {categoryData.length > 0 ? (
                 <div className="flex flex-col flex-1 min-h-[350px]">
