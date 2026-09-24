@@ -28,6 +28,7 @@ import { isNativeApp, shareBase64File } from '@/lib/nativeFiles';
 import { createPrintTarget } from '@/lib/nativePrint';
 import { cleanBankNumber, parseBankDate, buildReconciliationFingerprint } from '@/lib/bankReconciliation';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
+import TransactionsProfessionalHeader from '@/components/transactions/TransactionsProfessionalHeader';
 
 const cleanPrintedCompanyName = (name) => String(name || '').replace(/MAR[ÍI]A[\s\u00A0]*AUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
 
@@ -775,6 +776,25 @@ const Transactions = () => {
     };
 
     const displayTransactions = useMemo(() => getDisplayTransactions(), [filteredTransactions]);
+
+    const transactionSummary = useMemo(() => {
+        let income = 0;
+        let expense = 0;
+
+        (filteredTransactions || []).forEach(t => {
+            const intelligentType = t._intelligentType || getTransactionTypeAndPrefix(t).type;
+            const amount = Math.abs(Number(getTransactionTotal(t) || t.amount || 0));
+            if (intelligentType === 'income') income += amount;
+            if (intelligentType === 'expense') expense += amount;
+        });
+
+        return {
+            income,
+            expense,
+            net: income - expense,
+            count: displayTransactions.length,
+        };
+    }, [filteredTransactions, displayTransactions]);
 
     const groupedBillingDocuments = useMemo(() => {
         if (!billingDocuments) return {};
@@ -2919,21 +2939,32 @@ const Transactions = () => {
     return (
         <>
             <Helmet><title>Transacciones - Sistema Contable</title></Helmet>
-            <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div><h1 className="text-4xl font-bold text-slate-900 mb-2">Transacciones</h1><p className="text-slate-600">Control de movimientos financieros</p></div>
-                    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-                        {canAdd && <Button variant="outline" onClick={() => setStoreDialogOpen(true)} className="w-full sm:w-auto text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"><Store className="w-4 h-4 mr-2" />Tienda</Button>}
-                        {canAdd && <Button variant="outline" onClick={() => setTransferDialogOpen(true)} className="w-full sm:w-auto"><ArrowRightLeft className="w-4 h-4 mr-2" />Transferir</Button>}
-                        {canAdd && <Button variant="outline" onClick={() => setImportDialogOpen(true)} className="w-full sm:w-auto text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100"><FileSpreadsheet className="w-4 h-4 mr-2" />Conciliar Banco</Button>}
-                        {canAdd && <Button onClick={() => { setEditingTransaction(null); setDialogOpen(true); }} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" />Nueva</Button>}
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1" />{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
-                    </div>
-                </div>
+            <div className="space-y-5 sm:space-y-6">
+                <TransactionsProfessionalHeader
+                    activeCompany={activeCompany}
+                    isConsolidated={isConsolidated}
+                    isReadOnly={isReadOnly}
+                    isConsolidatedReadOnly={isConsolidatedReadOnly}
+                    canAdd={canAdd}
+                    startDate={startDate}
+                    effectiveEndDate={effectiveEndDate}
+                    summary={transactionSummary}
+                    onNew={() => { setEditingTransaction(null); setDialogOpen(true); }}
+                    onTransfer={() => setTransferDialogOpen(true)}
+                    onReconcile={() => setImportDialogOpen(true)}
+                    onStore={() => setStoreDialogOpen(true)}
+                />
                 
-                <div className="bg-white rounded-xl shadow-sm p-4 border border-slate-200 space-y-4">
-                    <div className="flex flex-wrap gap-4 items-center justify-between">
-                        <div className={`relative flex-1 min-w-[200px] ${viewMode === 'mayor' ? 'hidden' : ''}`}><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Buscar concepto o comprobante..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500" /></div>
+                <div className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_14px_40px_-28px_rgba(15,23,42,0.3)] space-y-4 sm:p-5">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                        <div>
+                            <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-blue-600">Explorar movimientos</p>
+                            <h2 className="mt-1 text-lg font-bold tracking-tight text-slate-950">Consulta y control del período</h2>
+                        </div>
+                        <p className="text-xs text-slate-500">{displayTransactions.length.toLocaleString('es-CO')} movimiento{displayTransactions.length === 1 ? '' : 's'} visible{displayTransactions.length === 1 ? '' : 's'}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-3 items-center justify-between">
+                        <div className={`relative flex-1 min-w-[220px] ${viewMode === 'mayor' ? 'hidden' : ''}`}><Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" /><input type="text" placeholder="Buscar concepto, comprobante, tercero o cuenta..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/70" /></div>
                         
                         <div className="flex gap-2 items-center flex-wrap">
                             
@@ -2942,7 +2973,7 @@ const Transactions = () => {
                                 <Button 
                                     variant="outline" 
                                     onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)} 
-                                    className={`bg-white ${accountFilters.length > 0 ? 'border-blue-400 text-blue-700' : 'border-slate-300 text-slate-600'}`}
+                                    className={`h-11 rounded-xl bg-white px-3 font-semibold ${accountFilters.length > 0 ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}
                                 >
                                     <Filter className={`w-4 h-4 mr-2 ${accountFilters.length > 0 ? 'text-blue-600' : 'text-slate-400'}`} />
                                     {accountFilters.length === 0 ? 'Todas las cuentas' : `${accountFilters.length} cuentas filtradas`}
@@ -3021,10 +3052,10 @@ const Transactions = () => {
                             </div>
 
                             {/* 🚀 Calendarios de Rango */}
-                            <div className="flex items-center gap-2 bg-white p-1 rounded-md border border-slate-200">
+                            <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/70 p-1.5 sm:w-auto">
                                 <input 
                                     type="date" 
-                                    className="text-xs px-2 py-1.5 outline-none text-slate-700 font-mono bg-transparent" 
+                                    className="min-w-0 rounded-lg bg-transparent px-2 py-2 text-xs font-bold text-slate-700 outline-none"
                                     value={startDate} 
                                     onChange={(e) => setStartDate(e.target.value)}
                                     title="Fecha Inicial"
@@ -3032,7 +3063,7 @@ const Transactions = () => {
                                 <span className="text-slate-300">-</span>
                                 <input 
                                     type="date" 
-                                    className="text-xs px-2 py-1.5 outline-none text-slate-700 font-mono bg-transparent" 
+                                    className="min-w-0 rounded-lg bg-transparent px-2 py-2 text-xs font-bold text-slate-700 outline-none"
                                     value={endDate} 
                                     max={todayDateKey}
                                     onChange={(e) => setEndDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)}
@@ -3040,18 +3071,18 @@ const Transactions = () => {
                                 />
                             </div>
                             
-                            <div className="grid w-full grid-cols-2 gap-1 bg-slate-100 rounded-lg p-1 sm:flex sm:w-auto">
-                                <button onClick={() => setViewMode('balances')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'balances' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><TableIcon className="w-3 h-3 inline mr-1" /> Control</button>
-                                <button onClick={() => setViewMode('accounting')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'accounting' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BookOpen className="w-3 h-3 inline mr-1" /> Diario Oficial</button>
-                                <button onClick={() => setViewMode('mayor')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'mayor' ? 'bg-white shadow-sm text-purple-700' : 'text-slate-500 hover:text-purple-600'}`}><Filter className="w-3 h-3 inline mr-1" /> Mayor y Balances</button>
-                                <button onClick={() => setViewMode('billing')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'billing' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-blue-600'}`} title="Cuentas de Cobro"><FileText className="w-3 h-3 inline mr-1" /> Ctas. de Cobro</button>
+                            <div className="grid w-full grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 lg:flex lg:w-auto">
+                                <button onClick={() => setViewMode('balances')} className={`h-10 rounded-xl px-3 text-xs font-bold transition-all ${viewMode === 'balances' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}><TableIcon className="w-3.5 h-3.5 inline mr-1.5" /> Control</button>
+                                <button onClick={() => setViewMode('accounting')} className={`h-10 rounded-xl px-3 text-xs font-bold transition-all ${viewMode === 'accounting' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}><BookOpen className="w-3.5 h-3.5 inline mr-1.5" /> Diario Oficial</button>
+                                <button onClick={() => setViewMode('mayor')} className={`h-10 rounded-xl px-3 text-xs font-bold transition-all ${viewMode === 'mayor' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-violet-700'}`}><Filter className="w-3.5 h-3.5 inline mr-1.5" /> Mayor y Balances</button>
+                                <button onClick={() => setViewMode('billing')} className={`h-10 rounded-xl px-3 text-xs font-bold transition-all ${viewMode === 'billing' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-blue-700'}`} title="Cuentas de Cobro"><FileText className="w-3.5 h-3.5 inline mr-1.5" /> Ctas. de Cobro</button>
                             </div>
                             {canEdit && (
     <>
-        <Button variant="outline" size="sm" onClick={() => setConfigBillingOpen(true)} className="h-10 px-3 ml-0 sm:ml-1 text-slate-600 hover:text-blue-600 bg-white" title="Configurar Autogeneración Cuentas de Cobro">
+        <Button variant="outline" size="sm" onClick={() => setConfigBillingOpen(true)} className="h-11 rounded-xl border-slate-200 bg-white px-3 text-slate-600 hover:bg-blue-50 hover:text-blue-700" title="Configurar Autogeneración Cuentas de Cobro">
             <Settings className="w-4 h-4 sm:mr-0 mr-2"/><span className="sm:hidden">Auto cobros</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setConfigVoucherOpen(true)} className="h-10 px-3 ml-0 sm:ml-1 text-slate-600 hover:text-purple-600 bg-white" title="Configurar Numeración de Documentos">
+        <Button variant="outline" size="sm" onClick={() => setConfigVoucherOpen(true)} className="h-11 rounded-xl border-slate-200 bg-white px-3 text-slate-600 hover:bg-violet-50 hover:text-violet-700" title="Configurar Numeración de Documentos">
             <Edit2 className="w-4 h-4 sm:mr-0 mr-2"/><span className="sm:hidden">Numeración</span>
         </Button>
     </>
@@ -3060,14 +3091,14 @@ const Transactions = () => {
                     </div>
                     
                     {(viewMode === 'balances' || viewMode === 'accounting') && (
-                        <div className="grid grid-cols-2 gap-2 mt-2 pb-2 sm:flex sm:items-center">
+                        <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 sm:flex sm:items-center">
                             {(viewMode === 'balances' || viewMode === 'accounting') && ['all', 'income', 'expense', 'transfer', 'adjustment'].map(type => (
                                 <Button 
                                     key={type} 
                                     variant={filterType === type ? 'default' : 'outline'} 
                                     size="sm" 
                                     onClick={() => setFilterType(type)} 
-                                    className="w-full sm:w-auto capitalize"
+                                    className="w-full rounded-xl px-3 font-bold sm:w-auto capitalize"
                                 >
                                     {type === 'all' ? 'Todas' : type === 'income' ? 'Ingresos' : type === 'expense' ? 'Gastos' : type === 'transfer' ? 'Transferencias' : 'Ajustes'}
                                 </Button>
@@ -3118,30 +3149,33 @@ const Transactions = () => {
                     )}
                 </div>
 
-                <motion.div layout className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+                <motion.div layout className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_55px_-32px_rgba(15,23,42,0.4)]">
                     {viewMode === 'balances' ? (
                         <>
-                        <div className="md:hidden divide-y divide-slate-100">
+                        <div className="md:hidden space-y-3 bg-slate-50/70 p-3">
                             {displayTransactions.length === 0 ? (
-                                <div className="p-8 text-center text-slate-400">No hay transacciones</div>
+                                <div className="rounded-2xl bg-white p-8 text-center text-slate-400">No hay transacciones</div>
                             ) : displayTransactions.map((t) => {
                                 const voucher = t.voucherNumber ? `${t.voucherPrefix || 'N/A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
                                 const amountText = t._mergedAmount
                                     ? t._mergedAmount
                                     : ((t.type === 'income' || t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? '' : '-') + parseFloat(t.amount).toLocaleString('es-CO', { minimumFractionDigits: 0 }));
                                 return (
-                                    <article key={t.id} className="p-4 space-y-3 bg-white">
+                                    <article key={t.id} className={`space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${t.type === 'income' ? 'border-l-4 border-l-emerald-500' : t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'border-l-4 border-l-amber-400' : 'border-l-4 border-l-rose-500'}`}>
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <span className="text-xs font-semibold text-slate-500">{formatSafeDate(t.date)}</span>
-                                                    <span className="font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-md">{voucher}</span>
+                                                    <span className="rounded-full bg-blue-50 px-2.5 py-1 font-mono text-[10px] font-bold text-blue-700 ring-1 ring-blue-100">{voucher}</span>
+                                                    <span className={`rounded-full px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.1em] ${t.type === 'income' ? 'bg-emerald-50 text-emerald-700' : t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
+                                                        {t.type === 'income' ? 'Ingreso' : t._intelligentType === 'transfer' ? 'Transferencia' : t._intelligentType === 'adjustment' ? 'Ajuste' : 'Egreso'}
+                                                    </span>
                                                     {t._isPending && <span className="text-[11px] bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">Pendiente</span>}
                                                 </div>
                                                 <h3 className="mt-2 text-sm font-bold text-slate-900 break-words">{t.description || 'Sin descripción'}</h3>
                                                 <p className="mt-1 text-xs text-slate-500">{t._categoryLabel || getTransactionCategoryLabel(t)}{t._destName ? ` · ${t._destName}` : ''}</p>
                                             </div>
-                                            <div className={`text-right shrink-0 font-mono font-bold ${t.type === 'income' ? 'text-emerald-700' : t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'text-slate-800' : 'text-red-600'}`}>
+                                            <div className={`shrink-0 whitespace-nowrap rounded-xl bg-slate-50 px-2.5 py-1.5 text-right font-mono text-[13px] font-black ${t.type === 'income' ? 'text-emerald-700' : t._intelligentType === 'transfer' || t._intelligentType === 'adjustment' ? 'text-slate-800' : 'text-rose-700'}`}>
                                                 ${amountText}
                                             </div>
                                         </div>
@@ -3149,44 +3183,44 @@ const Transactions = () => {
                                         <div className="grid grid-cols-3 gap-2 text-center">
                                             <div className="rounded-lg bg-blue-50 p-2">
                                                 <div className="text-[10px] uppercase tracking-wide text-blue-600">Caja</div>
-                                                <div className="mt-1 text-xs font-bold font-mono text-slate-800">${t._calculatedCash.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
+                                                <div className="mt-1 whitespace-nowrap font-mono text-[10px] font-bold tracking-tight text-slate-800 min-[390px]:text-xs">${t._calculatedCash.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
                                             </div>
                                             <div className="rounded-lg bg-purple-50 p-2">
                                                 <div className="text-[10px] uppercase tracking-wide text-purple-600">Bancos</div>
-                                                <div className="mt-1 text-xs font-bold font-mono text-slate-800">${t._calculatedBanks.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
+                                                <div className="mt-1 whitespace-nowrap font-mono text-[10px] font-bold tracking-tight text-slate-800 min-[390px]:text-xs">${t._calculatedBanks.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
                                             </div>
                                             <div className="rounded-lg bg-emerald-50 p-2">
                                                 <div className="text-[10px] uppercase tracking-wide text-emerald-700">Aportes</div>
-                                                <div className="mt-1 text-xs font-bold font-mono text-slate-800">${t._calculatedAportes.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
+                                                <div className="mt-1 whitespace-nowrap font-mono text-[10px] font-bold tracking-tight text-slate-800 min-[390px]:text-xs">${t._calculatedAportes.toLocaleString('es-CO', { minimumFractionDigits: 0 })}</div>
                                             </div>
                                         </div>
 
-                                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                                            <Button variant="outline" size="sm" className="flex-1 min-w-[92px]" onClick={() => handlePrint(t)}>
+                                        <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                                            <Button variant="outline" size="sm" className="w-full rounded-xl border-slate-200 bg-white font-semibold" onClick={() => handlePrint(t)}>
                                                 <Printer className="w-4 h-4 mr-1.5 text-blue-600" /> Comprobante
                                             </Button>
                                             {t.type === 'expense' && !t.isInternalTransfer && !t.debitAccount && (
-                                                <Button variant="outline" size="sm" className="flex-1 min-w-[92px] text-emerald-700" onClick={() => handleGenerateBillingDoc(t)}>
+                                                <Button variant="outline" size="sm" className="w-full rounded-xl border-emerald-200 bg-emerald-50/60 font-semibold text-emerald-700" onClick={() => handleGenerateBillingDoc(t)}>
                                                     <FileText className="w-4 h-4 mr-1.5" /> Cuenta cobro
                                                 </Button>
                                             )}
                                             {t.type === 'income' && !t.isInternalTransfer && (
-                                                <Button variant="outline" size="sm" className="flex-1 min-w-[92px] text-indigo-700" onClick={() => handleGenerateReceipt(t)}>
+                                                <Button variant="outline" size="sm" className="w-full rounded-xl border-indigo-200 bg-indigo-50/60 font-semibold text-indigo-700" onClick={() => handleGenerateReceipt(t)}>
                                                     <FileCheck className="w-4 h-4 mr-1.5" /> Recibo
                                                 </Button>
                                             )}
                                             {!t.isLocked && canEdit && !isSystemManagedTransaction(t) && !invoicedTransactionIds.has(t.id) && (
-                                                <Button variant="outline" size="sm" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }}>
+                                                <Button variant="outline" size="sm" className="w-full rounded-xl border-slate-200 font-semibold" onClick={() => { setEditingTransaction(t); setDialogOpen(true); }}>
                                                     <Edit2 className="w-4 h-4 mr-1.5" /> Editar
                                                 </Button>
                                             )}
                                             {!t.isLocked && canDelete && (
-                                                <Button variant="outline" size="sm" className="text-red-600 border-red-200" onClick={() => handleDelete(t.id)}>
+                                                <Button variant="outline" size="sm" className="w-full rounded-xl border-rose-200 bg-rose-50/50 font-semibold text-rose-700" onClick={() => handleDelete(t.id)}>
                                                     <Trash2 className="w-4 h-4 mr-1.5" /> Eliminar
                                                 </Button>
                                             )}
                                             {(t.isLocked || isSystemManagedTransaction(t) || invoicedTransactionIds.has(t.id)) && (
-                                                <span className="inline-flex items-center text-xs text-slate-400 px-2"><Lock className="w-3.5 h-3.5 mr-1" /> Protegida</span>
+                                                <span className="col-span-2 inline-flex items-center justify-center rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-400"><Lock className="w-3.5 h-3.5 mr-1" /> Protegida</span>
                                             )}
                                         </div>
                                     </article>
@@ -3195,11 +3229,11 @@ const Transactions = () => {
                         </div>
                         <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
                             <table className="w-full min-w-[1180px] text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-700 font-medium border-b"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Monto</th><th className="px-4 py-3 text-right bg-blue-50/50">Saldo Caja</th><th className="px-4 py-3 text-right bg-purple-50/50">Saldo Bancos</th><th className="px-4 py-3 text-right bg-green-50/50">Saldo Aportes</th><th className="px-3 py-3 text-center min-w-[168px] whitespace-nowrap">Acciones</th></tr></thead>
+                                <thead className="bg-slate-950 text-slate-200 font-semibold border-b"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comprobante</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Categoría</th><th className="px-4 py-3 text-right">Monto</th><th className="px-4 py-3 text-right bg-blue-900/30">Saldo Caja</th><th className="px-4 py-3 text-right bg-violet-900/30">Saldo Bancos</th><th className="px-4 py-3 text-right bg-emerald-900/30">Saldo Aportes</th><th className="px-3 py-3 text-center min-w-[168px] whitespace-nowrap">Acciones</th></tr></thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {displayTransactions.map((t) => {
                                         return (
-                                            <tr key={t.id} className="hover:bg-slate-50 group">
+                                            <tr key={t.id} className="group transition-colors hover:bg-blue-50/40">
                                                 <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatSafeDate(t.date)}</td>
                                                 <td className="px-4 py-3 font-mono text-xs text-slate-500 font-bold">{t.voucherNumber ? `${t.voucherPrefix || 'N/A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-'}</td>
                                                 <td className="px-4 py-3 text-slate-700 font-medium max-w-[200px] truncate" title={t.description}>{t.description}{t._isPending && <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">Pendiente</span>}</td>
@@ -3259,15 +3293,15 @@ const Transactions = () => {
                         </>
                     ) : viewMode === 'accounting' ? (
                         <>
-                        <div className="md:hidden divide-y divide-slate-100">
+                        <div className="md:hidden space-y-3 bg-slate-50/70 p-3">
                             {displayTransactions.length === 0 ? (
-                                <div className="p-8 text-center text-slate-400">No hay registros contables</div>
+                                <div className="rounded-2xl bg-white p-8 text-center text-slate-400">No hay registros contables</div>
                             ) : displayTransactions.map(t => {
                                 if (t._isMerged) return null;
                                 const vId = t.voucherNumber ? `${t.voucherPrefix || 'A'}-${String(t.voucherNumber).padStart(4, '0')}` : '-';
                                 const accountingRows = resolveAccountingRows(t);
                                 return (
-                                    <article key={t.id} className="p-4 bg-white space-y-3">
+                                    <article key={t.id} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
@@ -3280,7 +3314,7 @@ const Transactions = () => {
                                         </div>
                                         <div className="space-y-2">
                                             {accountingRows.map((row, rowIndex) => (
-                                                <div key={`${t.id}-mobile-accounting-${rowIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                                <div key={`${t.id}-mobile-accounting-${rowIndex}`} className={`rounded-xl border p-3 ${row.debit > 0 ? 'border-blue-100 bg-blue-50/60' : 'border-amber-100 bg-amber-50/60'}`}>
                                                     <div className="flex items-start justify-between gap-3">
                                                         <div className="min-w-0">
                                                             <div className="font-mono text-xs font-bold text-slate-700">{row.account?.code || 'N/A'}</div>
@@ -3288,9 +3322,9 @@ const Transactions = () => {
                                                         </div>
                                                         <div className="shrink-0 text-right">
                                                             {row.debit > 0 ? (
-                                                                <><div className="text-[10px] uppercase text-blue-600 font-semibold">Débito</div><div className="font-mono text-sm font-bold text-blue-700">${Number(row.debit).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</div></>
+                                                                <><div className="text-[10px] uppercase text-blue-600 font-semibold">Débito</div><div className="whitespace-nowrap font-mono text-xs font-bold text-blue-700 min-[390px]:text-sm">${Number(row.debit).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</div></>
                                                             ) : (
-                                                                <><div className="text-[10px] uppercase text-orange-600 font-semibold">Crédito</div><div className="font-mono text-sm font-bold text-orange-700">${Number(row.credit).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</div></>
+                                                                <><div className="text-[10px] uppercase text-amber-600 font-semibold">Crédito</div><div className="whitespace-nowrap font-mono text-xs font-bold text-amber-700 min-[390px]:text-sm">${Number(row.credit).toLocaleString('es-CO', { minimumFractionDigits: 2 })}</div></>
                                                             )}
                                                         </div>
                                                     </div>
@@ -3303,7 +3337,7 @@ const Transactions = () => {
                         </div>
                         <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-800 text-slate-200 font-medium"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comp.</th><th className="px-4 py-3 w-1/3">Cuenta (PUC)</th><th className="px-4 py-3 w-1/3">Detalle</th><th className="px-4 py-3 text-right w-32">Débito</th><th className="px-4 py-3 text-right w-32">Crédito</th></tr></thead>
+                                <thead className="bg-slate-950 text-slate-200 font-semibold"><tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Comp.</th><th className="px-4 py-3 w-1/3">Cuenta (PUC)</th><th className="px-4 py-3 w-1/3">Detalle</th><th className="px-4 py-3 text-right w-32">Débito</th><th className="px-4 py-3 text-right w-32">Crédito</th></tr></thead>
                                 <tbody className="bg-white">
                                     {displayTransactions.map(t => {
                                         if (t._isMerged) return null;
@@ -3340,7 +3374,7 @@ const Transactions = () => {
                         </>
                     ) : viewMode === 'mayor' ? (
                         <div>
-                            <div className="bg-purple-50 p-4 border-b border-purple-100 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+                            <div className="flex flex-col gap-3 border-b border-violet-100 bg-gradient-to-r from-violet-50 to-white p-5 md:flex-row md:items-center md:justify-between">
                                 <div>
                                     <h3 className="font-bold text-purple-900 text-lg">Libro Mayor y Balance de Comprobación</h3>
                                     <p className="text-xs text-purple-700">Saldos por naturaleza Débito/Crédito y control automático de cuadre</p>
@@ -3360,7 +3394,7 @@ const Transactions = () => {
                                             const ending = splitBalanceByNature(acc.code, acc.nuevoSaldo);
                                             const fmt = value => Number(value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 });
                                             return (
-                                                <article key={acc.code} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                                                <article key={acc.code} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                                                     <div className="font-mono text-xs font-bold text-purple-700">{acc.code}</div>
                                                     <h4 className="mt-1 text-sm font-bold uppercase text-slate-800 break-words">{acc.name}</h4>
                                                     <div className="mt-3 space-y-2 text-xs">
@@ -3392,7 +3426,7 @@ const Transactions = () => {
                                             const balanced = Math.abs(totals.prevDebit - totals.prevCredit) < 0.01 && Math.abs(totals.movDebit - totals.movCredit) < 0.01 && Math.abs(totals.endDebit - totals.endCredit) < 0.01;
                                             const fmt = value => Number(value || 0).toLocaleString('es-CO', { minimumFractionDigits: 2 });
                                             return (
-                                                <article className={`rounded-xl border-2 p-4 ${balanced ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-red-600 bg-red-50 text-red-900'}`}>
+                                                <article className={`rounded-2xl border-2 p-4 shadow-sm ${balanced ? 'border-emerald-500 bg-emerald-50 text-emerald-900' : 'border-rose-500 bg-rose-50 text-rose-900'}`}>
                                                     <div className="font-black text-sm">{balanced ? 'SUMAS DE COMPROBACIÓN · CUADRADAS' : 'SUMAS DE COMPROBACIÓN · VERIFICAR'}</div>
                                                     <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
                                                         <span>Anterior Débito<b className="block font-mono">${fmt(totals.prevDebit)}</b></span><span>Anterior Crédito<b className="block font-mono">${fmt(totals.prevCredit)}</b></span>
@@ -3407,7 +3441,7 @@ const Transactions = () => {
                             </div>
                             <div className="hidden md:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-800 text-slate-200 font-medium">
+                                <thead className="bg-slate-950 text-slate-200 font-semibold">
                                     <tr>
                                         <th className="px-4 py-3">Código</th>
                                         <th className="px-4 py-3 w-1/3">Cuenta</th>
@@ -3480,7 +3514,7 @@ const Transactions = () => {
                             </div>
                         </div>
                     ) : (
-                        <div className="p-6 bg-slate-50">
+                        <div className="bg-slate-50/70 p-3 sm:p-5">
                             {Object.keys(groupedBillingDocuments).length === 0 ? (
                                 <div className="text-center py-16">
                                     <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -3490,8 +3524,8 @@ const Transactions = () => {
                             ) : (
                                 <div className="space-y-8">
                                     {Object.entries(groupedBillingDocuments).map(([month, days]) => (
-                                        <div key={month} className="bg-white rounded-xl shadow-sm border overflow-hidden">
-                                            <div className="bg-blue-900 px-6 py-3 border-b">
+                                        <div key={month} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                            <div className="border-b border-blue-900/20 bg-gradient-to-r from-slate-950 to-blue-950 px-5 py-4 sm:px-6">
                                                 <h3 className="text-xl font-bold capitalize text-white flex items-center gap-2">
                                                     <Calendar className="w-5 h-5 opacity-70" /> {month} {selectedYear}
                                                 </h3>
@@ -3504,7 +3538,7 @@ const Transactions = () => {
                                                         </div>
                                                         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-6">
                                                             {docs.map(doc => (
-                                                                <div key={doc.id} className="group border border-slate-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all bg-white relative overflow-hidden">
+                                                                <div key={doc.id} className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
                                                                     <div className="absolute top-0 right-0 bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-1 rounded-bl-lg">
                                                                         E-{String(doc.voucherNumber).padStart(4, '0')}
                                                                     </div>
