@@ -453,14 +453,14 @@ const MassIntentions = () => {
                     {items.map(i => {
                         const clName = (i.name || '').replace(/^[+✝]\s*/, '').trim();
                         return (
-                            <div key={i.id} className="flex items-baseline text-[15px] text-[#222] serif-font">
-                                <div className="bg-white pr-2 whitespace-nowrap">
-                                    <span className="font-semibold">{prefix}{clName}</span>
-                                    {i.offeredBy && <span className="text-[0.85em] italic text-[#555] font-normal ml-1.5">(Ofrece: {i.offeredBy})</span>}
+                            <div key={i.id} className="flex min-w-0 items-end text-[15px] text-[#222] serif-font">
+                                <div className="min-w-0 flex-[0_1_auto] bg-white pr-2 leading-6">
+                                    <span className="font-semibold whitespace-normal break-words [overflow-wrap:anywhere]">{prefix}{clName}</span>
+                                    {i.offeredBy && <span className="ml-1.5 text-[0.85em] font-normal italic text-[#555] whitespace-normal break-words [overflow-wrap:anywhere]">(Ofrece: {i.offeredBy})</span>}
                                 </div>
-                                <div className="leader-line"></div>
+                                <div className="leader-line min-w-4"></div>
                                 {showAmount && (
-                                    <span className="bg-white pl-2 font-mono text-xs whitespace-nowrap font-bold text-slate-700">
+                                    <span className="shrink-0 bg-white pl-2 font-mono text-xs whitespace-nowrap font-bold text-slate-700">
                                         ${parseFloat(i.amount || 0).toLocaleString('es-CO')}
                                     </span>
                                 )}
