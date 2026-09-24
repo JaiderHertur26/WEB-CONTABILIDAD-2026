@@ -13,6 +13,7 @@ import { format } from 'date-fns';
 import { usePermission } from '@/hooks/usePermission';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const BankAccounts = () => {
     const { activeCompany } = useCompany();
@@ -298,27 +299,35 @@ const BankAccounts = () => {
         <>
             <Helmet><title>Cuentas Bancarias - JaiderHerTur26</title></Helmet>
             <div className="space-y-6">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div><h1 className="text-4xl font-bold text-slate-900">Cuentas Bancarias</h1><p className="text-slate-600">Gestiona tus cuentas y aportes ordinarios.</p></div>
-                    <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        {isReadOnly && <span className="flex items-center text-slate-400 text-sm"><Lock className="w-4 h-4 mr-1" />{isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</span>}
-                        {canAdd && <Button onClick={() => { setEditingAccount(null); setDialogOpen(true); }} className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700"><Plus className="w-4 h-4 mr-2" /> Nueva Cuenta</Button>}
-                    </div>
-                </motion.div>
+                <ProfessionalModuleHero
+                    eyebrow="Tesorería y liquidez"
+                    title="Cuentas Bancarias"
+                    subtitle="Administra bancos, saldos, aportes ordinarios e intereses con vinculación contable y lectura inmediata de liquidez."
+                    activeCompany={activeCompany}
+                    icon={Landmark}
+                    accent="cyan"
+                    badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">{isConsolidatedReadOnly ? 'Solo lectura' : 'Acceso parcial'}</span> : null}
+                    metrics={[
+                        { label: 'Cuentas', value: (accountsWithCalculatedBalances || []).length },
+                        { label: 'Saldo bancario', value: '$ ' + (accountsWithCalculatedBalances || []).reduce((sum, item) => sum + Number(item.balance || 0), 0).toLocaleString('es-CO') },
+                        { label: 'Aportes', value: '$ ' + (accountsWithCalculatedBalances || []).reduce((sum, item) => sum + Number(item.investmentBalance || 0), 0).toLocaleString('es-CO') },
+                    ]}
+                    actions={canAdd ? <Button onClick={() => { setEditingAccount(null); setDialogOpen(true); }} className="col-span-2 h-10 rounded-xl bg-cyan-600 font-bold text-white hover:bg-cyan-500 sm:col-span-1"><Plus className="mr-2 h-4 w-4" />Nueva cuenta</Button> : null}
+                />
                 {(accountsWithCalculatedBalances || []).length === 0 ? (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-16 bg-white rounded-xl shadow-lg border"><Landmark className="w-16 h-16 text-slate-300 mx-auto mb-4" /><p className="text-slate-500">No hay cuentas bancarias guardadas.</p></motion.div>
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-3xl border border-slate-200 bg-white py-16 text-center shadow-sm"><Landmark className="w-16 h-16 text-slate-300 mx-auto mb-4" /><p className="text-slate-500">No hay cuentas bancarias guardadas.</p></motion.div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                         {accountsWithCalculatedBalances.map((account, index) => (
-                            <motion.div key={account.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }} className="bg-white rounded-xl shadow-lg p-6 border flex flex-col justify-between">
+                            <motion.div key={account.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }} className="flex flex-col justify-between rounded-3xl border border-slate-200/80 bg-white p-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)]">
                                 <div>
                                     <div className="flex items-center mb-4">
-                                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-4"><Banknote className="w-6 h-6 text-blue-600" /></div>
+                                        <div className="mr-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-50 ring-1 ring-cyan-100"><Banknote className="w-6 h-6 text-blue-600" /></div>
                                         <div><h3 className="font-bold text-lg">{account.bankName}</h3><p className="text-sm text-slate-500">Cta No. {account.accountNumber}</p></div>
                                     </div>
                                     <div className="mb-2">{account.accountingCode && (<span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-600">PUC: {account.accountingCode} - {account.accountingConcept}</span>)}</div>
                                     <p className="text-sm text-slate-500">Balance Cta. Principal</p>
-                                    <p className="text-3xl font-bold text-blue-800">${(account.balance || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+                                    <p className="whitespace-nowrap font-mono text-2xl font-black tracking-[-0.04em] text-slate-950">${(account.balance || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
                                     <div className="mt-2 flex items-center gap-2 text-sm text-purple-700 bg-purple-100 p-2 rounded-lg"><Briefcase className="w-4 h-4" /><span>Aporte Ordinario: ${(account.investmentBalance || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span></div>
                                 </div>
 
@@ -358,7 +367,7 @@ const AccountDialog = ({ open, onOpenChange, onSave, account, isReadOnly }) => {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-xl">
                 <DialogHeader><DialogTitle>{account ? 'Editar' : 'Nueva'} Cuenta Bancaria</DialogTitle></DialogHeader>
                 {isReadOnly && account && <div className="bg-amber-50 text-amber-800 p-4 rounded-lg flex items-center gap-2 mb-4"><AlertTriangle className="w-5 h-5" />Modo Solo Lectura</div>}
                 <form onSubmit={handleSubmit} className="space-y-4 pt-4">

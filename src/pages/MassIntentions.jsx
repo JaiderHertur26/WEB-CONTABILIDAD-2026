@@ -16,6 +16,7 @@ import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { resolveLiquidityAccount } from '@/lib/liquidityAccounts';
 import ContactSelector from '@/components/transactions/ContactSelector';
 import { createPrintTarget } from '@/lib/nativePrint';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const MassIntentions = () => {
     const { activeCompany } = useCompany();
@@ -521,19 +522,19 @@ const MassIntentions = () => {
             <Helmet><title>Libro Diario de Misa - {activeCompany?.name || 'Parroquia'}</title></Helmet>
             
             <div className="mx-auto max-w-[1520px] space-y-6">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-600">Libro diario de misa</p>
-                        <h1 className="text-4xl font-extrabold tracking-tight text-slate-950">Intenciones</h1>
-                        <p className="mt-2 max-w-2xl font-serif text-sm italic leading-6 text-slate-500">"La Eucaristía es fuente y cumbre de toda la vida cristiana." <span className="text-xs text-slate-400">(Lumen Gentium 11)</span></p>
-                    </div>
-                    <div className="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border border-slate-200">
-                        <div className="bg-[#8b6f4e] text-white px-3 py-2 rounded-lg flex items-center font-semibold text-sm">
-                            <BookOpen className="w-4 h-4 mr-2" />
-                            {activeCompany?.name || 'Parroquia'}
-                        </div>
-                    </div>
-                </div>
+                <ProfessionalModuleHero
+                    eyebrow="Libro diario de misa"
+                    title="Intenciones"
+                    subtitle="Organiza las intenciones de la Eucaristía, sus ofrendas y la programación pastoral con una lectura clara por día, mes o año."
+                    activeCompany={activeCompany}
+                    icon={BookOpen}
+                    accent="emerald"
+                    metrics={[
+                        { label: 'Vista', value: viewMode === 'day' ? 'Día' : viewMode === 'month' ? 'Mes' : 'Año' },
+                        { label: 'Intenciones', value: filteredIntentions.length },
+                        { label: 'Ofrendas', value: '$ ' + filteredIntentions.reduce((sum, item) => sum + Number(item.amount || 0), 0).toLocaleString('es-CO') },
+                    ]}
+                />
 
                 <div className="hertur-surface grid grid-cols-1 gap-3 rounded-2xl p-3 lg:grid-cols-2">
                     <div className="flex w-fit max-w-full rounded-xl border border-slate-200/70 bg-slate-100/80 p-1">
@@ -567,7 +568,7 @@ const MassIntentions = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     <div className="lg:col-span-7 space-y-6">
                         
-                        <div className="bg-white rounded-xl shadow-sm border border-purple-100 overflow-hidden">
+                        <div className="overflow-hidden rounded-3xl border border-purple-100 bg-white shadow-[0_16px_42px_-30px_rgba(88,28,135,0.35)]">
                             <div className="bg-purple-50/50 p-4 border-b border-purple-100 flex items-center gap-3">
                                 <div className="bg-purple-600 text-white p-2 rounded-lg shadow-sm"><Plus className="w-5 h-5" /></div>
                                 <div>
@@ -580,7 +581,7 @@ const MassIntentions = () => {
                             </div>
                         </div>
 
-                        <div className="bg-white rounded-xl shadow-sm border border-emerald-100 overflow-hidden">
+                        <div className="overflow-hidden rounded-3xl border border-emerald-100 bg-white shadow-[0_16px_42px_-30px_rgba(5,150,105,0.28)]">
                             <div className="bg-emerald-50/50 p-4 border-b border-emerald-100 flex items-center gap-3">
                                 <div className="bg-emerald-500 text-white p-2 rounded-lg shadow-sm"><Heart className="w-5 h-5" /></div>
                                 <div>
@@ -593,7 +594,7 @@ const MassIntentions = () => {
                             </div>
                         </div>
 
-                        <div className="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden">
+                        <div className="overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-[0_16px_42px_-30px_rgba(37,99,235,0.28)]">
                             <div className="bg-blue-50/50 p-4 border-b border-blue-100 flex items-center gap-3">
                                 <div className="bg-blue-500 text-white p-2 rounded-lg shadow-sm"><Activity className="w-5 h-5" /></div>
                                 <div>
@@ -607,7 +608,7 @@ const MassIntentions = () => {
                         </div>
 
                         {grouped.otras.length > 0 && (
-                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_16px_42px_-30px_rgba(15,23,42,0.3)]">
                                 <div className="bg-slate-100 p-4 border-b border-slate-200 flex items-center gap-3">
                                     <div className="bg-slate-600 text-white p-2 rounded-lg shadow-sm"><BookOpen className="w-5 h-5" /></div>
                                     <div>
@@ -624,7 +625,7 @@ const MassIntentions = () => {
                     </div>
 
                     <div className="lg:col-span-5 relative">
-                        <div className="sticky top-6 bg-[#fdfbf7] p-6 rounded-2xl border border-[#e8e2d9] shadow-inner">
+                        <div className="sticky top-6 rounded-3xl border border-[#e8e2d9] bg-[#fdfbf7] p-4 shadow-[0_18px_50px_-34px_rgba(92,74,61,0.4)] sm:p-6">
                             <h3 className="text-sm font-bold text-[#8b6f4e] mb-4 flex items-center uppercase tracking-widest"><Printer className="w-4 h-4 mr-2"/> Vista previa para impresión</h3>
                             
                             <div ref={printRef} className="bg-white p-8 md:p-10 shadow-xl print-shadow mx-auto relative" style={{ minHeight: '600px', width: '100%', maxWidth: '215.9mm' }}>

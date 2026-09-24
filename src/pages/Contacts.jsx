@@ -14,6 +14,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from '@/lib/utils';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 
 const CATEGORIES = {
   CLIENTE: { label: 'Cliente', color: 'bg-blue-100 text-blue-800', icon: User },
@@ -77,6 +78,11 @@ const Contacts = () => {
   const { canEdit, canDelete, canAdd, canImport, isReadOnly, isConsolidatedReadOnly } = usePermission();
   const { activeCompany } = useCompany();
   const [contacts, saveContacts] = useCompanyData('contacts');
+  const [transactions] = useCompanyData('transactions');
+  const [receivables] = useCompanyData('accountsReceivable');
+  const [payables] = useCompanyData('accountsPayable');
+  const [massIntentions] = useCompanyData('mass_intentions');
+  const [contracts] = useCompanyData('contracts');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -145,6 +151,24 @@ const Contacts = () => {
 
   const handleDeleteContact = (id) => {
     if (!canDelete) return;
+
+    const links = [
+      { label: 'Transacciones', count: (transactions || []).filter(item => String(item.contactId || '') === String(id)).length },
+      { label: 'Cuentas por Cobrar', count: (receivables || []).filter(item => String(item.contactId || '') === String(id)).length },
+      { label: 'Cuentas por Pagar', count: (payables || []).filter(item => String(item.contactId || '') === String(id)).length },
+      { label: 'Intenciones de Misa', count: (massIntentions || []).filter(item => String(item.contactId || '') === String(id)).length },
+      { label: 'Contratos', count: (contracts || []).filter(item => String(item.contractorId || '') === String(id)).length },
+    ].filter(item => item.count > 0);
+
+    if (links.length > 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Contacto en uso',
+        description: `No se puede eliminar porque está vinculado a ${links.map(item => `${item.label} (${item.count})`).join(', ')}. Edítalo en lugar de eliminarlo.`,
+      });
+      return;
+    }
+
     const updatedContacts = contacts.filter(c => c.id !== id);
     saveContacts(updatedContacts);
     toast({ title: "Contacto eliminado", description: "El contacto fue eliminado." });
@@ -511,24 +535,35 @@ const Contacts = () => {
       </Helmet>
 
       <div className="space-y-6">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900">Contactos</h1>
-            <p className="text-slate-600">Gestiona los datos de personas y empresas</p>
-          </div>
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center sm:flex-wrap">
-            <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".xlsx,.xls,.csv,.json" />
-            {canImport && <Button onClick={triggerImport} variant="outline" className="bg-white"><Upload className="w-4 h-4 mr-2" />Importar</Button>}
-            <Button onClick={handleExport} variant="outline" className="bg-white"><Download className="w-4 h-4 mr-2" />Exportar</Button>
-            {isReadOnly && <div className="flex items-center text-slate-400 text-sm ml-2"><Lock className="w-4 h-4 mr-1"/> {isConsolidatedReadOnly ? 'Vista Consolidada · Solo lectura' : 'Acceso Parcial'}</div>}
-            {canAdd && <Button onClick={openDialogForNew} className="col-span-2 w-full sm:w-auto sm:col-span-1 bg-blue-600 hover:bg-blue-700">
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Contacto
-            </Button>}
-          </div>
-        </motion.div>
+        <ProfessionalModuleHero
+          eyebrow="Maestro de terceros"
+          title="Contactos"
+          subtitle="Centraliza clientes, proveedores y acreedores con identificación, datos de contacto y trazabilidad para toda la operación."
+          activeCompany={activeCompany}
+          icon={Briefcase}
+          accent="blue"
+          badges={isReadOnly ? (
+            <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">
+              {isConsolidatedReadOnly ? 'Solo lectura' : 'Acceso parcial'}
+            </span>
+          ) : null}
+          metrics={[
+            { label: 'Total', value: (contacts || []).length },
+            { label: 'Clientes', value: (contacts || []).filter(c => normalizeCategory(c.category) === 'Cliente').length },
+            { label: 'Proveedores', value: (contacts || []).filter(c => normalizeCategory(c.category) === 'Proveedor').length },
+            { label: 'Acreedores', value: (contacts || []).filter(c => normalizeCategory(c.category) === 'Acreedor').length },
+          ]}
+          actions={
+            <>
+              <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".xlsx,.xls,.csv,.json" />
+              {canImport && <Button onClick={triggerImport} variant="outline" className="h-10 rounded-xl border-white/15 bg-white/10 text-white hover:bg-white/15 hover:text-white"><Upload className="mr-2 h-4 w-4" />Importar</Button>}
+              <Button onClick={handleExport} variant="outline" className="h-10 rounded-xl border-white/15 bg-white/10 text-white hover:bg-white/15 hover:text-white"><Download className="mr-2 h-4 w-4" />Exportar</Button>
+              {canAdd && <Button onClick={openDialogForNew} className="col-span-2 h-10 rounded-xl bg-blue-600 font-bold text-white hover:bg-blue-500 sm:col-span-1"><Plus className="mr-2 h-4 w-4" />Nuevo contacto</Button>}
+            </>
+          }
+        />
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 space-y-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] sm:p-5 space-y-4">
           <div className="flex flex-col md:flex-row gap-4 justify-between md:items-center">
             <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
@@ -537,7 +572,7 @@ const Contacts = () => {
                 placeholder="Buscar por nombre, email o documento..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-4 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60"
                 />
             </div>
             <div className="flex gap-2 flex-wrap">
@@ -566,7 +601,7 @@ const Contacts = () => {
             {filteredContacts.length === 0 ? (
               <div className="rounded-xl border bg-white p-8 text-center text-slate-400">No se encontraron contactos.</div>
             ) : filteredContacts.map(contact => (
-              <article key={contact.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <article key={contact.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start gap-3">
                   <div className={`w-11 h-11 shrink-0 rounded-xl flex items-center justify-center ${contact.type === 'person' ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600'}`}>
                     {contact.type === 'person' ? <User className="w-5 h-5" /> : <Building className="w-5 h-5" />}
@@ -592,9 +627,9 @@ const Contacts = () => {
             ))}
           </div>
 
-          <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x rounded-lg border" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x rounded-2xl border border-slate-200" style={{ WebkitOverflowScrolling: 'touch' }}>
              <table className="w-full min-w-[900px] text-sm text-left">
-                 <thead className="bg-slate-50 text-slate-700 font-semibold border-b">
+                 <thead className="bg-slate-950 text-slate-200 font-semibold border-b border-slate-900">
                      <tr>
                          <th className="px-6 py-4">Nombre / Empresa</th>
                          <th className="px-6 py-4">Categoría</th>
@@ -706,9 +741,9 @@ const ContactDialog = ({ open, onOpenChange, contact, onSave }) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">{contact ? 'Editar Contacto' : 'Nuevo Contacto'}</DialogTitle>
+          <div><p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-blue-600">Maestro de terceros</p><DialogTitle className="mt-1 text-2xl font-black tracking-tight">{contact ? 'Editar Contacto' : 'Nuevo Contacto'}</DialogTitle></div>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -741,13 +776,13 @@ const ContactDialog = ({ open, onOpenChange, contact, onSave }) => {
           
           <div className="space-y-2">
             <Label htmlFor="name">Nombre / Razón Social *</Label>
-            <input id="name" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+            <input id="name" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="docType">Tipo Documento</Label>
-              <select id="docType" value={formData.docType} onChange={(e) => setFormData({ ...formData, docType: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg">
+              <select id="docType" value={formData.docType} onChange={(e) => setFormData({ ...formData, docType: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60">
                 <option value="CC">C.C.</option>
                 <option value="NIT">NIT</option>
                 <option value="CE">C.E.</option>
@@ -756,21 +791,21 @@ const ContactDialog = ({ open, onOpenChange, contact, onSave }) => {
             </div>
             <div className="space-y-2">
               <Label htmlFor="docNumber">Número Documento *</Label>
-              <input id="docNumber" required value={formData.docNumber} onChange={(e) => setFormData({ ...formData, docNumber: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+              <input id="docNumber" required value={formData.docNumber} onChange={(e) => setFormData({ ...formData, docNumber: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
             </div>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
-            <input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+            <input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="phone">Teléfono</Label>
-            <input id="phone" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+            <input id="phone" value={formData.phone} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="address">Dirección</Label>
-            <input id="address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg" />
+            <input id="address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100/60" />
           </div>
           <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>

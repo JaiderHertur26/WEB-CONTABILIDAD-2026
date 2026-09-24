@@ -29,6 +29,7 @@ import { useCompanyData } from '@/hooks/useCompanyData';
 import { createPrintTarget } from '@/lib/nativePrint';
 import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
+import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import {
     format,
@@ -1461,20 +1462,25 @@ const months = [
             </Helmet>
 
             <div className="space-y-6 max-w-7xl mx-auto">
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="print:hidden">
-                    <div className="flex flex-wrap items-center gap-3">
-                        <h1 className="text-4xl font-bold text-slate-900">Cierres Contables</h1>
-                        {isReadOnly && (
-                            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-                                Solo lectura
-                            </span>
-                        )}
-                    </div>
-                    <p className="text-slate-600">Genera actas y reportes de cierre. El acta por sí sola no bloquea movimientos: los meses se oficializan en Transacciones y la vigencia anual se cierra aquí cuando todos los meses con movimiento ya están oficializados.</p>
-                </motion.div>
+                <div className="print:hidden">
+                    <ProfessionalModuleHero
+                        eyebrow="Control de períodos"
+                        title="Cierres Contables"
+                        subtitle="Genera actas de cierre y controla la vigencia contable sin confundir el reporte con la oficialización de movimientos."
+                        activeCompany={activeCompany}
+                        icon={BookOpen}
+                        accent="violet"
+                        badges={isReadOnly ? <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-amber-100">Solo lectura</span> : null}
+                        metrics={[
+                            { label: 'Modo', value: activeTab === 'day' ? 'Diario' : activeTab === 'week' ? 'Semanal' : activeTab === 'month' ? 'Mensual' : activeTab === 'year' ? 'Anual' : 'Personalizado' },
+                            { label: 'Año', value: selectedYear },
+                            { label: 'Reporte', value: report ? 'Generado' : 'Pendiente' },
+                        ]}
+                    />
+                </div>
 
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-white rounded-xl shadow-lg border overflow-hidden print:hidden">
-                    <div className="flex border-b bg-slate-50 overflow-x-auto overscroll-x-contain touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] print:hidden">
+                    <div className="flex overflow-x-auto overscroll-x-contain touch-pan-x border-b border-slate-200 bg-slate-950" style={{ WebkitOverflowScrolling: 'touch' }}>
                         {[
                             { id: 'day', label: 'Cierre Diario', icon: CalendarIcon },
                             { id: 'week', label: 'Cierre Semanal', icon: CalendarIcon },
@@ -1486,8 +1492,8 @@ const months = [
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`flex shrink-0 min-w-max items-center px-4 sm:px-6 py-4 text-sm font-medium transition-colors border-b-2 whitespace-nowrap ${activeTab === tab.id
-                                    ? 'border-blue-600 text-blue-600 bg-white'
-                                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                                    ? 'border-blue-500 text-blue-700 bg-white'
+                                    : 'border-transparent text-slate-300 hover:text-white hover:bg-white/10'
                                     }`}
                             >
                                 <tab.icon className="w-4 h-4 mr-2" />
