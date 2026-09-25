@@ -143,7 +143,7 @@ const BankAccounts = () => {
         setEditingAccount(null);
     };
 
-    const handleDeleteAccount = (id) => {
+    const handleDeleteAccount = async (id) => {
         if (!canDelete) return;
         const target = (accounts || []).find(acc => acc.id === id);
         if (!target) return;
@@ -162,8 +162,13 @@ const BankAccounts = () => {
             return;
         }
 
-        saveAccounts((accounts || []).filter(acc => acc.id !== id));
-        toast({ title: "Cuenta eliminada", description:'Sólo se eliminó porque no tenía saldos iniciales, movimientos ni período protegido.' });
+        try {
+            const saved = await saveAccounts((accounts || []).filter(acc => acc.id !== id));
+            if (saved === false) return;
+            toast({ title: "Cuenta eliminada", description:'Sólo se eliminó porque no tenía historia y la operación fue autorizada con Acceso Total.' });
+        } catch (error) {
+            toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar la cuenta bancaria.' });
+        }
     };
 
     const getNextVoucherNumber = (type, date) => {
