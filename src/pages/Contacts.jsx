@@ -149,7 +149,7 @@ const Contacts = () => {
     setEditingContact(null);
   };
 
-  const handleDeleteContact = (id) => {
+  const handleDeleteContact = async (id) => {
     if (!canDelete) return;
 
     const links = [
@@ -169,9 +169,13 @@ const Contacts = () => {
       return;
     }
 
-    const updatedContacts = contacts.filter(c => c.id !== id);
-    saveContacts(updatedContacts);
-    toast({ title: "Contacto eliminado", description: "El contacto fue eliminado." });
+    try {
+      const saved = await saveContacts(contacts.filter(c => c.id !== id));
+      if (saved === false) return;
+      toast({ title: "Contacto eliminado", description: "La eliminación fue autorizada con Acceso Total." });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Eliminación bloqueada', description: error?.message || 'No se pudo eliminar el contacto.' });
+    }
   };
 
   const openDialogForEdit = (contact) => {
