@@ -18,6 +18,13 @@ import FinancialReportsView from '@/components/reports/FinancialReportsView';
 import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
 import { toAccountingDateInput } from '@/lib/accountingDate';
 
+const hasReportValue = value => Number.isFinite(Number(value)) && Math.abs(Number(value)) >= 0.005;
+const accountDisplay = (code, name, fallback = 'CUENTA CONTABLE') => {
+  const cleanCode = String(code || '').trim();
+  const cleanName = String(name || fallback).trim().toUpperCase();
+  return cleanCode ? `${cleanCode} · ${cleanName}` : cleanName;
+};
+
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
 
@@ -269,22 +276,23 @@ const Reports = () => {
             const drCode = String(t.debitAccount.code || '');
             const crCode = String(t.creditAccount.code || '');
             if (crCode.startsWith('4')) {
-                const name = t.creditAccount.name || t.category || 'INGRESOS VARIOS';
+                const name = accountDisplay(crCode, t.creditAccount.name || t.category, 'INGRESOS VARIOS');
                 dynamicIncomes[name] = (dynamicIncomes[name] || 0) + amount;
             }
             if (['6', '7'].includes(drCode.charAt(0))) {
-                const name = t.debitAccount.name || t.category || 'COSTOS VARIOS';
+                const name = accountDisplay(drCode, t.debitAccount.name || t.category, 'COSTOS VARIOS');
                 dynamicCosts[name] = (dynamicCosts[name] || 0) + amount;
             }
             if (drCode.startsWith('5')) {
-                const name = t.debitAccount.name || t.category || 'GASTOS VARIOS';
+                const name = accountDisplay(drCode, t.debitAccount.name || t.category, 'GASTOS VARIOS');
                 dynamicExpenses[name] = (dynamicExpenses[name] || 0) + amount;
             }
         } else {
             if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return;
             let prefix = getAccountPrefix(t.category);
             if (!prefix) prefix = t.type === 'income' ? '4' : (t.type === 'expense' ? '5' : null);
-            const name = t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS');
+            const matchedAccount = allAccounts.find(a => a.name === t.category);
+            const name = accountDisplay(matchedAccount?.number, t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS'));
             
             if (prefix === '4') dynamicIncomes[name] = (dynamicIncomes[name] || 0) + (t.type === 'income' ? amount : -amount);
             else if (['6', '7'].includes(prefix)) dynamicCosts[name] = (dynamicCosts[name] || 0) + (t.type === 'expense' ? amount : -amount);
@@ -306,21 +314,33 @@ const Reports = () => {
         return rows.sort((a, b) => a.item.localeCompare(b.item));
     };
 
+    const incomeRows = formatPnlSection(dynamicIncomes, false);
+    const costRows = formatPnlSection(dynamicCosts, true);
+    const expenseRows = formatPnlSection(dynamicExpenses, true);
+
     const incomeStatement = [
-        { item: 'INGRESOS OPERACIONALES', isBold: true },
-        ...formatPnlSection(dynamicIncomes, false),
-        { item: 'Total Ingresos', amount: totalIncome, isSubtotal: true, isTopBorder: true },
-        
-        { item: 'COSTOS DE VENTA', isBold: true },
-        ...formatPnlSection(dynamicCosts, true),
-        { item: 'Total Costos', amount: -totalCosts, isSubtotal: true, isTopBorder: true },
-        
-        { item: 'UTILIDAD BRUTA', amount: grossProfit, isBold: true, isTopBorder: true },
-        
-        { item: 'GASTOS OPERACIONALES', isBold: true },
-        ...formatPnlSection(dynamicExpenses, true),
-        { item: 'Total Gastos', amount: -totalExpenses, isSubtotal: true, isTopBorder: true },
-        
+        ...(incomeRows.length > 0 || hasReportValue(totalIncome) ? [
+            { item: 'INGRESOS OPERACIONALES', isBold: true },
+            ...incomeRows,
+            { item: 'Total Ingresos', amount: totalIncome, isSubtotal: true, isTopBorder: true },
+        ] : []),
+
+        ...(costRows.length > 0 || hasReportValue(totalCosts) ? [
+            { item: 'COSTOS DE VENTA', isBold: true },
+            ...costRows,
+            { item: 'Total Costos', amount: -totalCosts, isSubtotal: true, isTopBorder: true },
+        ] : []),
+
+        ...(incomeRows.length > 0 || costRows.length > 0 || hasReportValue(grossProfit) ? [
+            { item: 'UTILIDAD BRUTA', amount: grossProfit, isBold: true, isTopBorder: true },
+        ] : []),
+
+        ...(expenseRows.length > 0 || hasReportValue(totalExpenses) ? [
+            { item: 'GASTOS OPERACIONALES', isBold: true },
+            ...expenseRows,
+            { item: 'Total Gastos', amount: -totalExpenses, isSubtotal: true, isTopBorder: true },
+        ] : []),
+
         { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
     ];
     
@@ -446,38 +466,195 @@ const Reports = () => {
     const totalEquity = totalAssets - totalLiabilities; 
     const retainedEquity = totalEquity - netProfit;
 
-    const assets = [
-        { item: 'ACTIVO CORRIENTE', isBold: true },
-        { item: '  Efectivo y Equivalentes', isBold: true },
-        { item: '    Total Caja, Bancos y Aportes', amount: cajaGeneralValue, isSubtotal: true },
-        { item: '      Caja Principal', amount: cajaPrincipalBalance },
-        ...dynamicCashAccounts.map(acc => ({ item: `      ${acc.name}`, amount: acc.balance })),
-        { item: '      Cuentas Bancarias', amount: totalBankBalances },
-        { item: '      Aportes Ordinarios', amount: totalInvestmentBalances },
-        { item: '  Cuentas por Cobrar', amount: accountsReceivableValue },
-        { item: '  Anticipos a Proveedores', amount: anticiposValue }, 
-        { item: '  Otros Activos Corrientes', amount: otherAssetsValue }, 
-        { item: 'TOTAL ACTIVO CORRIENTE ', amount: totalActivoCorriente, isSubtotal: true, isTopBorder: true },
-        
-        { item: 'ACTIVO NO CORRIENTE', isBold: true },
-        { item: '  Activos Intangibles (Licencias)', amount: intangiblesValue },
-        { item: '  Construcciones en Curso', amount: construccionesValue }, 
-        { item: '  Propiedades, Planta y Equipo', amount: realEstatesValue },
-        { item: '  Activos Fijos (Oficina y Equipos)', amount: manualFixedAssetsValue },
-        { item: '  Inventario', amount: inventoryValue },
-        { item: '  Depreciación Acumulada (Tangibles e Inmuebles)', amount: depreciacionAcumuladaValue },
-        { item: '  Amortización Acumulada de Intangibles', amount: amortizacionAcumuladaValue },
-        { item: 'TOTAL ACTIVO NO CORRIENTE ', amount: totalActivoNoCorriente, isSubtotal: true, isTopBorder: true },
-    ];
-        
-    const liabilities = [ { item: 'Pasivo', isBold: true }, { item: '  Cuentas por Pagar', amount: accountsPayableValue }, { item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }, ];
-        
-    const equity = [ 
-      { item: '  Patrimonio Institucional (Inc. Utilidades Acum.)', amount: retainedEquity }, 
-      { item: '  Utilidad del Ejercicio', amount: netProfit }
+    const mainCashAccount = allAccounts.find(account => String(account.number || '') === '11050501')
+        || allAccounts.find(account => String(account.number || '').startsWith('1105'));
+    const investmentAccount = allAccounts.find(account => String(account.number || '') === '12950501')
+        || allAccounts.find(account => String(account.number || '').startsWith('1295'));
+
+    const customCashRows = dynamicCashAccounts
+        .filter(account => hasReportValue(account.balance))
+        .map(account => ({
+            item: `      ${accountDisplay(account.accountingCode, account.accountingConcept || account.name, account.name || 'CAJA')}`,
+            amount: account.balance,
+        }));
+
+    const bankRows = fBankAccounts
+        .map(account => ({
+            item: `        ${accountDisplay(account.accountingCode, account.accountingConcept || account.bankName, account.bankName || 'CUENTA BANCARIA')}`,
+            amount: liquidity.banks[String(account.id)] || 0,
+        }))
+        .filter(row => hasReportValue(row.amount));
+
+    const cashDetailRows = [
+        ...(hasReportValue(cajaPrincipalBalance) ? [{
+            item: `      ${accountDisplay(mainCashAccount?.number || '11050501', mainCashAccount?.name || 'CAJA PRINCIPAL')}`,
+            amount: cajaPrincipalBalance,
+        }] : []),
+        ...customCashRows,
+        ...(bankRows.length > 0 ? [
+            { item: '      CUENTAS BANCARIAS', amount: totalBankBalances, isSubtotal: true },
+            ...bankRows,
+        ] : []),
+        ...(hasReportValue(totalInvestmentBalances) ? [
+            { item: '      APORTES / INVERSIONES', amount: totalInvestmentBalances, isSubtotal: true },
+            {
+                item: `        ${accountDisplay(investmentAccount?.number || '12950501', investmentAccount?.name || 'APORTES ORDINARIOS')}`,
+                amount: totalInvestmentBalances,
+            },
+        ] : []),
     ];
 
-    const balanceSheet = { assets: assets.filter(a => a.amount != null || a.isBold || a.isSubtotal), liabilities: liabilities.filter(l => l.amount != null || l.isBold), equity: equity.filter(e => e.amount != null || e.isBold), totals: { assets: totalAssets, liabilities: totalLiabilities, equity: totalEquity, liabilitiesAndEquity: totalLiabilities + totalEquity } };
+    const groupPatrimonialAccounts = (snapshots, valueKey, codeField, nameField, negative = false, fallback = 'SIN CUENTA PUC') => {
+        const grouped = new Map();
+        (snapshots || []).forEach(snapshot => {
+            const rawValue = Number(snapshot?.[valueKey] || 0);
+            if (!hasReportValue(rawValue)) return;
+            const asset = snapshot.asset || {};
+            const code = String(asset?.[codeField] || '').trim();
+            const name = String(asset?.[nameField] || asset?.accountName || asset?.category || fallback).trim();
+            const key = `${code}|${name}`;
+            grouped.set(key, {
+                code,
+                name,
+                amount: (grouped.get(key)?.amount || 0) + rawValue,
+            });
+        });
+        return [...grouped.values()]
+            .filter(row => hasReportValue(row.amount))
+            .sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name))
+            .map(row => ({
+                item: `      ${accountDisplay(row.code, row.name, fallback)}`,
+                amount: negative ? -Math.abs(row.amount) : row.amount,
+            }));
+    };
+
+    const tangibleAccountRows = groupPatrimonialAccounts(
+        patrimonialSummary.tangible.assets,
+        'originalValue',
+        'accountCode',
+        'accountName',
+        false,
+        'ACTIVO FIJO SIN CUENTA PUC'
+    );
+    const realEstateAccountRows = groupPatrimonialAccounts(
+        patrimonialSummary.realEstate.assets,
+        'originalValue',
+        'accountCode',
+        'accountName',
+        false,
+        'INMUEBLE SIN CUENTA PUC'
+    );
+    const intangibleAccountRows = groupPatrimonialAccounts(
+        patrimonialSummary.intangible.assets,
+        'originalValue',
+        'accountCode',
+        'accountName',
+        false,
+        'INTANGIBLE SIN CUENTA PUC'
+    );
+    const tangibleDepreciationRows = groupPatrimonialAccounts(
+        patrimonialSummary.tangible.assets,
+        'accumulatedDepreciation',
+        'accumulatedDepreciationAccountCode',
+        'accumulatedDepreciationAccountName',
+        true,
+        'DEPRECIACIÓN ACUMULADA SIN CUENTA PUC'
+    );
+    const realEstateDepreciationRows = groupPatrimonialAccounts(
+        patrimonialSummary.realEstate.assets,
+        'accumulatedDepreciation',
+        'accumulatedDepreciationAccountCode',
+        'accumulatedDepreciationAccountName',
+        true,
+        'DEPRECIACIÓN ACUMULADA DE INMUEBLES SIN CUENTA PUC'
+    );
+    const intangibleAmortizationRows = groupPatrimonialAccounts(
+        patrimonialSummary.intangible.assets,
+        'accumulatedAmortization',
+        'accumulatedAmortizationAccountCode',
+        'accumulatedAmortizationAccountName',
+        true,
+        'AMORTIZACIÓN ACUMULADA SIN CUENTA PUC'
+    );
+
+    const currentAssetRows = [
+        ...(cashDetailRows.length > 0 || hasReportValue(cajaGeneralValue) ? [
+            { item: '  Efectivo, Bancos y Aportes', isBold: true },
+            { item: '    Total Caja, Bancos y Aportes', amount: cajaGeneralValue, isSubtotal: true },
+            ...cashDetailRows,
+        ] : []),
+        ...(hasReportValue(accountsReceivableValue) ? [{ item: '  Cuentas por Cobrar', amount: accountsReceivableValue }] : []),
+        ...(hasReportValue(anticiposValue) ? [{ item: '  Anticipos a Proveedores', amount: anticiposValue }] : []),
+        ...(hasReportValue(otherAssetsValue) ? [{ item: '  Otros Activos Corrientes', amount: otherAssetsValue }] : []),
+    ];
+
+    const nonCurrentAssetRows = [
+        ...(hasReportValue(intangiblesValue) ? [
+            { item: '  Activos Intangibles (Licencias)', amount: intangiblesValue, isSubtotal: true },
+            ...intangibleAccountRows,
+            ...(hasReportValue(legacyIntangiblesValue) ? [{
+                item: '      Intangibles heredados sin ficha patrimonial',
+                amount: legacyIntangiblesValue,
+            }] : []),
+        ] : []),
+        ...(hasReportValue(construccionesValue) ? [{ item: '  Construcciones en Curso', amount: construccionesValue }] : []),
+        ...(hasReportValue(realEstatesValue) ? [
+            { item: '  Propiedades, Planta y Equipo (Inmuebles)', amount: realEstatesValue, isSubtotal: true },
+            ...realEstateAccountRows,
+        ] : []),
+        ...(hasReportValue(manualFixedAssetsValue) ? [
+            { item: '  Activos Fijos Tangibles', amount: manualFixedAssetsValue, isSubtotal: true },
+            ...tangibleAccountRows,
+        ] : []),
+        ...(hasReportValue(inventoryValue) ? [{ item: '  Inventario', amount: inventoryValue }] : []),
+        ...(hasReportValue(depreciacionAcumuladaValue) ? [
+            { item: '  Depreciación Acumulada (Tangibles e Inmuebles)', amount: depreciacionAcumuladaValue, isSubtotal: true },
+            ...tangibleDepreciationRows,
+            ...realEstateDepreciationRows,
+        ] : []),
+        ...(hasReportValue(amortizacionAcumuladaValue) ? [
+            { item: '  Amortización Acumulada de Intangibles', amount: amortizacionAcumuladaValue, isSubtotal: true },
+            ...intangibleAmortizationRows,
+        ] : []),
+    ];
+
+    const assets = [
+        ...(currentAssetRows.length > 0 ? [
+            { item: 'ACTIVO CORRIENTE', isBold: true },
+            ...currentAssetRows,
+            { item: 'TOTAL ACTIVO CORRIENTE', amount: totalActivoCorriente, isSubtotal: true, isTopBorder: true },
+        ] : []),
+        ...(nonCurrentAssetRows.length > 0 ? [
+            { item: 'ACTIVO NO CORRIENTE', isBold: true },
+            ...nonCurrentAssetRows,
+            { item: 'TOTAL ACTIVO NO CORRIENTE', amount: totalActivoNoCorriente, isSubtotal: true, isTopBorder: true },
+        ] : []),
+    ];
+
+    const liabilityRows = [
+        ...(hasReportValue(accountsPayableValue) ? [{ item: '  Cuentas por Pagar', amount: accountsPayableValue }] : []),
+        ...(hasReportValue(otherLiabilitiesValue) ? [{ item: '  Otros Pasivos (Fondos de Terceros)', amount: otherLiabilitiesValue }] : []),
+    ];
+    const liabilities = liabilityRows.length > 0
+        ? [{ item: 'PASIVO', isBold: true }, ...liabilityRows]
+        : [];
+
+    const equity = [
+        ...(hasReportValue(retainedEquity) ? [{ item: '  Patrimonio Institucional (Inc. Utilidades Acum.)', amount: retainedEquity }] : []),
+        ...(hasReportValue(netProfit) ? [{ item: '  Utilidad del Ejercicio', amount: netProfit }] : []),
+    ];
+
+    const balanceSheet = {
+        assets,
+        liabilities,
+        equity,
+        totals: {
+            assets: totalAssets,
+            liabilities: totalLiabilities,
+            equity: totalEquity,
+            liabilitiesAndEquity: totalLiabilities + totalEquity,
+        }
+    };
 
     // FLUJO DE EFECTIVO POR MOVIMIENTO REAL:
     // Solo entra al flujo lo que efectivamente afecta Caja/Bancos. Los ingresos contables en especie,

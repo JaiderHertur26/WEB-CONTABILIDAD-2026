@@ -19,6 +19,13 @@ import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
 
+const hasTaxReportValue = value => Number.isFinite(Number(value)) && Math.abs(Number(value)) >= 0.005;
+const taxAccountDisplay = (code, name, fallback = 'CUENTA CONTABLE') => {
+    const cleanCode = String(code || '').trim();
+    const cleanName = String(name || fallback).trim().toUpperCase();
+    return cleanCode ? `${cleanCode} · ${cleanName}` : cleanName;
+};
+
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
 
@@ -274,6 +281,9 @@ const TaxReports = () => {
         let totalIncomes = 0;
         let totalCosts = 0;
         let totalExpenses = 0;
+        const dynamicIncomes = {};
+        const dynamicCosts = {};
+        const dynamicExpenses = {};
 
         pnlTransactions.forEach(t => {
             const amount = safeParseFloat(t.amount);
@@ -282,22 +292,62 @@ const TaxReports = () => {
             if (t.debitAccount && t.creditAccount) {
                 const drCode = String(t.debitAccount.code || '');
                 const crCode = String(t.creditAccount.code || '');
-                if (crCode.startsWith('4')) totalIncomes += amount;
-                if (['6', '7'].includes(drCode.charAt(0))) totalCosts += amount;
-                if (drCode.startsWith('5')) totalExpenses += amount;
+                if (crCode.startsWith('4')) {
+                    totalIncomes += amount;
+                    const label = taxAccountDisplay(crCode, t.creditAccount.name || t.category, 'INGRESOS VARIOS');
+                    dynamicIncomes[label] = (dynamicIncomes[label] || 0) + amount;
+                }
+                if (['6', '7'].includes(drCode.charAt(0))) {
+                    totalCosts += amount;
+                    const label = taxAccountDisplay(drCode, t.debitAccount.name || t.category, 'COSTOS VARIOS');
+                    dynamicCosts[label] = (dynamicCosts[label] || 0) + amount;
+                }
+                if (drCode.startsWith('5')) {
+                    totalExpenses += amount;
+                    const label = taxAccountDisplay(drCode, t.debitAccount.name || t.category, 'GASTOS VARIOS');
+                    dynamicExpenses[label] = (dynamicExpenses[label] || 0) + amount;
+                }
             } else {
                 if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return;
                 let prefix = getAccountPrefix(t.category);
                 if (!prefix) prefix = t.type === 'income' ? '4' : (t.type === 'expense' ? '5' : null);
                 
-                if (prefix === '4') totalIncomes += (t.type === 'income' ? amount : -amount);
-                else if (['6', '7'].includes(prefix)) totalCosts += (t.type === 'expense' ? amount : -amount);
-                else if (prefix === '5') totalExpenses += (t.type === 'expense' ? amount : -amount);
+                const matchedAccount = allAccounts.find(account => account.name === t.category);
+                const label = taxAccountDisplay(matchedAccount?.number, t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS'));
+                if (prefix === '4') {
+                    const impact = t.type === 'income' ? amount : -amount;
+                    totalIncomes += impact;
+                    dynamicIncomes[label] = (dynamicIncomes[label] || 0) + impact;
+                }
+                else if (['6', '7'].includes(prefix)) {
+                    const impact = t.type === 'expense' ? amount : -amount;
+                    totalCosts += impact;
+                    dynamicCosts[label] = (dynamicCosts[label] || 0) + impact;
+                }
+                else if (prefix === '5') {
+                    const impact = t.type === 'expense' ? amount : -amount;
+                    totalExpenses += impact;
+                    dynamicExpenses[label] = (dynamicExpenses[label] || 0) + impact;
+                }
             }
         });
 
         const totalCostsAndExpenses = totalCosts + totalExpenses;
         const netProfit = totalIncomes - totalCostsAndExpenses;
+
+        const formatTaxPnlRows = (items, negative = false) =>
+            Object.entries(items)
+                .filter(([, value]) => hasTaxReportValue(value))
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([label, value]) => ({
+                    Concepto: `    ${label}`,
+                    Valor: negative ? -Math.abs(value) : value,
+                    isDetail: true,
+                }));
+
+        const incomeAccountRows = formatTaxPnlRows(dynamicIncomes, false);
+        const costAccountRows = formatTaxPnlRows(dynamicCosts, true);
+        const expenseAccountRows = formatTaxPnlRows(dynamicExpenses, true);
 
         // 2. Balance Sheet Logic
         const cashAccountIds = new Set();
@@ -463,36 +513,187 @@ const TaxReports = () => {
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
         const netWorth = totalAssets - totalDebts;        
 
+        const mainCashAccount = allAccounts.find(account => String(account.number || '') === '11050501')
+            || allAccounts.find(account => String(account.number || '').startsWith('1105'));
+        const investmentAccount = allAccounts.find(account => String(account.number || '') === '12950501')
+            || allAccounts.find(account => String(account.number || '').startsWith('1295'));
+
+        const customCashRows = dynamicCashAccounts
+            .filter(account => hasTaxReportValue(account.balance))
+            .map(account => ({
+                Concepto: `    ${taxAccountDisplay(account.accountingCode, account.accountingConcept || account.name, account.name || 'CAJA')}`,
+                Valor: account.balance,
+                isDetail: true,
+            }));
+
+        const bankRows = fBankAccounts
+            .map(account => ({
+                Concepto: `      ${taxAccountDisplay(account.accountingCode, account.accountingConcept || account.bankName, account.bankName || 'CUENTA BANCARIA')}`,
+                Valor: liquidity.banks[String(account.id)] || 0,
+                isDetail: true,
+            }))
+            .filter(row => hasTaxReportValue(row.Valor));
+
+        const groupPatrimonialAccounts = (snapshots, valueKey, codeField, nameField, negative = false, fallback = 'SIN CUENTA PUC') => {
+            const grouped = new Map();
+            (snapshots || []).forEach(snapshot => {
+                const rawValue = Number(snapshot?.[valueKey] || 0);
+                if (!hasTaxReportValue(rawValue)) return;
+                const asset = snapshot.asset || {};
+                const code = String(asset?.[codeField] || '').trim();
+                const name = String(asset?.[nameField] || asset?.accountName || asset?.category || fallback).trim();
+                const key = `${code}|${name}`;
+                grouped.set(key, {
+                    code,
+                    name,
+                    amount: (grouped.get(key)?.amount || 0) + rawValue,
+                });
+            });
+            return [...grouped.values()]
+                .filter(row => hasTaxReportValue(row.amount))
+                .sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name))
+                .map(row => ({
+                    Concepto: `    ${taxAccountDisplay(row.code, row.name, fallback)}`,
+                    Valor: negative ? -Math.abs(row.amount) : row.amount,
+                    isDetail: true,
+                }));
+        };
+
+        const tangibleAccountRows = groupPatrimonialAccounts(
+            patrimonialSummary.tangible.assets,
+            'originalValue',
+            'accountCode',
+            'accountName',
+            false,
+            'ACTIVO FIJO SIN CUENTA PUC'
+        );
+        const realEstateAccountRows = groupPatrimonialAccounts(
+            patrimonialSummary.realEstate.assets,
+            'originalValue',
+            'accountCode',
+            'accountName',
+            false,
+            'INMUEBLE SIN CUENTA PUC'
+        );
+        const intangibleAccountRows = groupPatrimonialAccounts(
+            patrimonialSummary.intangible.assets,
+            'originalValue',
+            'accountCode',
+            'accountName',
+            false,
+            'INTANGIBLE SIN CUENTA PUC'
+        );
+        const tangibleDepreciationRows = groupPatrimonialAccounts(
+            patrimonialSummary.tangible.assets,
+            'accumulatedDepreciation',
+            'accumulatedDepreciationAccountCode',
+            'accumulatedDepreciationAccountName',
+            true,
+            'DEPRECIACIÓN ACUMULADA SIN CUENTA PUC'
+        );
+        const realEstateDepreciationRows = groupPatrimonialAccounts(
+            patrimonialSummary.realEstate.assets,
+            'accumulatedDepreciation',
+            'accumulatedDepreciationAccountCode',
+            'accumulatedDepreciationAccountName',
+            true,
+            'DEPRECIACIÓN DE INMUEBLES SIN CUENTA PUC'
+        );
+        const intangibleAmortizationRows = groupPatrimonialAccounts(
+            patrimonialSummary.intangible.assets,
+            'accumulatedAmortization',
+            'accumulatedAmortizationAccountCode',
+            'accumulatedAmortizationAccountName',
+            true,
+            'AMORTIZACIÓN ACUMULADA SIN CUENTA PUC'
+        );
+
         const assetsSection = [
             { Concepto: 'TOTAL ACTIVOS CONTABLES (base para revisión fiscal)', Valor: totalAssets, isTotal: true },
-            { Concepto: '  Efectivo y Equivalentes (Total Caja, Bancos y Aportes)', Valor: cajaGeneralValue, isSubtotal: true },
-            { Concepto: '    Caja Principal', Valor: cajaPrincipalBalance, isDetail: true },
-            ...dynamicCashAccounts.map(acc => ({ Concepto: `    ${acc.name}`, Valor: acc.balance, isDetail: true })),
-            { Concepto: '    Cuentas Bancarias', Valor: totalBankBalances, isDetail: true },
-            { Concepto: '    Aportes Ordinarios', Valor: totalInvestmentBalances, isDetail: true },
-            { Concepto: '  Cuentas por Cobrar', Valor: accountsReceivableValue, isDetail: true },
-            { Concepto: '  Anticipos a Proveedores', Valor: anticiposValue, isDetail: true },
-            { Concepto: '  Otros Activos Corrientes', Valor: otherAssetsValue, isDetail: true },
-            { Concepto: '  Activos Intangibles (Licencias)', Valor: intangiblesValue, isDetail: true },
-            { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
-            { Concepto: '  Propiedades, Planta y Equipo (inmuebles)', Valor: realEstatesValue, isDetail: true },
-            { Concepto: '  Activos Fijos (costo histórico vigente al corte)', Valor: manualFixedAssetsValue, isDetail: true },
-            { Concepto: '  Inventario', Valor: inventoryValue, isDetail: true },
-            { Concepto: '    Depreciación acumulada de Activos Fijos', Valor: -Math.abs(totalDepreciacionInventario), isDetail: true },
-            { Concepto: '    Depreciación acumulada de Propiedades/Inmuebles', Valor: -Math.abs(totalDepreciacionPropiedades), isDetail: true },
-            { Concepto: '  TOTAL DEPRECIACIÓN ACUMULADA', Valor: depreciacionAcumuladaValue, isSubtotal: true },
-            { Concepto: '  Amortización acumulada de Intangibles', Valor: amortizacionAcumuladaValue, isSubtotal: true },
+
+            ...(hasTaxReportValue(cajaGeneralValue) ? [
+                { Concepto: '  Efectivo, Bancos y Aportes', Valor: cajaGeneralValue, isSubtotal: true },
+                ...(hasTaxReportValue(cajaPrincipalBalance) ? [{
+                    Concepto: `    ${taxAccountDisplay(mainCashAccount?.number || '11050501', mainCashAccount?.name || 'CAJA PRINCIPAL')}`,
+                    Valor: cajaPrincipalBalance,
+                    isDetail: true,
+                }] : []),
+                ...customCashRows,
+                ...(bankRows.length > 0 ? [
+                    { Concepto: '    Cuentas Bancarias', Valor: totalBankBalances, isSubtotal: true },
+                    ...bankRows,
+                ] : []),
+                ...(hasTaxReportValue(totalInvestmentBalances) ? [
+                    { Concepto: '    Aportes / Inversiones', Valor: totalInvestmentBalances, isSubtotal: true },
+                    {
+                        Concepto: `      ${taxAccountDisplay(investmentAccount?.number || '12950501', investmentAccount?.name || 'APORTES ORDINARIOS')}`,
+                        Valor: totalInvestmentBalances,
+                        isDetail: true,
+                    },
+                ] : []),
+            ] : []),
+
+            ...(hasTaxReportValue(accountsReceivableValue) ? [{ Concepto: '  Cuentas por Cobrar', Valor: accountsReceivableValue, isDetail: true }] : []),
+            ...(hasTaxReportValue(anticiposValue) ? [{ Concepto: '  Anticipos a Proveedores', Valor: anticiposValue, isDetail: true }] : []),
+            ...(hasTaxReportValue(otherAssetsValue) ? [{ Concepto: '  Otros Activos Corrientes', Valor: otherAssetsValue, isDetail: true }] : []),
+
+            ...(hasTaxReportValue(intangiblesValue) ? [
+                { Concepto: '  Activos Intangibles (Licencias)', Valor: intangiblesValue, isSubtotal: true },
+                ...intangibleAccountRows,
+                ...(hasTaxReportValue(legacyIntangiblesValue) ? [{
+                    Concepto: '    Intangibles heredados sin ficha patrimonial',
+                    Valor: legacyIntangiblesValue,
+                    isDetail: true,
+                }] : []),
+            ] : []),
+            ...(hasTaxReportValue(construccionesValue) ? [{ Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true }] : []),
+            ...(hasTaxReportValue(realEstatesValue) ? [
+                { Concepto: '  Propiedades, Planta y Equipo (Inmuebles)', Valor: realEstatesValue, isSubtotal: true },
+                ...realEstateAccountRows,
+            ] : []),
+            ...(hasTaxReportValue(manualFixedAssetsValue) ? [
+                { Concepto: '  Activos Fijos Tangibles', Valor: manualFixedAssetsValue, isSubtotal: true },
+                ...tangibleAccountRows,
+            ] : []),
+            ...(hasTaxReportValue(inventoryValue) ? [{ Concepto: '  Inventario', Valor: inventoryValue, isDetail: true }] : []),
+
+            ...(hasTaxReportValue(depreciacionAcumuladaValue) ? [
+                { Concepto: '  Depreciación acumulada (Tangibles e Inmuebles)', Valor: depreciacionAcumuladaValue, isSubtotal: true },
+                ...tangibleDepreciationRows,
+                ...realEstateDepreciationRows,
+            ] : []),
+            ...(hasTaxReportValue(amortizacionAcumuladaValue) ? [
+                { Concepto: '  Amortización acumulada de Intangibles', Valor: amortizacionAcumuladaValue, isSubtotal: true },
+                ...intangibleAmortizationRows,
+            ] : []),
         ];
 
         return [
             ...assetsSection,
-            { Concepto: 'DEUDAS (Total Pasivos)', Valor: totalDebts, isTotal: true },
-            { Concepto: '  Cuentas por Pagar', Valor: accountsPayableValue, isDetail: true },
-            { Concepto: '  Otros Pasivos', Valor: otherLiabilitiesValue, isDetail: true },
-            { Concepto: 'PATRIMONIO LÍQUIDO CONTABLE (Activos - Pasivos)', Valor: netWorth, isTotal: true }, 
-            { isSpacer: true },
-            { Concepto: 'INGRESOS TOTALES (P&L del año)', Valor: totalIncomes, isDetail: true },
-            { Concepto: 'COSTOS Y GASTOS TOTALES (P&L del año)', Valor: totalCostsAndExpenses, isDetail: true },
+            ...(hasTaxReportValue(totalDebts) ? [
+                { Concepto: 'DEUDAS (Total Pasivos)', Valor: totalDebts, isTotal: true },
+                ...(hasTaxReportValue(accountsPayableValue) ? [{ Concepto: '  Cuentas por Pagar', Valor: accountsPayableValue, isDetail: true }] : []),
+                ...(hasTaxReportValue(otherLiabilitiesValue) ? [{ Concepto: '  Otros Pasivos', Valor: otherLiabilitiesValue, isDetail: true }] : []),
+            ] : []),
+            { Concepto: 'PATRIMONIO LÍQUIDO CONTABLE (Activos - Pasivos)', Valor: netWorth, isTotal: true },
+
+            ...(hasTaxReportValue(totalIncomes) || hasTaxReportValue(totalCostsAndExpenses) || hasTaxReportValue(netProfit) ? [{ isSpacer: true }] : []),
+
+            ...(hasTaxReportValue(totalIncomes) ? [
+                { Concepto: 'INGRESOS TOTALES (P&L del año)', Valor: totalIncomes, isSubtotal: true },
+                ...incomeAccountRows,
+            ] : []),
+
+            ...(hasTaxReportValue(totalCosts) ? [
+                { Concepto: 'COSTOS DEL AÑO', Valor: -Math.abs(totalCosts), isSubtotal: true },
+                ...costAccountRows,
+            ] : []),
+
+            ...(hasTaxReportValue(totalExpenses) ? [
+                { Concepto: 'GASTOS DEL AÑO', Valor: -Math.abs(totalExpenses), isSubtotal: true },
+                ...expenseAccountRows,
+            ] : []),
+
             { Concepto: 'EXCEDENTE NETO CONTABLE DEL EJERCICIO', Valor: netProfit, isTotal: true },
         ];
     }, [transactions, bankAccounts, fixedAssets, realEstates, accountsReceivable, accountsPayable, accounts, initialBalance, cashAccounts, inventory, selectedYear, areAllDataLoaded, filterByCompany]);
