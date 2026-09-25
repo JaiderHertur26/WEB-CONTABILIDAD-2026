@@ -16,6 +16,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { usePermission } from '@/hooks/usePermission';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { useAuth } from '@/contexts/LocalAuthContext';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -144,6 +145,7 @@ const AccountsPayable = () => {
     const voucherRef = useRef(null);
 
     const { toast } = useToast();
+    const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
     const appendContractAudit = (contractId, action, detail) => {
         if (!contractId) return;
         const actor = activeSessionId === 'general_admin' ? 'Administrador General' : (activeCompany?.name || String(activeSessionId || 'Usuario'));
@@ -335,9 +337,10 @@ const AccountsPayable = () => {
         setDialogOpen(false);
     };
 
-    const handleDeletePayable = (id) => {
+    const handleDeletePayable = async (id) => {
         if (!canDelete) return;
         const target = (payables || []).find(p => p.id === id);
+        if (!target) return;
         if (target?.contractManaged) {
             toast({ variant: 'destructive', title: "Cuenta protegida", description: "Esta cuenta fue generada por Contratos. Debe corregirse desde el expediente contractual para preservar la trazabilidad." });
             return;
@@ -365,14 +368,43 @@ const AccountsPayable = () => {
             });
             return;
         }
-        saveTransactions((transactions || []).filter(t => t.id !== accrual?.id));
-        savePayables((payables || []).filter(p => p.id !== id));
-        if (target?.massIntentionId) {
-            saveMassIntentions((massIntentions || []).map(item =>
-                String(item.id) === String(target.massIntentionId) ? { ...item, payableId: '' } : item
-            ));
+
+        const destructiveAuthorization = await requestDestructiveAuthorization({
+            title: 'Eliminar cuenta por pagar',
+            subject: target.description || target.concept || target.contact || 'Cuenta por pagar seleccionada',
+            description: accrual
+                ? 'Se eliminará la CxP y también su causación contable vinculada.'
+                : 'Se eliminará la CxP seleccionada.',
+        });
+        if (!destructiveAuthorization?.sessionToken) return;
+
+        try {
+            const options = { destructiveAuthorization };
+            if (accrual) {
+                const transactionSaved = await saveTransactions(
+                    (transactions || []).filter(t => t.id !== accrual.id),
+                    options
+                );
+                if (transactionSaved === false) throw new Error('No se pudo retirar la causación contable vinculada.');
+            }
+
+            const payableSaved = await savePayables(
+                (payables || []).filter(p => p.id !== id),
+                options
+            );
+            if (payableSaved === false) throw new Error('No se pudo eliminar la cuenta por pagar.');
+
+            if (target?.massIntentionId) {
+                await saveMassIntentions((massIntentions || []).map(item =>
+                    String(item.id) === String(target.massIntentionId) ? { ...item, payableId: '' } : item
+                ));
+            }
+            toast({ title: "Cuenta por pagar eliminada", description: "La operación fue autorizada con Acceso Total y se retiró su causación contable." });
+        } catch (error) {
+            toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar la cuenta por pagar.' });
+        } finally {
+            await releaseDestructiveAuthorization(destructiveAuthorization);
         }
-        toast({ title: "Cuenta por pagar eliminada", description: "Se retiró también su causación contable." });
     };
 
     const handleMarkAsPaid = (paymentData) => {
