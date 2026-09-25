@@ -719,22 +719,17 @@ export function useCompanyData(key) {
       Array.isArray(previousData) ? previousData : [],
       Array.isArray(newData) ? newData : []
     );
-    const requiresDestructiveAuthorization = deletionDiff.mergeable && deletionDiff.deletedIds.length > 0;
+    const fallbackDeletionCount = !deletionDiff.mergeable &&
+      Array.isArray(previousData) &&
+      Array.isArray(newData) &&
+      newData.length < previousData.length
+        ? previousData.length - newData.length
+        : 0;
+    const deletionCount = deletionDiff.mergeable ? deletionDiff.deletedIds.length : fallbackDeletionCount;
+    const requiresDestructiveAuthorization = deletionCount > 0;
 
     let destructiveAuthorization = options?.destructiveAuthorization || null;
     let ownsDestructiveAuthorization = false;
-
-    if (requiresDestructiveAuthorization && !destructiveAuthorization?.sessionToken) {
-      destructiveAuthorization = await requestDestructiveAuthorization({
-        title: key === 'transactions' ? 'Autorizar eliminación de transacción' : 'Autorizar eliminación',
-        subject: key === 'transactions'
-          ? `Se eliminará información contable (${deletionDiff.deletedIds.length} registro${deletionDiff.deletedIds.length === 1 ? '' : 's'}).`
-          : `Se eliminará ${deletionDiff.deletedIds.length} registro${deletionDiff.deletedIds.length === 1 ? '' : 's'} de ${key}.`,
-        description: 'Esta operación requiere la contraseña de Acceso Total. Si la validación falla o no hay conexión segura, no se eliminará nada.',
-      });
-      if (!destructiveAuthorization?.sessionToken) return false;
-      ownsDestructiveAuthorization = true;
-    }
 
     if (key === 'transactions') {
       if (hasLockedTransactionMutation(previousData, newData)) {
@@ -777,6 +772,18 @@ export function useCompanyData(key) {
         console.error('[Accounting Period Lock]', error.message);
         throw error;
       }
+    }
+
+    if (requiresDestructiveAuthorization && !destructiveAuthorization?.sessionToken) {
+      destructiveAuthorization = await requestDestructiveAuthorization({
+        title: key === 'transactions' ? 'Autorizar eliminación de transacción' : 'Autorizar eliminación',
+        subject: key === 'transactions'
+          ? `Se eliminará información contable (${deletionCount} registro${deletionCount === 1 ? '' : 's'}).`
+          : `Se eliminará ${deletionCount} registro${deletionCount === 1 ? '' : 's'} de ${key}.`,
+        description: 'Esta operación requiere la contraseña de Acceso Total. Si la validación falla o no hay conexión segura, no se eliminará nada.',
+      });
+      if (!destructiveAuthorization?.sessionToken) return false;
+      ownsDestructiveAuthorization = true;
     }
 
     if (!requiresDestructiveAuthorization && !isConsolidated && mounted.current) {
