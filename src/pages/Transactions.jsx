@@ -29,6 +29,7 @@ import { createPrintTarget } from '@/lib/nativePrint';
 import { cleanBankNumber, parseBankDate, buildReconciliationFingerprint } from '@/lib/bankReconciliation';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import TransactionsProfessionalHeader from '@/components/transactions/TransactionsProfessionalHeader';
+import { defaultUsefulLifeYears, suggestDepreciationAccounts } from '@/lib/fixedAssetLifecycle';
 
 const cleanPrintedCompanyName = (name) => String(name || '').replace(/MAR[ÍI]A[\s\u00A0]*AUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
 
@@ -1004,6 +1005,42 @@ const Transactions = () => {
             return;
         }
 
+        const linkedFixedAsset = editingTransaction
+            ? (fixedAssets || []).find(asset =>
+                String(asset.id || '') === String(editingTransaction.fixedAssetId || '') ||
+                String(asset.transactionId || '') === String(editingTransaction.id || '')
+            )
+            : null;
+        if (linkedFixedAsset && !transactionData.isFixedAsset) {
+            toast({
+                variant: 'destructive',
+                title: 'Activo fijo vinculado',
+                description: 'Esta transacción dio origen a un activo fijo. No puede quitarse la vinculación desde la edición; usa el flujo de baja o un ajuste contable.'
+            });
+            return;
+        }
+
+        const linkedAssetHasHistory = linkedFixedAsset && (
+            Number(linkedFixedAsset.accumulatedDepreciation || 0) > 0 ||
+            linkedFixedAsset.status === 'Dado de Baja' ||
+            Boolean(linkedFixedAsset.retiredAt)
+        );
+        if (linkedAssetHasHistory) {
+            const changesHistoricalBase =
+                String(transactionData.date || '') !== String(editingTransaction.date || '') ||
+                Number(transactionData.amount || 0) !== Number(editingTransaction.amount || 0) ||
+                String(transactionData.type || '') !== String(editingTransaction.type || '') ||
+                String(transactionData.fixedAssetAccountCode || '') !== String(linkedFixedAsset.accountCode || '');
+            if (changesHistoricalBase) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Historia del activo protegida',
+                    description: 'Este bien ya tiene depreciación o baja registrada. Fecha, valor, tipo y cuenta PUC deben corregirse mediante un ajuste trazable, no editando su alta.'
+                });
+                return;
+            }
+        }
+
         // 🚀 REGLA LÓGICA 2: Middleware de restricción para evitar saldo negativo en Caja Principal
         const isExpense = transactionData.type === 'expense' && !transactionData.isInternalTransfer;
         
@@ -1086,9 +1123,40 @@ const Transactions = () => {
             }
         }
 
+        const prepareFixedAssetTransaction = (data, txId, assetId) => {
+            const prepared = { ...data, fixedAssetId: assetId || data.fixedAssetId || null };
+            if (!data.isFixedAsset) return prepared;
+
+            if (data.type === 'income') {
+                const counterpart = getTransactionAllocations(data)[0] || {};
+                const counterpartAccount = (accounts || []).find(account =>
+                    String(account.number || '') === String(counterpart.accountNumber || '') ||
+                    String(account.name || '') === String(counterpart.category || '')
+                );
+                prepared.debitAccount = {
+                    code: data.fixedAssetAccountCode,
+                    name: data.fixedAssetAccountName,
+                };
+                prepared.creditAccount = {
+                    code: counterpart.accountNumber || counterpartAccount?.number || '',
+                    name: counterpart.category || counterpartAccount?.name || 'CONTRAPARTIDA ACTIVO FIJO',
+                };
+                prepared.destination = '';
+                prepared.category = prepared.creditAccount.name;
+                prepared._accountNumber = prepared.debitAccount.code;
+            } else {
+                delete prepared.debitAccount;
+                delete prepared.creditAccount;
+            }
+            prepared.fixedAssetId = assetId || data.fixedAssetId || `asset-${txId}`;
+            return prepared;
+        };
+
         if (editingTransaction) {
             transactionId = editingTransaction.id;
-            updatedTransactions = transactions.map(t => t.id === transactionId ? { ...t, ...transactionData } : t);
+            const assetId = linkedFixedAsset?.id || editingTransaction.fixedAssetId || (transactionData.isFixedAsset ? `asset-${transactionId}` : null);
+            const preparedTransaction = prepareFixedAssetTransaction(transactionData, transactionId, assetId);
+            updatedTransactions = transactions.map(t => t.id === transactionId ? { ...t, ...preparedTransaction } : t);
             
             const existingBillIndex = updatedBilling.findIndex(b => b.transactionId === transactionId);
             if (existingBillIndex !== -1) {
@@ -1106,9 +1174,11 @@ const Transactions = () => {
             const computed = getTransactionTypeAndPrefix(transactionData);
             const voucherNumber = getNextVoucherNumber(computed.type, transactionData.date);
             
-            const newTransaction = { 
-                ...transactionData, 
-                id: transactionId, 
+            const assetId = transactionData.isFixedAsset ? `asset-${transactionId}` : null;
+            const preparedTransaction = prepareFixedAssetTransaction(transactionData, transactionId, assetId);
+            const newTransaction = {
+                ...preparedTransaction,
+                id: transactionId,
                 voucherNumber,
                 company_id: activeCompany?.id,
                 companyId: activeCompany?.id
@@ -1144,9 +1214,48 @@ const Transactions = () => {
             toast({ title: "¡Transacción creada!" });
         }
 
-        if (transactionData.type === 'expense' && transactionData.isFixedAsset) {
-            const assetPayload = { date: transactionData.date, name: transactionData.description, value: parseFloat(transactionData.amount), year: getAccountingYear(transactionData.date).toString(), transactionId: transactionId };
-            updatedAssets.push({ ...assetPayload, id: `asset-${transactionId}`, status: 'Bueno', quantity: 1, company_id: activeCompany?.id, companyId: activeCompany?.id });
+        if (transactionData.isFixedAsset) {
+            const assetAccount = (accounts || []).find(account => String(account.number || '') === String(transactionData.fixedAssetAccountCode || ''));
+            const suggested = suggestDepreciationAccounts(assetAccount || { number: transactionData.fixedAssetAccountCode }, accounts || []);
+            const existingAssetIndex = updatedAssets.findIndex(asset =>
+                String(asset.id || '') === String(transactionData.fixedAssetId || '') ||
+                String(asset.transactionId || '') === String(transactionId)
+            );
+            const existingAsset = existingAssetIndex >= 0 ? updatedAssets[existingAssetIndex] : null;
+            const assetId = existingAsset?.id || transactionData.fixedAssetId || `asset-${transactionId}`;
+            const assetPayload = {
+                ...(existingAsset || {}),
+                id: assetId,
+                acquisitionDate: toAccountingDateInput(transactionData.date),
+                date: toAccountingDateInput(transactionData.date),
+                name: transactionData.description,
+                value: Number(transactionData.amount || 0),
+                quantity: existingAsset?.quantity || 1,
+                model: transactionData.fixedAssetModel || existingAsset?.model || '',
+                location: transactionData.fixedAssetLocation || existingAsset?.location || '',
+                category: transactionData.fixedAssetAccountName || assetAccount?.name || existingAsset?.category || '',
+                accountCode: transactionData.fixedAssetAccountCode || assetAccount?.number || existingAsset?.accountCode || '',
+                accountName: transactionData.fixedAssetAccountName || assetAccount?.name || existingAsset?.accountName || '',
+                usefulLifeYears: Number(transactionData.fixedAssetUsefulLifeYears ?? existingAsset?.usefulLifeYears ?? defaultUsefulLifeYears(transactionData.fixedAssetAccountCode)),
+                residualValue: Number(transactionData.fixedAssetResidualValue ?? existingAsset?.residualValue ?? 0),
+                depreciationMethod: existingAsset?.depreciationMethod || 'linea_recta',
+                accumulatedDepreciationAccountCode: transactionData.fixedAssetAccumulatedDepreciationAccountCode || suggested.accumulated?.number || existingAsset?.accumulatedDepreciationAccountCode || '',
+                accumulatedDepreciationAccountName: transactionData.fixedAssetAccumulatedDepreciationAccountName || suggested.accumulated?.name || existingAsset?.accumulatedDepreciationAccountName || '',
+                depreciationExpenseAccountCode: transactionData.fixedAssetDepreciationExpenseAccountCode || suggested.expense?.number || existingAsset?.depreciationExpenseAccountCode || '',
+                depreciationExpenseAccountName: transactionData.fixedAssetDepreciationExpenseAccountName || suggested.expense?.name || existingAsset?.depreciationExpenseAccountName || '',
+                transactionId,
+                sourceType: transactionData.type,
+                status: existingAsset?.status || 'Bueno',
+                accumulatedDepreciation: Number(existingAsset?.accumulatedDepreciation || 0),
+                netBookValue: Math.max(0, Number(transactionData.amount || 0) - Number(existingAsset?.accumulatedDepreciation || 0)),
+                lifecycleVersion: 2,
+                company_id: activeCompany?.id,
+                companyId: activeCompany?.id,
+            };
+
+            if (existingAssetIndex >= 0) updatedAssets[existingAssetIndex] = assetPayload;
+            else updatedAssets.push(assetPayload);
+
             saveFixedAssets(updatedAssets);
         }
 
@@ -1221,7 +1330,22 @@ const Transactions = () => {
             return;
         }
 
-        const assetToDelete = (fixedAssets || []).find(a => a.transactionId === id);
+        const assetToDelete = (fixedAssets || []).find(a =>
+            String(a.transactionId || '') === String(id) ||
+            String(a.id || '') === String(transactionToDelete.fixedAssetId || '')
+        );
+        if (assetToDelete && (
+            Number(assetToDelete.accumulatedDepreciation || 0) > 0 ||
+            assetToDelete.status === 'Dado de Baja' ||
+            Boolean(assetToDelete.retiredAt)
+        )) {
+            toast({
+                variant: 'destructive',
+                title: 'Activo con historia contable',
+                description: 'No puede eliminarse la transacción de alta porque el activo ya tiene depreciación o baja registrada. Debe conservarse la trazabilidad y corregirse mediante ajustes.'
+            });
+            return;
+        }
         const docsToKeep = (billingDocuments || []).filter(b => !transactionsToDeleteIds.includes(b.transactionId));
 
         const stockChanging = tx => Boolean(tx?.isStoreSale || tx?.isStorePurchase || tx?.isInitialStock);
@@ -1347,22 +1471,38 @@ const Transactions = () => {
                 companyId: activeCompany?.id
             };
 
-            // Registro automático en Activos Fijos si la cuenta débito pertenece a la clase 15 (excepto construcciones/depreciación)
+            // Registro permanente en Activos Fijos si el débito pertenece a PPE (excepto obras en curso y depreciación acumulada)
             if (debitAccObj.number.startsWith('15') && !debitAccObj.number.startsWith('1508') && !debitAccObj.number.startsWith('1592')) {
-                const assetPayload = {
-                    date: transferData.date,
-                    name: transferData.description, 
-                    value: parseFloat(transferData.amount),
-                    year: getAccountingYear(transferData.date).toString(),
-                    transactionId: transactionId
-                };
+                const suggested = suggestDepreciationAccounts(debitAccObj, accounts || []);
+                const assetId = `asset-${transactionId}`;
+                accountingTransaction.fixedAssetId = assetId;
+                accountingTransaction.isFixedAsset = true;
+                accountingTransaction.fixedAssetAccountCode = debitAccObj.number;
+                accountingTransaction.fixedAssetAccountName = debitAccObj.name;
 
                 const newAsset = {
-                    ...assetPayload,
-                    id: `asset-${transactionId}`,
+                    id: assetId,
+                    acquisitionDate: toAccountingDateInput(transferData.date),
+                    date: toAccountingDateInput(transferData.date),
+                    name: transferData.description,
+                    value: Number(transferData.amount || 0),
+                    transactionId,
                     status: 'Bueno',
                     quantity: 1,
                     category: debitAccObj.name,
+                    accountCode: debitAccObj.number,
+                    accountName: debitAccObj.name,
+                    usefulLifeYears: defaultUsefulLifeYears(debitAccObj.number),
+                    residualValue: 0,
+                    depreciationMethod: 'linea_recta',
+                    accumulatedDepreciation: 0,
+                    netBookValue: Number(transferData.amount || 0),
+                    accumulatedDepreciationAccountCode: suggested.accumulated?.number || '',
+                    accumulatedDepreciationAccountName: suggested.accumulated?.name || '',
+                    depreciationExpenseAccountCode: suggested.expense?.number || '',
+                    depreciationExpenseAccountName: suggested.expense?.name || '',
+                    sourceType: 'adjustment',
+                    lifecycleVersion: 2,
                     company_id: activeCompany?.id,
                     companyId: activeCompany?.id
                 };

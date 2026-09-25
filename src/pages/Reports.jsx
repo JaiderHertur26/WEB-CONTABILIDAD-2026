@@ -15,6 +15,7 @@ import { isValid, parseISO } from 'date-fns';
 import { createPrintTarget } from '@/lib/nativePrint';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import FinancialReportsView from '@/components/reports/FinancialReportsView';
+import { summarizeFixedAssetsAtCutoff } from '@/lib/fixedAssetLifecycle';
 
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
@@ -406,19 +407,13 @@ const Reports = () => {
 
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
-    const manualFixedAssetsValue = fFixedAssets.filter(asset => {
-        if (asset.status === 'Dado de Baja') return false; 
-        if (asset.year) return asset.year.toString() === currentYear.toString();
-        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
-        return false;
-    }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
-    
-    const totalDepreciacionInventario = fFixedAssets.filter(asset => {
-        if (asset.status === 'Dado de Baja') return false; 
-        if (asset.year) return asset.year.toString() === currentYear.toString();
-        if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
-        return false;
-    }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
+    const fixedAssetSummary = summarizeFixedAssetsAtCutoff(
+        fFixedAssets,
+        effectiveEndDate,
+        baseValidTransactions
+    );
+    const manualFixedAssetsValue = fixedAssetSummary.grossCost;
+    const totalDepreciacionInventario = fixedAssetSummary.accumulatedDepreciation;
 
     const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
         if (estate.status === 'Dado de Baja') return false;

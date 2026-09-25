@@ -17,6 +17,7 @@ import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { parseAccountingDate, getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
+import { summarizeFixedAssetsAtCutoff } from '@/lib/fixedAssetLifecycle';
 
 const Dashboard = () => {
   const { activeCompany, companies, isConsolidated, toggleConsolidation } = useCompany();
@@ -248,12 +249,12 @@ const Dashboard = () => {
     // --- ASSETS (ACTIVOS UNIFICADOS) ---
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
-    // Clonamos exactamente el filtro condicional del módulo Reports.jsx
-    const manualFixedAssetsValue = fFixedAssets.filter(asset => {
-        if (asset.status === 'Dado de Baja') return false; 
-        const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-        return assetYear === parseInt(selectedYear);
-    }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
+    const fixedAssetSummary = summarizeFixedAssetsAtCutoff(
+        fFixedAssets,
+        selectedCutoffDate,
+        validTransactions
+    );
+    const manualFixedAssetsValue = fixedAssetSummary.grossCost;
     
     const realEstatesValue = fRealEstates.filter(estate => {
         const estateDate = toAccountingDateInput(estate.date);
@@ -312,11 +313,7 @@ const Dashboard = () => {
         }
     });
 
-    const totalDepreciacionInventario = fFixedAssets.filter(asset => {
-        if (asset.status === 'Dado de Baja') return false; 
-        const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-        return assetYear === parseInt(selectedYear);
-    }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
+    const totalDepreciacionInventario = fixedAssetSummary.accumulatedDepreciation;
 
     const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
         if (estate.status === 'Dado de Baja') return false;

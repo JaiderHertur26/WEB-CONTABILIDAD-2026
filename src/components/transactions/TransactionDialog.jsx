@@ -12,6 +12,7 @@ import { usePermission } from '@/hooks/usePermission';
 import ContactSelector from '@/components/transactions/ContactSelector';
 import { format } from 'date-fns';
 import { parseAccountingDate, toAccountingDateInput } from '@/lib/accountingDate';
+import { defaultUsefulLifeYears, getFixedAssetAccounts, suggestDepreciationAccounts } from '@/lib/fixedAssetLifecycle';
 
 // Utility component for highlighting text
 const Highlight = ({ text, highlight }) => {
@@ -82,6 +83,16 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
     contactId: '',
     destination: 'caja_principal|CAJA PRINCIPAL',
     isFixedAsset: false,
+    fixedAssetAccountCode: '',
+    fixedAssetAccountName: '',
+    fixedAssetUsefulLifeYears: 10,
+    fixedAssetResidualValue: 0,
+    fixedAssetModel: '',
+    fixedAssetLocation: '',
+    fixedAssetAccumulatedDepreciationAccountCode: '',
+    fixedAssetAccumulatedDepreciationAccountName: '',
+    fixedAssetDepreciationExpenseAccountCode: '',
+    fixedAssetDepreciationExpenseAccountName: '',
     allocations: [{ id: 'allocation-1', category: '', amount: '' }],
   });
   
@@ -124,7 +135,17 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
         category: '',
         contactId: '',
         destination: 'caja_principal|CAJA PRINCIPAL',
-        isFixedAsset: false,
+isFixedAsset: false,
+        fixedAssetAccountCode: '',
+        fixedAssetAccountName: '',
+        fixedAssetUsefulLifeYears: 10,
+        fixedAssetResidualValue: 0,
+        fixedAssetModel: '',
+        fixedAssetLocation: '',
+        fixedAssetAccumulatedDepreciationAccountCode: '',
+        fixedAssetAccumulatedDepreciationAccountName: '',
+        fixedAssetDepreciationExpenseAccountCode: '',
+        fixedAssetDepreciationExpenseAccountName: '',
         allocations: [{ id: 'allocation-1', category: '', amount: '' }],
       });
     }
@@ -164,17 +185,88 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
     0
   );
 
+  const fixedAssetAccounts = React.useMemo(
+    () => getFixedAssetAccounts(accounts || []),
+    [accounts]
+  );
+
+  const handleFixedAssetAccountChange = (code) => {
+    const selected = fixedAssetAccounts.find(account => String(account.number) === String(code));
+    if (!selected) return;
+    const suggested = suggestDepreciationAccounts(selected, accounts || []);
+
+    setFormData(prev => {
+      const currentTotal = (prev.allocations || []).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+      const next = {
+        ...prev,
+        fixedAssetAccountCode: selected.number,
+        fixedAssetAccountName: selected.name,
+        fixedAssetUsefulLifeYears: defaultUsefulLifeYears(selected.number),
+        fixedAssetAccumulatedDepreciationAccountCode: suggested.accumulated?.number || '',
+        fixedAssetAccumulatedDepreciationAccountName: suggested.accumulated?.name || '',
+        fixedAssetDepreciationExpenseAccountCode: suggested.expense?.number || '',
+        fixedAssetDepreciationExpenseAccountName: suggested.expense?.name || '',
+      };
+
+      if (prev.type === 'expense') {
+        next.allocations = [{
+          id: prev.allocations?.[0]?.id || 'allocation-1',
+          category: selected.name,
+          amount: currentTotal || prev.allocations?.[0]?.amount || '',
+        }];
+      }
+      return next;
+    });
+  };
+
+  const handleTypeChange = (type) => {
+    setFormData(prev => {
+      if (!prev.isFixedAsset) return { ...prev, type };
+      const currentTotal = (prev.allocations || []).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+      if (type === 'income') {
+        return {
+          ...prev,
+          type,
+          destination: '',
+          allocations: [{ id: prev.allocations?.[0]?.id || 'allocation-1', category: '', amount: currentTotal || '' }],
+        };
+      }
+      const selected = fixedAssetAccounts.find(account => String(account.number) === String(prev.fixedAssetAccountCode));
+      return {
+        ...prev,
+        type,
+        destination: prev.destination || 'caja_principal|CAJA PRINCIPAL',
+        allocations: [{
+          id: prev.allocations?.[0]?.id || 'allocation-1',
+          category: selected?.name || '',
+          amount: currentTotal || '',
+        }],
+      };
+    });
+  };
+
+  const handleFixedAssetToggle = (checked) => {
+    setFormData(prev => ({
+      ...prev,
+      isFixedAsset: checked,
+      destination: checked && prev.type === 'income'
+        ? ''
+        : (!checked && !prev.destination ? 'caja_principal|CAJA PRINCIPAL' : prev.destination),
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (isReadOnly) return;
 
     const normalizedAllocations = (formData.allocations || []).map((line, index) => {
       const account = (accounts || []).find(a => a.name === line.category);
+      const isAssetDebitLine = formData.isFixedAsset && formData.type === 'expense' && index === 0;
       return {
         id: line.id || `allocation-${index + 1}`,
-        category: line.category,
+        category: isAssetDebitLine ? formData.fixedAssetAccountName : line.category,
         amount: Number(line.amount) || 0,
-        accountNumber: account?.number || '',
+        accountNumber: isAssetDebitLine ? formData.fixedAssetAccountCode : (account?.number || ''),
       };
     });
 
@@ -186,13 +278,36 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
       return;
     }
 
-    if (!formData.destination) {
+    if (formData.isFixedAsset) {
+      if (!formData.fixedAssetAccountCode || !formData.fixedAssetAccountName) {
+        toast({ variant: "destructive", title: "Cuenta del activo requerida", description: "Selecciona la cuenta PUC a la que quedará vinculado el activo fijo." });
+        return;
+      }
+      if (normalizedAllocations.length !== 1) {
+        toast({ variant: "destructive", title: "Asiento del activo incompleto", description: "El alta del activo debe tener una sola cuenta de contrapartida en esta transacción." });
+        return;
+      }
+      if (formData.type === 'income') {
+        const counterpartCode = String(normalizedAllocations[0].accountNumber || '');
+        if (counterpartCode === String(formData.fixedAssetAccountCode || '')) {
+          toast({ variant: "destructive", title: "Contrapartida inválida", description: "En un ingreso de activo fijo, selecciona como contrapartida la cuenta de ingreso, donación o patrimonio correspondiente." });
+          return;
+        }
+        if (!counterpartCode.startsWith('3') && !counterpartCode.startsWith('4')) {
+          toast({ variant: "destructive", title: "Contrapartida no permitida", description: "Para una incorporación en especie usa una cuenta de patrimonio/donación (clase 3) o de ingreso (clase 4)." });
+          return;
+        }
+      }
+    }
+
+    if (!formData.destination && !(formData.isFixedAsset && formData.type === 'income')) {
       toast({ variant: "destructive", title: "Campo Requerido", description: "Por favor, selecciona un Origen/Destino." });
       return;
     }
 
     const dataToSave = {
       ...formData,
+      destination: formData.isFixedAsset && formData.type === 'income' ? '' : formData.destination,
       allocations: normalizedAllocations,
       amount: normalizedAllocations.reduce((sum, line) => sum + line.amount, 0),
       category: normalizedAllocations[0].category,
@@ -269,7 +384,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
   };
   
   const sortedAccounts = React.useMemo(() => {
-      return (accounts || []).sort((a, b) => a.number.localeCompare(b.number));
+      return [...(accounts || [])].sort((a, b) => String(a.number || '').localeCompare(String(b.number || '')));
   }, [accounts]);
 
   return (
@@ -293,7 +408,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="type" className="text-slate-700">Tipo</Label>
-              <select id="type" disabled={isReadOnly} value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-500">
+              <select id="type" disabled={isReadOnly} value={formData.type} onChange={(e) => handleTypeChange(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-500">
                 <option value="income">Ingreso</option>
                 <option value="expense">Gasto</option>
               </select>
@@ -315,7 +430,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
                 <Label className="text-slate-800 font-semibold">Distribución contable</Label>
                 <p className="text-xs text-slate-500 mt-0.5">Agrega una o varias cuentas dentro de la misma transacción.</p>
               </div>
-              {!isReadOnly && (
+              {!isReadOnly && !formData.isFixedAsset && (
                 <Button type="button" variant="outline" size="sm" onClick={addAllocation} className="bg-white">
                   <Plus className="w-4 h-4 mr-1" /> Agregar cuenta
                 </Button>
@@ -326,12 +441,12 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
               {(formData.allocations || []).map((line, index) => (
                 <div key={line.id || index} className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_170px_40px] gap-2 items-end rounded-lg bg-white border border-slate-200 p-3">
                   <div className="space-y-1.5 min-w-0">
-                    <Label className="text-xs text-slate-600">Cuenta {index + 1}</Label>
+                    <Label className="text-xs text-slate-600">{formData.isFixedAsset && formData.type === 'income' ? 'Contrapartida contable' : formData.isFixedAsset ? 'Cuenta del activo' : `Cuenta ${index + 1}`}</Label>
                     <AccountSelector
                       accounts={sortedAccounts}
                       value={line.category}
                       onChange={(val) => updateAllocation(index, 'category', val)}
-                      disabled={isReadOnly}
+                      disabled={isReadOnly || (formData.isFixedAsset && formData.type === 'expense')}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -374,28 +489,35 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="destination" className="text-slate-700">Origen/Destino</Label>
-              <select id="destination" required disabled={isReadOnly} value={formData.destination} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-500">
-                <optgroup label="Cajas Principales">
-                  <option value="caja_principal|CAJA PRINCIPAL">CAJA PRINCIPAL</option>
-                </optgroup>
-                {(bankAccounts && bankAccounts.length > 0) && (
-                  <optgroup label="Bancos">
-                    {bankAccounts.map(b_acc => (
-                      <option key={b_acc.id} value={`${b_acc.id}|${b_acc.bankName}`}>{b_acc.bankName}</option>
-                    ))}
+            {formData.isFixedAsset && formData.type === 'income' ? (
+              <div className="rounded-xl border border-violet-200 bg-violet-50 p-3">
+                <Label className="text-violet-800">Ingreso de activo en especie</Label>
+                <p className="mt-1 text-xs text-violet-700">No afecta Caja ni Bancos. El bien se debita a su cuenta PUC y la cuenta seleccionada arriba será la contrapartida contable.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="destination" className="text-slate-700">Origen/Destino</Label>
+                <select id="destination" required disabled={isReadOnly} value={formData.destination} onChange={(e) => setFormData({ ...formData, destination: e.target.value })} className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white disabled:bg-slate-100 disabled:text-slate-500">
+                  <optgroup label="Cajas Principales">
+                    <option value="caja_principal|CAJA PRINCIPAL">CAJA PRINCIPAL</option>
                   </optgroup>
-                )}
-                {(cashAccounts && cashAccounts.length > 0) && (
-                  <optgroup label="Cajas Menores y Mayores">
-                    {cashAccounts.map(c_acc => (
-                      <option key={c_acc.id} value={`${c_acc.id}|${c_acc.name}`}>{c_acc.name} ({c_acc.type})</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-            </div>
+                  {(bankAccounts && bankAccounts.length > 0) && (
+                    <optgroup label="Bancos">
+                      {bankAccounts.map(b_acc => (
+                        <option key={b_acc.id} value={`${b_acc.id}|${b_acc.bankName}`}>{b_acc.bankName}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {(cashAccounts && cashAccounts.length > 0) && (
+                    <optgroup label="Cajas Menores y Mayores">
+                      {cashAccounts.map(c_acc => (
+                        <option key={c_acc.id} value={`${c_acc.id}|${c_acc.name}`}>{c_acc.name} ({c_acc.type})</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="contactId" className="text-slate-700">Contacto (Opcional)</Label>
               <ContactSelector
@@ -430,14 +552,50 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
               </div>
           )}
 
-          {formData.type === 'expense' && !registerAsInvoice && (
-            <div className="flex items-center space-x-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-              <input type="checkbox" id="isFixedAsset" disabled={isReadOnly} checked={formData.isFixedAsset} onChange={(e) => setFormData({ ...formData, isFixedAsset: e.target.checked })} className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50" />
-              <Label htmlFor="isFixedAsset" className="text-sm font-medium text-slate-700 cursor-pointer disabled:cursor-not-allowed">
-                ¿Es un Activo Fijo? <span className="text-slate-400 font-normal">(Creará item en inventario)</span>
-              </Label>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-start gap-2">
+              <input type="checkbox" id="isFixedAsset" disabled={isReadOnly} checked={formData.isFixedAsset} onChange={(e) => handleFixedAssetToggle(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50" />
+              <div>
+                <Label htmlFor="isFixedAsset" className="cursor-pointer text-sm font-semibold text-slate-800">¿Esta transacción incorpora un Activo Fijo?</Label>
+                <p className="mt-0.5 text-xs text-slate-500">Registrará el bien en Activos Fijos y lo vinculará al asiento contable. Disponible tanto para compras como para incorporaciones en especie.</p>
+              </div>
             </div>
-          )}
+
+            {formData.isFixedAsset && (
+              <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs font-semibold text-slate-700">Cuenta del Activo (PUC) *</Label>
+                  <select value={formData.fixedAssetAccountCode || ''} onChange={(e) => handleFixedAssetAccountChange(e.target.value)} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                    <option value="">Seleccionar cuenta del activo...</option>
+                    {fixedAssetAccounts.map(account => <option key={account.id || account.number} value={account.number}>{account.number} · {account.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-600">Vida útil (años)</Label>
+                  <input type="number" min="0" step="1" value={formData.fixedAssetUsefulLifeYears ?? 10} onChange={(e) => setFormData({...formData, fixedAssetUsefulLifeYears: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-600">Valor residual</Label>
+                  <input type="number" min="0" step="0.01" value={formData.fixedAssetResidualValue || 0} onChange={(e) => setFormData({...formData, fixedAssetResidualValue: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-600">Marca / Modelo / Serie</Label>
+                  <input value={formData.fixedAssetModel || ''} onChange={(e) => setFormData({...formData, fixedAssetModel: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-600">Ubicación del bien</Label>
+                  <input value={formData.fixedAssetLocation || ''} onChange={(e) => setFormData({...formData, fixedAssetLocation: e.target.value})} disabled={isReadOnly} placeholder="Templo, despacho, casa cural..." className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                </div>
+                {formData.fixedAssetAccountCode && (
+                  <div className="sm:col-span-2 rounded-lg border border-violet-100 bg-white p-3 text-xs text-slate-600">
+                    <span className="font-semibold text-violet-700">Vinculación contable:</span> {formData.fixedAssetAccountCode} · {formData.fixedAssetAccountName}
+                    {formData.fixedAssetDepreciationExpenseAccountCode && <span> · Gasto dep. {formData.fixedAssetDepreciationExpenseAccountCode}</span>}
+                    {formData.fixedAssetAccumulatedDepreciationAccountCode && <span> · Dep. acum. {formData.fixedAssetAccumulatedDepreciationAccountCode}</span>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <DialogFooter className="pt-2 gap-2">
             <DialogClose asChild><Button type="button" variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-50">Cancelar</Button></DialogClose>

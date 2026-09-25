@@ -17,6 +17,7 @@ import {
 } from 'docx';
 import { exportProfessionalWorkbook } from '@/lib/excel';
 import { isNativeApp, shareBlobFile, shareJsPdf } from '@/lib/nativeFiles';
+import { getAssetAcquisitionDate } from '@/lib/fixedAssetLifecycle';
 
 const money = (value) =>
   new Intl.NumberFormat('es-CO', {
@@ -113,6 +114,9 @@ const assetSnapshot = (assets = []) => {
       No: sequence,
       Cantidad: accountingAdjustment ? null : (Number(asset.quantity) || 1),
       Activo: asset.name || 'Activo sin nombre',
+      Alta: getAssetAcquisitionDate(asset),
+      CuentaPUC: asset.accountCode || '',
+      NombreCuentaPUC: asset.accountName || '',
       Identificacion: asset.model || '',
       Categoria: accountingAdjustment ? 'AJUSTE CONTABLE' : (asset.category || ''),
       Uso: accountingAdjustment ? '' : (asset.usage || ''),
@@ -176,6 +180,9 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
     'N°': row.No,
     'Cant.': row.Cantidad,
     'Nombre del Activo': row.Activo,
+    'Fecha de Alta': row.Alta,
+    'Cuenta PUC': row.CuentaPUC,
+    'Nombre Cuenta PUC': row.NombreCuentaPUC,
     'Marca / Modelo / Serie': row.Identificacion,
     'Categoría': row.Categoria,
     'Uso': row.Uso,
@@ -191,6 +198,9 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
     { key: 'N°', label: 'N°', width: 8, type: 'text' },
     { key: 'Cant.', label: 'CANT.', width: 9, type: 'integer' },
     { key: 'Nombre del Activo', label: 'NOMBRE DEL ACTIVO', width: 30, type: 'text' },
+    { key: 'Fecha de Alta', label: 'FECHA DE ALTA', width: 16, type: 'text' },
+    { key: 'Cuenta PUC', label: 'CUENTA PUC', width: 16, type: 'text' },
+    { key: 'Nombre Cuenta PUC', label: 'NOMBRE CUENTA PUC', width: 30, type: 'text' },
     { key: 'Marca / Modelo / Serie', label: 'MARCA / MODELO / SERIE', width: 28, type: 'text' },
     { key: 'Categoría', label: 'CATEGORÍA', width: 22, type: 'text' },
     { key: 'Uso', label: 'USO', width: 14, type: 'text' },
@@ -215,8 +225,8 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
   const sheets = [
     {
       name: 'Inventario',
-      title: 'INVENTARIO DE ACTIVOS FIJOS',
-      period: `VIGENCIA ${meta.year} · CORTE ${meta.cutoff}`,
+      title: 'REGISTRO PERMANENTE DE ACTIVOS FIJOS',
+      period: `AÑO OPERATIVO ${meta.year} · CORTE ${meta.cutoff}`,
       subtitle: [meta.address, meta.phone ? `Tel. ${meta.phone}` : ''].filter(Boolean).join(' · '),
       orientation: 'landscape',
       columns,
@@ -234,13 +244,13 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
         'Orden del inventario: Templo, Sacristía, demás lugares alfabéticamente, Sin ubicación y ajustes contables al final.',
         'Los ajustes contables no se cuentan como unidades físicas y su efecto sí se incorpora al valor neto contable.',
         'Los activos dados de baja conservan su valor histórico para trazabilidad y se presentan con valor en libros igual a cero.',
-        'Conservar este inventario junto con soportes de adquisición, depreciación, traslado y baja.',
+        'Conservar este registro permanente junto con soportes de adquisición, depreciación, traslado y baja.',
       ],
     },
     {
       name: 'Resumen',
-      title: 'RESUMEN DEL INVENTARIO DE ACTIVOS FIJOS',
-      period: `VIGENCIA ${meta.year} · CORTE ${meta.cutoff}`,
+      title: 'RESUMEN DEL REGISTRO DE ACTIVOS FIJOS',
+      period: `AÑO OPERATIVO ${meta.year} · CORTE ${meta.cutoff}`,
       columns: [
         { key: 'Indicador', label: 'INDICADOR', width: 44, type: 'text' },
         { key: 'Valor', label: 'CANTIDAD', width: 18, type: 'integer' },
@@ -251,7 +261,7 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
     {
       name: 'Por Categoría',
       title: 'ACTIVOS FIJOS POR CATEGORÍA',
-      period: `VIGENCIA ${meta.year}`,
+      period: `AÑO OPERATIVO ${meta.year} · HISTORIA PERMANENTE`,
       columns: [
         { key: 'Categoria', label: 'CATEGORÍA', width: 36, type: 'text' },
         { key: 'Activos', label: 'REGISTROS', width: 14, type: 'integer' },
@@ -268,13 +278,16 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
     sheets.push({
       name: 'Bajas',
       title: 'ACTIVOS DADOS DE BAJA',
-      period: `VIGENCIA ${meta.year}`,
+      period: `AÑO OPERATIVO ${meta.year} · HISTORIA PERMANENTE`,
       orientation: 'landscape',
       columns,
       rows: retiredRows.map((row) => ({
         'N°': row.No,
         'Cant.': row.Cantidad,
         'Nombre del Activo': row.Activo,
+        'Fecha de Alta': row.Alta,
+        'Cuenta PUC': row.CuentaPUC,
+        'Nombre Cuenta PUC': row.NombreCuentaPUC,
         'Marca / Modelo / Serie': row.Identificacion,
         'Categoría': row.Categoria,
         'Uso': row.Uso,
@@ -293,8 +306,8 @@ export const exportFixedAssetsExcel = ({ assets, company, year }) => {
     fileName: `Inventario_Activos_Fijos_${meta.year}`,
     companyName: meta.name,
     nit: meta.nit,
-    title: 'INVENTARIO DE ACTIVOS FIJOS',
-    period: `VIGENCIA ${meta.year}`,
+    title: 'REGISTRO PERMANENTE DE ACTIVOS FIJOS',
+    period: `AÑO OPERATIVO ${meta.year} · HISTORIA PERMANENTE`,
     sheets,
   });
 };
@@ -315,10 +328,10 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text('INVENTARIO DE ACTIVOS FIJOS', 283, 15, { align: 'right' });
+  doc.text('REGISTRO PERMANENTE DE ACTIVOS FIJOS', 283, 15, { align: 'right' });
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Vigencia: ${meta.year} · Corte: ${meta.cutoff}`, 283, 21, { align: 'right' });
+  doc.text(`Año operativo: ${meta.year} · Corte: ${meta.cutoff}`, 283, 21, { align: 'right' });
 
   doc.setDrawColor(31, 78, 121);
   doc.setLineWidth(0.5);
@@ -332,13 +345,14 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
     margin: { left: 8, right: 8 },
     theme: 'grid',
     head: [[
-      'N°', 'Cant.', 'Activo', 'Marca / Modelo / Serie', 'Categoría',
+      'N°', 'Cant.', 'Activo', 'Alta / Cuenta PUC', 'Marca / Modelo / Serie', 'Categoría',
       'Uso / Estado', 'Lugar', 'Valor Original', 'Deprec. Acum.', 'Valor Libros', 'Observaciones'
     ]],
     body: rows.map(row => [
       row.No,
       row.Cantidad,
       row.Activo,
+      [row.Alta, row.CuentaPUC, row.NombreCuentaPUC].filter(Boolean).join(' · '),
       row.Identificacion,
       row.Categoria,
       [row.Uso, row.Estado].filter(Boolean).join(' / '),
@@ -349,7 +363,7 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
       row.Observaciones,
     ]),
     foot: [[
-      '', totals.quantity, 'TOTALES', '', '', '', '',
+      '', totals.quantity, 'TOTALES', '', '', '', '', '',
       money(totals.original), money(totals.depreciation), money(totals.net), ''
     ]],
     styles: { font: 'helvetica', fontSize: 6.3, cellPadding: 1.3, valign: 'middle' },
@@ -358,17 +372,18 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
     footStyles: { fillColor: [231, 238, 245], textColor: [20, 20, 20], fontStyle: 'bold' },
     showFoot: 'lastPage',
     columnStyles: {
-      0: { cellWidth: 11, halign: 'center' },
-      1: { cellWidth: 10, halign: 'center' },
-      2: { cellWidth: 32 },
-      3: { cellWidth: 28 },
-      4: { cellWidth: 24 },
-      5: { cellWidth: 22 },
-      6: { cellWidth: 24 },
-      7: { cellWidth: 22, halign: 'right' },
-      8: { cellWidth: 22, halign: 'right' },
-      9: { cellWidth: 22, halign: 'right' },
-      10: { cellWidth: 36 },
+      0: { cellWidth: 8, halign: 'center' },
+      1: { cellWidth: 8, halign: 'center' },
+      2: { cellWidth: 28 },
+      3: { cellWidth: 29 },
+      4: { cellWidth: 20 },
+      5: { cellWidth: 18 },
+      6: { cellWidth: 18 },
+      7: { cellWidth: 18 },
+      8: { cellWidth: 20, halign: 'right' },
+      9: { cellWidth: 20, halign: 'right' },
+      10: { cellWidth: 20, halign: 'right' },
+      11: { cellWidth: 25 },
     },
   });
   let y = (doc.lastAutoTable?.finalY || 45) + 8;
@@ -393,7 +408,7 @@ export const exportFixedAssetsPdf = ({ assets, company, year }) => {
     doc.text('CIERRE Y RESPONSABILIDAD DEL INVENTARIO', 283, 18, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(`Vigencia ${meta.year} · Corte ${meta.cutoff}`, 283, 24, { align: 'right' });
+    doc.text(`Año operativo ${meta.year} · Corte ${meta.cutoff}`, 283, 24, { align: 'right' });
 
     doc.setDrawColor(31, 78, 121);
     doc.setLineWidth(0.5);
@@ -538,9 +553,9 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
       tableHeader: true,
       cantSplit: true,
       children: [
-        'N°', 'Cant.', 'Activo', 'Marca / Modelo / Serie', 'Categoría', 'Uso / Estado',
+        'N°', 'Cant.', 'Activo', 'Alta / Cuenta PUC', 'Marca / Modelo / Serie', 'Categoría', 'Uso / Estado',
         'Lugar', 'Valor Original', 'Deprec. Acum.', 'Valor en Libros', 'Observaciones'
-      ].map(label => wordCell(label, { bold: true, align: AlignmentType.CENTER, fill: headerFill, color: 'FFFFFF', size: 12 })),
+      ].map(label => wordCell(label, { bold: true, align: AlignmentType.CENTER, fill: headerFill, color: 'FFFFFF', size: 11 })),
     }),
   ];
   rows.forEach((row) => {
@@ -550,6 +565,7 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         wordCell(row.No, { align: AlignmentType.CENTER, size: 12 }),
         wordCell(row.Cantidad, { align: AlignmentType.CENTER, size: 12 }),
         wordCell(row.Activo, { size: 12 }),
+        wordCell([row.Alta, row.CuentaPUC, row.NombreCuentaPUC].filter(Boolean).join(' · '), { size: 11 }),
         wordCell(row.Identificacion, { size: 12 }),
         wordCell(row.Categoria, { size: 12 }),
         wordCell([row.Uso, row.Estado].filter(Boolean).join(' / '), { align: AlignmentType.CENTER, size: 12 }),
@@ -568,6 +584,7 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
       wordCell('', { fill: 'E7E6E6' }),
       wordCell(totals.quantity, { bold: true, align: AlignmentType.CENTER, fill: 'E7E6E6' }),
       wordCell('TOTALES', { bold: true, fill: 'E7E6E6' }),
+      wordCell('', { fill: 'E7E6E6' }),
       wordCell('', { fill: 'E7E6E6' }),
       wordCell('', { fill: 'E7E6E6' }),
       wordCell('', { fill: 'E7E6E6' }),
@@ -657,13 +674,13 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { after: 180 },
-          children: [new TextRun({ text: 'INVENTARIO DE ACTIVOS FIJOS', bold: true, size: 30, color: '17365D' })],
+          children: [new TextRun({ text: 'REGISTRO PERMANENTE DE ACTIVOS FIJOS', bold: true, size: 30, color: '17365D' })],
         }),
         infoTable,
         new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { before: 100, after: 160 },
-          children: [new TextRun({ text: `VIGENCIA ${meta.year} · CORTE ${meta.cutoff}`, bold: true, size: 18 })],
+          children: [new TextRun({ text: `AÑO OPERATIVO ${meta.year} · CORTE ${meta.cutoff}`, bold: true, size: 18 })],
         }),
         summaryTable,
         new Paragraph({ text: '', spacing: { after: 120 } }),
@@ -677,7 +694,7 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { after: 160 },
-          children: [new TextRun({ text: `${meta.name.toUpperCase()} · NIT: ${meta.nit || '-'} · VIGENCIA ${meta.year} · CORTE ${meta.cutoff}`, bold: true, size: 16 })],
+          children: [new TextRun({ text: `${meta.name.toUpperCase()} · NIT: ${meta.nit || '-'} · AÑO OPERATIVO ${meta.year} · CORTE ${meta.cutoff}`, bold: true, size: 16 })],
         }),
         closingSummaryTable,
         new Paragraph({
@@ -708,7 +725,7 @@ export const exportFixedAssetsWord = async ({ assets, company, year }) => {
         new Paragraph({
           spacing: { after: 520 },
           children: [new TextRun({
-            text: '• Conservar este inventario junto con los soportes de adquisición, depreciación, traslado y baja.',
+            text: '• Conservar este registro permanente junto con los soportes de adquisición, depreciación, traslado y baja.',
             size: 14,
           })],
         }),

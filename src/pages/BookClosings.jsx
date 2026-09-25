@@ -31,6 +31,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
 import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
+import { summarizeFixedAssetsAtCutoff } from '@/lib/fixedAssetLifecycle';
 import {
     format,
     parseISO,
@@ -1056,19 +1057,13 @@ const BookClosings = () => {
         const cajaGeneralValue = liquidity.totalLiquidity;
 
         const inventoryValue = (inventory || []).reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
-        const manualFixedAssetsValue = (fixedAssets || []).filter(asset => {
-            if (asset.status === 'Dado de Baja') return false;
-            if (asset.year) return asset.year.toString() === currentYear.toString();
-            if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
-            return false;
-        }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
-
-        const totalDepreciacionInventario = (fixedAssets || []).filter(asset => {
-            if (asset.status === 'Dado de Baja') return false;
-            if (asset.year) return asset.year.toString() === currentYear.toString();
-            if (asset.date) return getSafeYear(asset.date).toString() === currentYear.toString();
-            return false;
-        }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
+        const fixedAssetSummary = summarizeFixedAssetsAtCutoff(
+            fixedAssets || [],
+            endStr,
+            baseValidTransactions
+        );
+        const manualFixedAssetsValue = fixedAssetSummary.grossCost;
+        const totalDepreciacionInventario = fixedAssetSummary.accumulatedDepreciation;
 
         const depreciacionPropiedadesGlobal = (realEstates || []).filter(estate => {
             if (estate.status === 'Dado de Baja') return false;

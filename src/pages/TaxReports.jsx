@@ -17,6 +17,7 @@ import ContractTaxAlert from '@/components/contracts/ContractTaxAlert';
 import { getRetentionDueDate } from '@/lib/contractTaxEngine';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
+import { summarizeFixedAssetsAtCutoff } from '@/lib/fixedAssetLifecycle';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -429,17 +430,13 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
-        const manualFixedAssetsValue = fFixedAssets.filter(asset => {
-            if (asset.status === 'Dado de Baja') return false; 
-            const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-            return assetYear === parseInt(selectedYear);
-        }).reduce((sum, asset) => sum + safeParseFloat(asset.value), 0);
-        
-        const totalDepreciacionInventario = fFixedAssets.filter(asset => {
-            if (asset.status === 'Dado de Baja') return false; 
-            const assetYear = asset.date ? getSafeYear(asset.date) : (asset.year ? parseInt(asset.year) : 0);
-            return assetYear === parseInt(selectedYear);
-        }).reduce((sum, asset) => sum + safeParseFloat(asset.accumulatedDepreciation || 0), 0);
+        const fixedAssetSummary = summarizeFixedAssetsAtCutoff(
+            fFixedAssets,
+            taxCutoffDate,
+            baseValidTransactions
+        );
+        const manualFixedAssetsValue = fixedAssetSummary.grossCost;
+        const totalDepreciacionInventario = fixedAssetSummary.accumulatedDepreciation;
 
         const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
     if (estate.status === 'Dado de Baja') return false;
@@ -489,7 +486,7 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
             { Concepto: '  Activos Intangibles (Licencias)', Valor: intangiblesValue, isDetail: true },
             { Concepto: '  Construcciones en Curso', Valor: construccionesValue, isDetail: true },
             { Concepto: '  Propiedades, Planta y Equipo (inmuebles)', Valor: realEstatesValue, isDetail: true },
-            { Concepto: '  Activos Fijos (inventario de la vigencia)', Valor: manualFixedAssetsValue, isDetail: true },
+            { Concepto: '  Activos Fijos (costo histórico vigente al corte)', Valor: manualFixedAssetsValue, isDetail: true },
             { Concepto: '  Inventario', Valor: inventoryValue, isDetail: true },
             { Concepto: '    Depreciación acumulada de Activos Fijos', Valor: -Math.abs(totalDepreciacionInventario), isDetail: true },
             { Concepto: '    Depreciación acumulada de Propiedades/Inmuebles', Valor: -Math.abs(totalDepreciacionPropiedades), isDetail: true },
@@ -541,7 +538,7 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
                 'Reporte de base contable para revisión tributaria. No sustituye el formulario oficial ni acredita presentación ante la DIAN.',
                 'Los totales de activos, patrimonio y excedente aquí presentados son CONTABLES; la determinación fiscal requiere conciliación, depuración y ajustes conforme a las reglas tributarias aplicables.',
                 'Las cifras deben revisarse con el contador, soportes y conciliaciones antes de cualquier presentación tributaria.',
-                'Los saldos de Caja, Bancos y Aportes provienen del mismo motor de liquidez utilizado por el Balance General; Activos Fijos corresponde al inventario de la vigencia seleccionada.'
+                'Los saldos de Caja, Bancos y Aportes provienen del mismo motor de liquidez utilizado por el Balance General; Activos Fijos se determina por la existencia y depreciación histórica de cada bien a la fecha de corte.'
             ]
         });
         toast({ title: "Excel profesional generado", description: "Reporte contable de apoyo a Renta generado para revisión." });
