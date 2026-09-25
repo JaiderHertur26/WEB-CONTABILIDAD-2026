@@ -174,7 +174,7 @@ const FixedAssets = () => {
         setDialogOpen(false);
     };
 
-    const handleDeleteAsset = (id) => {
+    const handleDeleteAsset = async (id) => {
         if (!canDelete) return;
 
         const assetToDelete = (assets || []).find(asset => asset.id === id);
@@ -203,8 +203,13 @@ const FixedAssets = () => {
             return;
         }
 
-        saveAssets((assets || []).filter(asset => asset.id !== id));
-        toast({ title: 'Activo eliminado', description: 'Se eliminó únicamente el registro sin historia contable.' });
+        try {
+            const saved = await saveAssets((assets || []).filter(asset => asset.id !== id));
+            if (saved === false) return;
+            toast({ title: 'Activo eliminado', description: 'Se eliminó el registro sin historia después de validar Acceso Total.' });
+        } catch (error) {
+            toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar el activo.' });
+        }
     };
 
     const handleOpenRetireDialog = (asset) => {
