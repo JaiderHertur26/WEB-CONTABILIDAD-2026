@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { usePermission } from '@/hooks/usePermission';
 import { cn } from '@/lib/utils';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { format } from 'date-fns';
 import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
@@ -30,6 +31,7 @@ const CashAccounts = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
   const { toast } = useToast();
+  const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
   const { canAdd, canEdit, canDelete, isReadOnly } = usePermission();
 
   const [formData, setFormData] = useState({
@@ -256,7 +258,7 @@ const CashAccounts = () => {
     setIsDialogOpen(false);
   };
 
-  const handleDelete = (account) => {
+  const handleDelete = async (account) => {
     if (!canDelete) return;
     if (account.isMain) { toast({ variant: 'destructive', title: 'Acción no permitida', description: 'No se puede eliminar la Caja Principal.' }); return; }
     if (cashHasHistory(account)) {
@@ -272,13 +274,37 @@ const CashAccounts = () => {
       toast({ variant:'destructive', title:'Período contable cerrado', description: lockReason });
       return;
     }
-    if (window.confirm('¿Estás seguro de eliminar esta caja sin movimientos ni saldo inicial?')) {
-      saveCashAccounts(cashAccounts.filter(acc => acc.id !== account.id));
+
+    const destructiveAuthorization = await requestDestructiveAuthorization({
+      title: 'Eliminar caja',
+      subject: account.name || account.accounting_concept || 'Caja seleccionada',
+      description: 'Se eliminará la caja sin historial y, si corresponde, su cuenta PUC auxiliar asociada.',
+    });
+    if (!destructiveAuthorization?.sessionToken) return;
+
+    try {
+      const options = { destructiveAuthorization };
+      const cashSaved = await saveCashAccounts(
+        cashAccounts.filter(acc => acc.id !== account.id),
+        options
+      );
+      if (cashSaved === false) throw new Error('No se pudo eliminar la caja.');
+
       if (account.accounting_account) {
         const accToDelete = (accounts || []).find(a => a.number === account.accounting_account);
-        if (accToDelete) saveAccounts(accounts.filter(a => a.id !== accToDelete.id));
+        if (accToDelete) {
+          const accountSaved = await saveAccounts(
+            accounts.filter(a => a.id !== accToDelete.id),
+            options
+          );
+          if (accountSaved === false) throw new Error('No se pudo retirar la cuenta PUC auxiliar de la caja.');
+        }
       }
-      toast({ title: 'Caja eliminada' });
+      toast({ title: 'Caja eliminada', description: 'La eliminación fue autorizada con Acceso Total.' });
+    } catch (error) {
+      toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar la caja.' });
+    } finally {
+      await releaseDestructiveAuthorization(destructiveAuthorization);
     }
   };
 
