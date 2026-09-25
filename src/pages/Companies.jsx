@@ -8,11 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogDe
 import { Label } from '@/components/ui/label';
 import { useCompany } from '@/contexts/CompanyContext';
 import { useAuth } from '@/contexts/LocalAuthContext';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { createCompanySecure, deleteCompanySecure, issueRegistrationToken, updateCompanySecure } from '@/lib/secureApi';
 
 const Companies = () => {
     const { companies, setCompanies, updateCompanyCredentials } = useCompany();
     const { sessionToken } = useAuth();
+    const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [serialDialogOpen, setSerialDialogOpen] = useState(false);
     const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
@@ -59,16 +61,23 @@ const Companies = () => {
     };
 
     const handleDeleteCompany = async (id) => {
-        if (window.confirm('¿Eliminar esta empresa? Solo podrá eliminarse si no tiene entidades hijas ni información sincronizada protegida.')) {
-            try {
-                if (!sessionToken) throw new Error('Sesión administrativa no disponible');
-                await deleteCompanySecure(sessionToken, id);
-                if (typeof setCompanies === 'function') await setCompanies();
-                toast({ title: "Empresa eliminada permanentemente" });
-            } catch (err) {
-                console.error("Error eliminando empresa:", err);
-                toast({ variant: "destructive", title: "Error", description: err?.message || "No se pudo eliminar la empresa." });
-            }
+        const target = companies.find(company => String(company.id) === String(id));
+        const destructiveAuthorization = await requestDestructiveAuthorization({
+            title: 'Eliminar empresa',
+            subject: target?.name || 'Empresa seleccionada',
+            description: 'Esta operación es estructural y permanente. Solo continuará después de revalidar las credenciales del Administrador General.',
+        });
+        if (!destructiveAuthorization?.sessionToken) return;
+
+        try {
+            await deleteCompanySecure(destructiveAuthorization.sessionToken, id);
+            if (typeof setCompanies === 'function') await setCompanies();
+            toast({ title: "Empresa eliminada permanentemente" });
+        } catch (err) {
+            console.error("Error eliminando empresa:", err);
+            toast({ variant: "destructive", title: "Eliminación bloqueada", description: err?.message || "No se pudo eliminar la empresa." });
+        } finally {
+            await releaseDestructiveAuthorization(destructiveAuthorization);
         }
     };
     
