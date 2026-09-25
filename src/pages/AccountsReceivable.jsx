@@ -16,6 +16,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { usePermission } from '@/hooks/usePermission';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -141,6 +142,7 @@ const AccountsReceivable = () => {
     const voucherRef = useRef(null);
 
     const { toast } = useToast();
+    const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
 
     // CORRECCIÓN: Función que cuenta los comprobantes basados en el año real
     const getNextVoucherNumber = (type, dateStr) => {
@@ -326,9 +328,10 @@ const AccountsReceivable = () => {
         setDialogOpen(false);
     };
 
-    const handleDeleteReceivable = (id) => {
+    const handleDeleteReceivable = async (id) => {
         if (!canDelete) return;
         const target = (receivables || []).find(r => r.id === id);
+        if (!target) return;
         const accrual = (transactions || []).find(t =>
             (t.receivableId === id && t.isReceivableAccrual) ||
             t.id === `txn-inc-${id}`
@@ -352,14 +355,43 @@ const AccountsReceivable = () => {
             });
             return;
         }
-        saveTransactions((transactions || []).filter(t => t.id !== accrual?.id));
-        saveReceivables((receivables || []).filter(r => r.id !== id));
-        if (target?.massIntentionId) {
-            saveMassIntentions((massIntentions || []).map(item =>
-                String(item.id) === String(target.massIntentionId) ? { ...item, receivableId: '' } : item
-            ));
+
+        const destructiveAuthorization = await requestDestructiveAuthorization({
+            title: 'Eliminar cuenta por cobrar',
+            subject: target.description || target.concept || target.contact || 'Cuenta por cobrar seleccionada',
+            description: accrual
+                ? 'Se eliminará la CxC y también su causación contable vinculada.'
+                : 'Se eliminará la CxC seleccionada.',
+        });
+        if (!destructiveAuthorization?.sessionToken) return;
+
+        try {
+            const options = { destructiveAuthorization };
+            if (accrual) {
+                const transactionSaved = await saveTransactions(
+                    (transactions || []).filter(t => t.id !== accrual.id),
+                    options
+                );
+                if (transactionSaved === false) throw new Error('No se pudo retirar la causación contable vinculada.');
+            }
+
+            const receivableSaved = await saveReceivables(
+                (receivables || []).filter(r => r.id !== id),
+                options
+            );
+            if (receivableSaved === false) throw new Error('No se pudo eliminar la cuenta por cobrar.');
+
+            if (target?.massIntentionId) {
+                await saveMassIntentions((massIntentions || []).map(item =>
+                    String(item.id) === String(target.massIntentionId) ? { ...item, receivableId: '' } : item
+                ));
+            }
+            toast({ title: "Cuenta por cobrar eliminada", description: "La operación fue autorizada con Acceso Total y se retiró su causación contable." });
+        } catch (error) {
+            toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar la cuenta por cobrar.' });
+        } finally {
+            await releaseDestructiveAuthorization(destructiveAuthorization);
         }
-        toast({ title: "Cuenta por cobrar eliminada", description: "Se retiró también su causación contable." });
     };
 
     const handleMarkAsCollected = (paymentData) => {
