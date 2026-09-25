@@ -265,24 +265,30 @@ const Invoices = () => {
       setIsDeleteDialogOpen(true);
   };
 
-  const executeDelete = () => {
+  const executeDelete = async () => {
       if (!invoiceToDelete || !canDelete) return;
 
-      if (['purchase', 'expense'].includes(invoiceToDelete.type)) {
-          const updated = (purchaseInvoices || []).filter(inv => inv.id !== invoiceToDelete.id);
-          savePurchaseInvoices(updated);
-      } else {
-          const updated = (invoices || []).filter(inv => inv.id !== invoiceToDelete.id);
-          saveInvoices(updated);
+      try {
+          let saved;
+          if (['purchase', 'expense'].includes(invoiceToDelete.type)) {
+              const updated = (purchaseInvoices || []).filter(inv => inv.id !== invoiceToDelete.id);
+              saved = await savePurchaseInvoices(updated);
+          } else {
+              const updated = (invoices || []).filter(inv => inv.id !== invoiceToDelete.id);
+              saved = await saveInvoices(updated);
+          }
+          if (saved === false) return;
+
+          toast({ 
+              title: "Documento eliminado", 
+              description: "La factura se eliminó después de validar Acceso Total. Las transacciones originales permanecen intactas." 
+          });
+
+          setIsDeleteDialogOpen(false);
+          setInvoiceToDelete(null);
+      } catch (error) {
+          toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar el documento.' });
       }
-
-      toast({ 
-          title: "Documento eliminado", 
-          description: "El registro de factura ha sido eliminado. Las transacciones originales permanecen intactas." 
-      });
-
-      setIsDeleteDialogOpen(false);
-      setInvoiceToDelete(null);
   };
 
   return (
