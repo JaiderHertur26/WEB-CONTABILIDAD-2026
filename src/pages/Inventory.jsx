@@ -148,16 +148,19 @@ const Inventory = () => {
         setDialogOpen(false);
     };
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (!canDelete) return;
         const hasHistory = (transactions || []).some(t => String(t.productId || '') === String(id));
         if (hasHistory) {
             toast({ variant:'destructive', title:'Producto con historial', description:'No puede eliminarse porque tiene movimientos contables. Edítalo o déjalo sin existencia para conservar la trazabilidad.' });
             return;
         }
-        if (window.confirm('¿Estás seguro de eliminar este producto sin movimientos?')) {
-            saveProducts(products.filter(p => p.id !== id));
-            toast({ title: "Producto eliminado" });
+        try {
+            const saved = await saveProducts(products.filter(p => p.id !== id));
+            if (saved === false) return;
+            toast({ title: "Producto eliminado", description: "La eliminación fue autorizada con Acceso Total." });
+        } catch (error) {
+            toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar el producto.' });
         }
     };
 
