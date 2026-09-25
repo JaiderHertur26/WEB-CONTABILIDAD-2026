@@ -212,6 +212,7 @@ const Transactions = () => {
     const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
     const todayDateKey = format(new Date(), 'yyyy-MM-dd');
     const effectiveEndDate = endDate > todayDateKey ? todayDateKey : endDate;
+    const invalidDateRange = Boolean(startDate && effectiveEndDate && startDate > effectiveEndDate);
     // Mantenemos selectedYear oculto para no romper otras funciones que lo usan como referencia
     const selectedYear = startDate ? startDate.split('-')[0] : new Date().getFullYear().toString();
     const [viewMode, setViewMode] = useState('balances');
@@ -220,6 +221,7 @@ const Transactions = () => {
     const [accountFilters, setAccountFilters] = useState([]);
     const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
     const [accountSearchTerm, setAccountSearchTerm] = useState(''); // <-- Nuevo estado para el buscador
+    const accountMenuRef = useRef(null);
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -246,6 +248,17 @@ const Transactions = () => {
     const receiptRef = useRef(null); 
     const filteredPrintRef = useRef(null); // Ref para imprimir el reporte
     const nativeApp = isNativeApp();
+
+    const clearAllFilters = () => {
+        const now = new Date();
+        setSearchTerm('');
+        setFilterType('all');
+        setStartDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`);
+        setEndDate(format(now, 'yyyy-MM-dd'));
+        setAccountFilters([]);
+        setAccountSearchTerm('');
+        setIsAccountMenuOpen(false);
+    };
     const [voucherPreviewScale, setVoucherPreviewScale] = useState(1);
     const [halfSheetPreviewScale, setHalfSheetPreviewScale] = useState(1);
     const [auxiliaryPreviewScale, setAuxiliaryPreviewScale] = useState(1);
@@ -270,6 +283,24 @@ const Transactions = () => {
         window.addEventListener('resize', updateScale);
         return () => window.removeEventListener('resize', updateScale);
     }, [nativeApp]);
+
+    useEffect(() => {
+        if (!isAccountMenuOpen) return undefined;
+
+        const closeOnOutsideInteraction = (event) => {
+            if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+                setIsAccountMenuOpen(false);
+                setAccountSearchTerm('');
+            }
+        };
+
+        document.addEventListener('mousedown', closeOnOutsideInteraction);
+        document.addEventListener('touchstart', closeOnOutsideInteraction, { passive: true });
+        return () => {
+            document.removeEventListener('mousedown', closeOnOutsideInteraction);
+            document.removeEventListener('touchstart', closeOnOutsideInteraction);
+        };
+    }, [isAccountMenuOpen]);
 
     const companyScopeIds = useMemo(
         () => getCompanyScopeIds(companies, activeCompany?.id),
@@ -614,18 +645,18 @@ const Transactions = () => {
         setProcessedTransactions(cleanedData);
     }, [transactions, initialBalances, bankAccounts, accounts, isRelevant]);
 
-    // 🚀 LÓGICA INTELIGENTE: EXTRAER SOLO CUENTAS QUE TUVIERON ACTIVIDAD EN EL AÑO
+    // 🚀 CUENTAS ACTIVAS EN TODO EL RANGO SELECCIONADO (INCLUSO SI CRUZA DE AÑO)
     const activeAccountsInYear = useMemo(() => {
-        const yearTx = processedTransactions.filter(t => {
-            const tYear = (typeof t.date === 'string' && t.date.includes('-')) 
-                ? t.date.split('-')[0] 
-                : getAccountingYear(t.date).toString();
-            return tYear === selectedYear;
+        if (invalidDateRange) return [];
+
+        const rangeTx = processedTransactions.filter(t => {
+            const tDate = String(t.date || '').slice(0, 10);
+            return tDate && tDate >= startDate && tDate <= effectiveEndDate;
         });
 
         const usedExactCodes = new Set();
-        
-        yearTx.forEach(t => {
+
+        rangeTx.forEach(t => {
             resolveAccountingRows(t).forEach(row => {
                 if (row.account?.code) usedExactCodes.add(String(row.account.code));
             });
@@ -640,7 +671,15 @@ const Transactions = () => {
                 return Array.from(usedExactCodes).some(usedCode => usedCode.startsWith(accNum));
             })
             .sort((a, b) => String(a.number).localeCompare(String(b.number)));
-    }, [processedTransactions, selectedYear, accounts]);
+    }, [processedTransactions, startDate, effectiveEndDate, invalidDateRange, accounts]);
+
+    useEffect(() => {
+        const validAccountNumbers = new Set(activeAccountsInYear.map(acc => String(acc.number)));
+        setAccountFilters(current => {
+            const next = current.filter(code => validAccountNumbers.has(String(code)));
+            return next.length === current.length ? current : next;
+        });
+    }, [activeAccountsInYear]);
 
     useEffect(() => {
         let result = [...processedTransactions];
@@ -657,11 +696,15 @@ const Transactions = () => {
         });
         
         // 🚀 Filtro Estricto por Rango de Fechas
-        result = result.filter(t => {
-            if (!t.date) return false;
-            const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
-            return tDate >= startDate && tDate <= effectiveEndDate;
-        });
+        if (invalidDateRange) {
+            result = [];
+        } else {
+            result = result.filter(t => {
+                if (!t.date) return false;
+                const tDate = t.date.includes('T') ? t.date.split('T')[0] : t.date;
+                return tDate >= startDate && tDate <= effectiveEndDate;
+            });
+        }
 
         // Filtro de Tipo de Transacción
         if (filterType !== 'all') {
@@ -692,6 +735,10 @@ const Transactions = () => {
                 const voucher = t.voucherNumber
                     ? `${t.voucherPrefix || getTransactionTypeAndPrefix(t).prefix}-${String(t.voucherNumber).padStart(4, '0')}`
                     : '';
+                const accountingSearchValues = resolveAccountingRows(t).flatMap(row => [
+                    row.account?.code,
+                    row.account?.name,
+                ]);
                 return [
                     t.description,
                     getTransactionCategoryLabel(t),
@@ -702,6 +749,7 @@ const Transactions = () => {
                     t.beneficiary,
                     t._destName,
                     t.destination,
+                    ...accountingSearchValues,
                 ].some(value => String(value || '').toLowerCase().includes(lower));
             });
         }
@@ -724,7 +772,7 @@ const Transactions = () => {
             return String(a.id || '').localeCompare(String(b.id || ''));
         });
         setFilteredTransactions(result);
-    }, [processedTransactions, searchTerm, filterType, startDate, effectiveEndDate, accountFilters]);
+    }, [processedTransactions, searchTerm, filterType, startDate, effectiveEndDate, invalidDateRange, accountFilters]);
 
     const duplicateVoucherIssues = useMemo(() => {
         const periodItems = (processedTransactions || []).filter(t => {
@@ -2969,7 +3017,7 @@ const Transactions = () => {
                         <div className="flex gap-2 items-center flex-wrap">
                             
                             {/* 🚀 FILTRO POR CUENTA PUC MULTIPLE */}
-                            <div className={`relative ${viewMode === 'mayor' || viewMode === 'billing' ? 'hidden' : ''}`}>
+                            <div ref={accountMenuRef} className={`relative ${viewMode === 'mayor' || viewMode === 'billing' ? 'hidden' : ''}`}>
                                 <Button 
                                     variant="outline" 
                                     onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)} 
@@ -3041,7 +3089,7 @@ const Transactions = () => {
                                             )}
 
                                             {activeAccountsInYear.length === 0 && (
-                                                <div className="p-4 text-center text-xs text-slate-400">No hay cuentas con movimientos este año.</div>
+                                                <div className="p-4 text-center text-xs text-slate-400">No hay cuentas con movimientos en este período.</div>
                                             )}
                                         </div>
                                         <div className="p-3 border-t border-slate-100 bg-slate-50 rounded-b-xl flex gap-2">
@@ -3052,24 +3100,38 @@ const Transactions = () => {
                             </div>
 
                             {/* 🚀 Calendarios de Rango */}
-                            <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/70 p-1.5 sm:w-auto">
-                                <input 
-                                    type="date" 
-                                    className="min-w-0 rounded-lg bg-transparent px-2 py-2 text-xs font-bold text-slate-700 outline-none"
-                                    value={startDate} 
-                                    onChange={(e) => setStartDate(e.target.value)}
-                                    title="Fecha Inicial"
-                                />
-                                <span className="text-slate-300">-</span>
-                                <input 
-                                    type="date" 
-                                    className="min-w-0 rounded-lg bg-transparent px-2 py-2 text-xs font-bold text-slate-700 outline-none"
-                                    value={endDate} 
-                                    max={todayDateKey}
-                                    onChange={(e) => setEndDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)}
-                                    title="Fecha Final"
-                                />
+                            <div className="flex w-full flex-col gap-1 sm:w-auto">
+                                <div className={`grid w-full grid-cols-[1fr_auto_1fr] items-center gap-1 rounded-xl border p-1.5 sm:w-auto ${invalidDateRange ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50/70'}`}>
+                                    <input
+                                        type="date"
+                                        className="min-w-0 rounded-lg bg-transparent px-2 py-2 text-xs font-bold text-slate-700 outline-none"
+                                        value={startDate}
+                                        max={todayDateKey}
+                                        onChange={(e) => setStartDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)}
+                                        title="Fecha Inicial"
+                                    />
+                                    <span className={invalidDateRange ? 'text-red-300' : 'text-slate-300'}>-</span>
+                                    <input
+                                        type="date"
+                                        className="min-w-0 rounded-lg bg-transparent px-2 py-2 text-xs font-bold text-slate-700 outline-none"
+                                        value={endDate}
+                                        max={todayDateKey}
+                                        onChange={(e) => setEndDate(e.target.value > todayDateKey ? todayDateKey : e.target.value)}
+                                        title="Fecha Final"
+                                    />
+                                </div>
+                                {invalidDateRange && (
+                                    <p className="px-1 text-[11px] font-semibold text-red-600">La fecha Desde no puede ser posterior a Hasta.</p>
+                                )}
                             </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={clearAllFilters}
+                                className="h-11 rounded-xl border-slate-200 bg-white px-3 font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                            >
+                                Limpiar filtros
+                            </Button>
                             
                             <div className="grid w-full grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 lg:flex lg:w-auto">
                                 <button onClick={() => setViewMode('balances')} className={`h-10 rounded-xl px-3 text-xs font-bold transition-all ${viewMode === 'balances' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}><TableIcon className="w-3.5 h-3.5 inline mr-1.5" /> Control</button>
