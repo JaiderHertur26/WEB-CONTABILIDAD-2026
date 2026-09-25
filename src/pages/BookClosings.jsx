@@ -48,6 +48,13 @@ import { es } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+const hasClosingValue = value => Number.isFinite(Number(value)) && Math.abs(Number(value)) >= 0.005;
+const closingAccountDisplay = (code, name, fallback = 'CUENTA CONTABLE') => {
+    const cleanCode = String(code || '').trim();
+    const cleanName = String(name || fallback).replace(/_/g, ' ').trim().toUpperCase();
+    return cleanCode ? `${cleanCode} · ${cleanName}` : cleanName;
+};
+
 const BookClosings = () => {
     const { activeCompany, isConsolidated, companies } = useCompany();
     const { canEdit, isReadOnly } = usePermission();
@@ -230,14 +237,18 @@ const BookClosings = () => {
                 // BLOQUEO: Solo suma a Ingresos/Gastos Operativos si NO es puente/cruce
                 if (!isPuenteOCruce) {
                     if (crPrefix === '4') { 
-                        totalIncome += amount; 
-                        incomeMap[t.creditAccount.name] = (incomeMap[t.creditAccount.name] || 0) + amount;
+                        totalIncome += amount;
+                        const incomeLabel = closingAccountDisplay(crCode, t.creditAccount.name || t.category, 'INGRESOS');
+                        incomeMap[incomeLabel] = (incomeMap[incomeLabel] || 0) + amount;
                         monthlySummary[mIndex].ingresos += amount;
                     }
                     
                     if (['5', '6', '7', '4'].includes(drPrefix)) { 
-                        totalExpense += amount; 
-                        const expenseName = drPrefix === '4' ? `${t.debitAccount.name} (Salida/Débito)` : t.debitAccount.name;
+                        totalExpense += amount;
+                        const baseExpenseName = drPrefix === '4'
+                            ? `${t.debitAccount.name || t.category || 'INGRESOS'} (SALIDA/DÉBITO)`
+                            : (t.debitAccount.name || t.category || 'GASTOS');
+                        const expenseName = closingAccountDisplay(drCode, baseExpenseName, 'GASTOS');
                         expenseMap[expenseName] = (expenseMap[expenseName] || 0) + amount; 
                         monthlySummary[mIndex].gastos += amount;
                     }
@@ -245,12 +256,12 @@ const BookClosings = () => {
 
                 if (crPrefix === '2') {
                     tercerosIn += amount;
-                    const name = t.creditAccount?.name || 'Fondo de Terceros';
+                    const name = closingAccountDisplay(crCode, t.creditAccount?.name, 'FONDO DE TERCEROS');
                     tercerosInMap[name] = (tercerosInMap[name] || 0) + amount;
                 }
                 if (drPrefix === '2') {
                     tercerosOut += amount;
-                    const name = t.debitAccount?.name || 'Fondo de Terceros';
+                    const name = closingAccountDisplay(drCode, t.debitAccount?.name, 'FONDO DE TERCEROS');
                     tercerosOutMap[name] = (tercerosOutMap[name] || 0) + amount;
                 }
 
@@ -277,25 +288,30 @@ const BookClosings = () => {
             
             // BLOQUEO: Solo suma a Ingresos/Gastos Operativos si NO es puente/cruce
             if (!isPuenteOCruce) {
+                const accountLabel = closingAccountDisplay(accountObj?.number, accountObj?.name || t.category, t.type === 'income' ? 'INGRESOS' : 'GASTOS');
                 if (prefix === '4') {
                     if (t.type === 'income') {
                         totalIncome += amount;
-                        incomeMap[t.category || 'Ingresos'] = (incomeMap[t.category || 'Ingresos'] || 0) + amount;
+                        incomeMap[accountLabel] = (incomeMap[accountLabel] || 0) + amount;
                         monthlySummary[mIndex].ingresos += amount;
                     } else {
                         totalExpense += amount;
-                        expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
+                        expenseMap[accountLabel] = (expenseMap[accountLabel] || 0) + amount;
                         monthlySummary[mIndex].gastos += amount;
                     }
                 } else if (['5', '6', '7'].includes(prefix)) {
                     totalExpense += amount;
-                    expenseMap[t.category || 'Gastos'] = (expenseMap[t.category || 'Gastos'] || 0) + amount;
+                    expenseMap[accountLabel] = (expenseMap[accountLabel] || 0) + amount;
                     monthlySummary[mIndex].gastos += amount;
                 }
             }
 
             if (prefix === '2' || isPuenteOCruce) {
-                const accName = accountObj ? accountObj.name : (t.category || 'Fondo de Terceros');
+                const accName = closingAccountDisplay(
+                    accountObj?.number,
+                    accountObj?.name || t.category,
+                    isPuenteOCruce ? 'MOVIMIENTO PUENTE' : 'FONDO DE TERCEROS'
+                );
                 if (t.type === 'income') {
                     tercerosIn += amount;
                     tercerosInMap[accName] = (tercerosInMap[accName] || 0) + amount;
@@ -314,8 +330,14 @@ const BookClosings = () => {
         });
 
         monthlySummary.forEach(m => m.utilidad = m.ingresos - m.gastos);
+        const activeMonthlySummary = monthlySummary.filter(m =>
+            hasClosingValue(m.ingresos) || hasClosingValue(m.gastos) || hasClosingValue(m.utilidad)
+        );
 
-        const sortMap = (map) => Object.entries(map).map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
+        const sortMap = (map) => Object.entries(map)
+            .map(([name, total]) => ({ name, total }))
+            .filter(item => hasClosingValue(item.total))
+            .sort((a, b) => b.total - a.total);
 
         // Agrupar Terceros Neta
         const tercerosList = [];
@@ -325,7 +347,9 @@ const BookClosings = () => {
             const inAmt = tercerosInMap[name] || 0;
             const outAmt = tercerosOutMap[name] || 0;
             const displayAmt = Math.max(inAmt, outAmt); 
-            tercerosList.push({ name: name.toUpperCase(), total: displayAmt });
+            if (hasClosingValue(displayAmt)) {
+                tercerosList.push({ name: name.toUpperCase(), total: displayAmt });
+            }
         });
         tercerosList.sort((a, b) => b.total - a.total);
 
@@ -337,11 +361,62 @@ const BookClosings = () => {
             if (!destStr) return true;
             const [id, name] = destStr.split('|');
             if (id === 'caja_principal' || id === '11201501' || id === '12950501') return true;
-            if (cashAccounts && cashAccounts.some(c => c.id === id)) return true;
-            if (bankAccounts && bankAccounts.some(b => b.id === id)) return true;
+            if (cashAccounts && cashAccounts.some(c => String(c.id) === String(id) || String(c.accountingCode || '') === String(id))) return true;
+            if (bankAccounts && bankAccounts.some(b => String(b.id) === String(id) || String(b.accountingCode || '') === String(id))) return true;
             const upperName = (name || id || '').toUpperCase();
             if (upperName.includes('CAJA') || upperName.includes('COOPERATIVA') || upperName.includes('BANCO')) return true;
             return false;
+        };
+
+        const resolveLiquidAccountLabel = (destStr, fallback = 'CAJA PRINCIPAL') => {
+            if (!destStr) {
+                const mainCash = (accounts || []).find(a => String(a.number || '') === '11050501')
+                    || (accounts || []).find(a => String(a.number || '').startsWith('1105'));
+                return closingAccountDisplay(mainCash?.number || '11050501', mainCash?.name || fallback, fallback);
+            }
+
+            const [rawId, rawName] = String(destStr).split('|');
+            const id = String(rawId || '').trim();
+            const name = String(rawName || '').trim();
+
+            if (id === 'caja_principal') {
+                const mainCash = (accounts || []).find(a => String(a.number || '') === '11050501')
+                    || (accounts || []).find(a => String(a.number || '').startsWith('1105'));
+                return closingAccountDisplay(mainCash?.number || '11050501', mainCash?.name || name || fallback, fallback);
+            }
+
+            const bank = (bankAccounts || []).find(item =>
+                String(item.id) === id || String(item.accountingCode || '') === id
+            );
+            if (bank) {
+                return closingAccountDisplay(
+                    bank.accountingCode,
+                    bank.accountingConcept || bank.bankName || name,
+                    'CUENTA BANCARIA'
+                );
+            }
+
+            const cash = (cashAccounts || []).find(item =>
+                String(item.id) === id || String(item.accountingCode || '') === id
+            );
+            if (cash) {
+                return closingAccountDisplay(
+                    cash.accountingCode,
+                    cash.accountingConcept || cash.name || name,
+                    'CAJA'
+                );
+            }
+
+            const puc = (accounts || []).find(item =>
+                String(item.id) === id || String(item.number || '') === id || String(item.name || '').toUpperCase() === name.toUpperCase()
+            );
+            if (puc) return closingAccountDisplay(puc.number, puc.name, name || fallback);
+
+            if (id === '12950501') {
+                return closingAccountDisplay('12950501', name || 'APORTES ORDINARIOS', 'APORTES ORDINARIOS');
+            }
+
+            return closingAccountDisplay(id, name || id || fallback, fallback);
         };
 
         allRelevant.forEach(t => {
@@ -361,15 +436,21 @@ const BookClosings = () => {
 
                 // Entrada a Banco/Caja
                 if (drCode.startsWith('11') || drCode.startsWith('1295') || drName.includes('CAJA') || drName.includes('COOPERATIVA')) {
-                    let nameKey = `${drName}${transferSuffix}`;
-                    if (crCode.startsWith('2') && !isPureTransfer) nameKey = `${drName} (PUENTE: ${crName})`;
+                    const liquidLabel = closingAccountDisplay(drCode, drName, 'CUENTA DE LIQUIDEZ');
+                    let nameKey = `${liquidLabel}${transferSuffix}`;
+                    if (crCode.startsWith('2') && !isPureTransfer) {
+                        nameKey = `${liquidLabel} (PUENTE: ${closingAccountDisplay(crCode, crName, 'FONDO DE TERCEROS')})`;
+                    }
                     flowIn[nameKey] = (flowIn[nameKey] || 0) + amount;
                 }
                 
                 // Salida de Banco/Caja
                 if (crCode.startsWith('11') || crCode.startsWith('1295') || crName.includes('CAJA') || crName.includes('COOPERATIVA')) {
-                    let nameKey = `${crName}${transferSuffix}`;
-                    if (drCode.startsWith('2') && !isPureTransfer) nameKey = `${crName} (PUENTE: ${drName})`;
+                    const liquidLabel = closingAccountDisplay(crCode, crName, 'CUENTA DE LIQUIDEZ');
+                    let nameKey = `${liquidLabel}${transferSuffix}`;
+                    if (drCode.startsWith('2') && !isPureTransfer) {
+                        nameKey = `${liquidLabel} (PUENTE: ${closingAccountDisplay(drCode, drName, 'FONDO DE TERCEROS')})`;
+                    }
                     flowOut[nameKey] = (flowOut[nameKey] || 0) + amount;
                 }
                 return;
@@ -377,16 +458,7 @@ const BookClosings = () => {
 
             // B. Transacciones Automáticas 
             const extractTargetNameWithPuente = (tObj) => {
-                let baseDestName = 'CAJA PRINCIPAL';
-                
-                const str = tObj.destination;
-                if (str) {
-                    const parts = str.split('|');
-                    const namePart = (parts[1] || parts[0]).toUpperCase();
-                    if (namePart === 'CAJA_PRINCIPAL' || parts[0] === 'caja_principal') baseDestName = 'CAJA PRINCIPAL';
-                    else if (namePart === '11201501' || parts[0] === '11201501') baseDestName = 'COOPERATIVA FRATERNIDAD SACERDOTAL';
-                    else baseDestName = namePart;
-                }
+                const baseDestName = resolveLiquidAccountLabel(tObj.destination);
 
                 // Si es transferencia, le agregamos el sufijo y evitamos lógica de puentes
                 if (isPureTransfer) return `${baseDestName}${transferSuffix}`;
@@ -394,7 +466,7 @@ const BookClosings = () => {
                 // Identificamos si es un movimiento de terceros
                 const accObj = (accounts || []).find(a => a.name === tObj.category);
                 if (accObj && String(accObj.number).startsWith('2')) {
-                    const terceroName = (tObj.category).toUpperCase();
+                    const terceroName = closingAccountDisplay(accObj.number, accObj.name || tObj.category, 'FONDO DE TERCEROS');
                     return `${baseDestName} (PUENTE: ${terceroName})`;
                 }
 
@@ -437,7 +509,7 @@ const BookClosings = () => {
             totalIncome,
             totalExpense,
             balance: totalIncome - totalExpense,
-            monthlySummary,
+            monthlySummary: activeMonthlySummary,
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
             incomeByDestination: sortMap(flowIn),
@@ -457,42 +529,81 @@ const BookClosings = () => {
 
         const summaryRows = [
             { Concepto: 'RESUMEN GENERAL', Ingresos: null, Gastos: null, Resultado: null, __style: 'section' },
-            { Concepto: 'TOTAL INGRESOS OPERATIVOS', Ingresos: Number(report.totalIncome || 0), Gastos: null, Resultado: null, __style: 'subtotal' },
-            { Concepto: 'TOTAL GASTOS OPERATIVOS', Ingresos: null, Gastos: Number(report.totalExpense || 0), Resultado: null, __style: 'subtotal' },
+            ...(hasClosingValue(report.totalIncome) ? [{
+                Concepto: 'TOTAL INGRESOS OPERATIVOS',
+                Ingresos: Number(report.totalIncome || 0),
+                Gastos: null,
+                Resultado: null,
+                __style: 'subtotal'
+            }] : []),
+            ...(hasClosingValue(report.totalExpense) ? [{
+                Concepto: 'TOTAL GASTOS OPERATIVOS',
+                Ingresos: null,
+                Gastos: Number(report.totalExpense || 0),
+                Resultado: null,
+                __style: 'subtotal'
+            }] : []),
             { Concepto: 'UTILIDAD / PÉRDIDA DEL PERÍODO', Ingresos: null, Gastos: null, Resultado: Number(report.balance || 0), __style: 'total' },
-            { Concepto: 'RESUMEN MENSUAL', Ingresos: null, Gastos: null, Resultado: null, __style: 'section' },
-            ...(report.monthlySummary || []).map(item => ({
-                Concepto: item.mes,
-                Ingresos: Number(item.ingresos || 0),
-                Gastos: Number(item.gastos || 0),
-                Resultado: Number(item.utilidad || 0)
-            }))
+            ...((report.monthlySummary || []).length > 0 ? [
+                { Concepto: 'RESUMEN MENSUAL', Ingresos: null, Gastos: null, Resultado: null, __style: 'section' },
+                ...(report.monthlySummary || []).map(item => ({
+                    Concepto: item.mes,
+                    Ingresos: hasClosingValue(item.ingresos) ? Number(item.ingresos) : null,
+                    Gastos: hasClosingValue(item.gastos) ? Number(item.gastos) : null,
+                    Resultado: hasClosingValue(item.utilidad) ? Number(item.utilidad) : null
+                }))
+            ] : [])
         ];
 
         const pnlRows = [
-            { Concepto: 'INGRESOS OPERACIONALES', Valor: null, __style: 'section' },
-            ...(report.incomeByCategory || []).map(item => ({ Concepto: item.name, Valor: Number(item.total || 0) })),
-            { Concepto: 'TOTAL INGRESOS', Valor: Number(report.totalIncome || 0), __style: 'total' },
-            { Concepto: 'GASTOS OPERACIONALES', Valor: null, __style: 'section' },
-            ...(report.expenseByCategory || []).map(item => ({ Concepto: item.name, Valor: Number(item.total || 0) })),
-            { Concepto: 'TOTAL GASTOS', Valor: Number(report.totalExpense || 0), __style: 'subtotal' },
+            ...((report.incomeByCategory || []).length > 0 ? [
+                { Concepto: 'INGRESOS OPERACIONALES', Valor: null, __style: 'section' },
+                ...(report.incomeByCategory || []).map(item => ({ Concepto: item.name, Valor: Number(item.total || 0) })),
+                { Concepto: 'TOTAL INGRESOS', Valor: Number(report.totalIncome || 0), __style: 'total' },
+            ] : []),
+            ...((report.expenseByCategory || []).length > 0 ? [
+                { Concepto: 'GASTOS OPERACIONALES', Valor: null, __style: 'section' },
+                ...(report.expenseByCategory || []).map(item => ({ Concepto: item.name, Valor: Number(item.total || 0) })),
+                { Concepto: 'TOTAL GASTOS', Valor: Number(report.totalExpense || 0), __style: 'subtotal' },
+            ] : []),
             { Concepto: 'UTILIDAD / PÉRDIDA', Valor: Number(report.balance || 0), __style: 'total' }
         ];
 
+        const netThirdParties = Number(report.conciliacion?.tercerosIn || 0) - Number(report.conciliacion?.tercerosOut || 0);
+        const hasReconciliationRows =
+            (report.conciliacion?.tercerosList || []).length > 0 ||
+            hasClosingValue(report.conciliacion?.capitalizacion) ||
+            hasClosingValue(netThirdParties);
+
         const cashRows = [
-            { Concepto: 'DINERO RECIBIDO EN', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.incomeByDestination || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: 0 })),
-            { Concepto: 'DINERO PAGADO DESDE', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.expenseByDestination || []).map(item => ({ Concepto: item.name, Entrada: 0, Salida: Number(item.total || 0) })),
-            { Concepto: 'CONCILIACIÓN: CAPITALIZACIONES Y TERCEROS', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.conciliacion?.tercerosList || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: Number(item.total || 0) })),
-            { Concepto: 'CAPITALIZACIONES / TRASLADOS A INVERSIÓN', Entrada: 0, Salida: Number(report.conciliacion?.capitalizacion || 0), __style: 'subtotal' },
-            {
-                Concepto: 'SALDO PENDIENTE DE TERCEROS',
-                Entrada: Number(report.conciliacion?.tercerosIn || 0),
-                Salida: Number(report.conciliacion?.tercerosOut || 0),
-                __style: Math.abs(Number(report.conciliacion?.tercerosIn || 0) - Number(report.conciliacion?.tercerosOut || 0)) < 0.01 ? 'success' : 'subtotal'
-            }
+            ...((report.incomeByDestination || []).length > 0 ? [
+                { Concepto: 'DINERO RECIBIDO EN', Entrada: null, Salida: null, __style: 'section' },
+                ...(report.incomeByDestination || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: null })),
+            ] : []),
+            ...((report.expenseByDestination || []).length > 0 ? [
+                { Concepto: 'DINERO PAGADO DESDE', Entrada: null, Salida: null, __style: 'section' },
+                ...(report.expenseByDestination || []).map(item => ({ Concepto: item.name, Entrada: null, Salida: Number(item.total || 0) })),
+            ] : []),
+            ...(hasReconciliationRows ? [
+                { Concepto: 'CONCILIACIÓN: CAPITALIZACIONES Y TERCEROS', Entrada: null, Salida: null, __style: 'section' },
+                ...(report.conciliacion?.tercerosList || []).map(item => ({
+                    Concepto: item.name,
+                    Entrada: Number(item.total || 0),
+                    Salida: Number(item.total || 0)
+                })),
+                ...(hasClosingValue(report.conciliacion?.capitalizacion) ? [{
+                    Concepto: 'CAPITALIZACIONES / TRASLADOS A INVERSIÓN',
+                    Entrada: null,
+                    Salida: Number(report.conciliacion?.capitalizacion || 0),
+                    __style: 'subtotal'
+                }] : []),
+                ...(hasClosingValue(netThirdParties) ? [{
+                    Concepto: 'SALDO PENDIENTE DE TERCEROS',
+                    Entrada: Number(report.conciliacion?.tercerosIn || 0),
+                    Salida: Number(report.conciliacion?.tercerosOut || 0),
+                    __style: 'subtotal'
+                }] : [])
+            ] : [])
         ];
 
         const detailRows = (report.transactions || []).map(t => {
@@ -662,8 +773,11 @@ const BookClosings = () => {
             `).join('');
         };
 
-        const hasConciliacion = report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0 || report.conciliacion.capitalizacion > 0;
         const saldoNetoTerceros = report.conciliacion.tercerosIn - report.conciliacion.tercerosOut;
+        const hasConciliacion =
+            (report.conciliacion?.tercerosList || []).length > 0 ||
+            hasClosingValue(report.conciliacion?.capitalizacion) ||
+            hasClosingValue(saldoNetoTerceros);
 
         const htmlContent = `
             <!DOCTYPE html>
@@ -722,6 +836,7 @@ const BookClosings = () => {
                     </div>
                 </div>
         
+                ${(report.monthlySummary || []).length > 0 ? `
                 <div class="section-title">Resumen Mensual</div>
                 <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                     <thead>
@@ -736,58 +851,67 @@ const BookClosings = () => {
                         ${report.monthlySummary.map(m => `
                             <tr>
                                 <td style="border: 1px solid #000; padding: 6px; font-weight: normal; font-size: 11px;">${m.mes}</td>
-                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.ingresos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
-                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.gastos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
-                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">$ ${m.utilidad.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">${hasClosingValue(m.ingresos) ? `$ ${m.ingresos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}` : ''}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">${hasClosingValue(m.gastos) ? `$ ${m.gastos.toLocaleString('es-ES', { minimumFractionDigits: 0 })}` : ''}</td>
+                                <td style="border: 1px solid #000; padding: 6px; font-size: 11px;">${hasClosingValue(m.utilidad) ? `$ ${m.utilidad.toLocaleString('es-ES', { minimumFractionDigits: 0 })}` : ''}</td>
                             </tr>
                         `).join('')}
                         <tr style="background-color: #f8fafc;">
                             <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">TOTAL</td>
-                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
-                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
-                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">$ ${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 0 })}</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">${hasClosingValue(report.totalIncome) ? `$ ${report.totalIncome.toLocaleString('es-ES', { minimumFractionDigits: 0 })}` : ''}</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">${hasClosingValue(report.totalExpense) ? `$ ${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 0 })}` : ''}</td>
+                            <td style="border: 1px solid #000; padding: 6px; font-weight: bold; font-size: 11px;">${hasClosingValue(report.balance) ? `$ ${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 0 })}` : ''}</td>
                         </tr>
                     </tbody>
                 </table>
+                ` : ''}
 
-                <div class="section-title">1. Estado de Resultados (Por Concepto Operativo)</div>
+                ${((report.incomeByCategory || []).length > 0 || (report.expenseByCategory || []).length > 0) ? `
+                <div class="section-title">1. Estado de Resultados (Por Cuenta PUC)</div>
                 <div class="grid-2">
+                    ${(report.incomeByCategory || []).length > 0 ? `
                     <div class="col">
                         <table>
                             <thead><tr><th>Ingresos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
                             <tbody>${generateTableRows(report.incomeByCategory)}</tbody>
                         </table>
-                    </div>
+                    </div>` : ''}
+                    ${(report.expenseByCategory || []).length > 0 ? `
                     <div class="col">
                         <table>
                             <thead><tr><th>Gastos Clasificados</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
                             <tbody>${generateTableRows(report.expenseByCategory)}</tbody>
                         </table>
-                    </div>
+                    </div>` : ''}
                 </div>
+                ` : ''}
 
+                ${((report.incomeByDestination || []).length > 0 || (report.expenseByDestination || []).length > 0) ? `
                 <div class="section-title">2. Flujo de Efectivo Real (Entradas y Salidas)</div>
                 <div class="grid-2">
+                    ${(report.incomeByDestination || []).length > 0 ? `
                     <div class="col">
                         <table>
                             <thead><tr><th>Dinero Recibido En</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
                             <tbody>${generateTableRows(report.incomeByDestination)}</tbody>
                         </table>
-                    </div>
+                    </div>` : ''}
+                    ${(report.expenseByDestination || []).length > 0 ? `
                     <div class="col">
                         <table>
                             <thead><tr><th>Dinero Pagado Desde</th><th style="text-align: right; width: 35%;">Monto</th></tr></thead>
                             <tbody>${generateTableRows(report.expenseByDestination)}</tbody>
                         </table>
-                    </div>
+                    </div>` : ''}
                 </div>
+                ` : ''}
 
                 ${hasConciliacion ? `
                 <div class="section-title">3. Conciliación (Capitalizaciones y Terceros)</div>
                 <div style="font-size: 10px; color: #475569; margin-bottom: 5px;">Estos valores representan inversiones en el patrimonio o administración de pasivos. No afectan la utilidad de la parroquia.</div>
                 <table style="width: 100%; margin-bottom: 15px;">
                     <tbody>
-                        ${report.conciliacion.capitalizacion > 0 ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                        ${hasClosingValue(report.conciliacion?.capitalizacion) ? `<tr><td style="font-weight: bold; background-color: #ecfdf5;">Capitalización de Activos (Anticipos, Obras, Equipos):</td><td style="text-align: right; font-weight: bold; background-color: #ecfdf5; width: 35%;">$${report.conciliacion.capitalizacion.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                         
                         ${report.conciliacion.tercerosList.map(item => `
                             <tr>
@@ -796,7 +920,7 @@ const BookClosings = () => {
                             </tr>
                         `).join('')}
 
-                        ${(report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0) ? `<tr><td style="font-weight: bold; background-color: #fef3c7; color: #92400e;">Saldo Pendiente (Deuda Viva del Periodo):</td><td style="text-align: right; font-weight: bold; background-color: #fef3c7; color: #92400e; width: 35%;">$${saldoNetoTerceros.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
+                        ${hasClosingValue(saldoNetoTerceros) ? `<tr><td style="font-weight: bold; background-color: #fef3c7; color: #92400e;">Saldo Pendiente (Deuda Viva del Periodo):</td><td style="text-align: right; font-weight: bold; background-color: #fef3c7; color: #92400e; width: 35%;">$${saldoNetoTerceros.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</td></tr>` : ''}
                     </tbody>
                 </table>
                 ` : ''}
@@ -850,30 +974,67 @@ const BookClosings = () => {
         const netThirdParties = Number(report.conciliacion?.tercerosIn || 0) - Number(report.conciliacion?.tercerosOut || 0);
 
         const executiveRows = [
-            { Indicador: 'INGRESOS OPERATIVOS', Valor: Number(report.totalIncome || 0), __style: 'subtotal' },
-            { Indicador: 'GASTOS OPERATIVOS', Valor: Number(report.totalExpense || 0), __style: 'subtotal' },
+            ...(hasClosingValue(report.totalIncome) ? [{
+                Indicador: 'INGRESOS OPERATIVOS',
+                Valor: Number(report.totalIncome || 0),
+                __style: 'subtotal'
+            }] : []),
+            ...(hasClosingValue(report.totalExpense) ? [{
+                Indicador: 'GASTOS OPERATIVOS',
+                Valor: Number(report.totalExpense || 0),
+                __style: 'subtotal'
+            }] : []),
             { Indicador: 'UTILIDAD / PÉRDIDA', Valor: Number(report.balance || 0), __style: 'total' },
-            { Indicador: 'PRINCIPAL FUENTE DE INGRESO', Detalle: report.incomeByCategory?.[0]?.name || 'Sin movimiento', Valor: Number(report.incomeByCategory?.[0]?.total || 0) },
-            { Indicador: 'PRINCIPAL RUBRO DE GASTO', Detalle: report.expenseByCategory?.[0]?.name || 'Sin movimiento', Valor: Number(report.expenseByCategory?.[0]?.total || 0) },
-            { Indicador: 'RECURSOS DE TERCEROS RECIBIDOS', Valor: Number(report.conciliacion?.tercerosIn || 0) },
-            { Indicador: 'RECURSOS DE TERCEROS ENTREGADOS', Valor: Number(report.conciliacion?.tercerosOut || 0) },
-            { Indicador: 'SALDO NETO DE TERCEROS', Valor: netThirdParties, __style: Math.abs(netThirdParties) < 0.01 ? 'success' : 'subtotal' },
-            { Indicador: 'CAPITALIZACIONES / TRASLADOS A INVERSIÓN', Valor: Number(report.conciliacion?.capitalizacion || 0) }
+            ...((report.incomeByCategory || []).length > 0 ? [{
+                Indicador: 'PRINCIPAL FUENTE DE INGRESO',
+                Detalle: report.incomeByCategory[0].name,
+                Valor: Number(report.incomeByCategory[0].total || 0)
+            }] : []),
+            ...((report.expenseByCategory || []).length > 0 ? [{
+                Indicador: 'PRINCIPAL RUBRO DE GASTO',
+                Detalle: report.expenseByCategory[0].name,
+                Valor: Number(report.expenseByCategory[0].total || 0)
+            }] : []),
+            ...(hasClosingValue(report.conciliacion?.tercerosIn) ? [{
+                Indicador: 'RECURSOS DE TERCEROS RECIBIDOS',
+                Valor: Number(report.conciliacion?.tercerosIn || 0)
+            }] : []),
+            ...(hasClosingValue(report.conciliacion?.tercerosOut) ? [{
+                Indicador: 'RECURSOS DE TERCEROS ENTREGADOS',
+                Valor: Number(report.conciliacion?.tercerosOut || 0)
+            }] : []),
+            ...(hasClosingValue(netThirdParties) ? [{
+                Indicador: 'SALDO NETO DE TERCEROS',
+                Valor: netThirdParties,
+                __style: 'subtotal'
+            }] : []),
+            ...(hasClosingValue(report.conciliacion?.capitalizacion) ? [{
+                Indicador: 'CAPITALIZACIONES / TRASLADOS A INVERSIÓN',
+                Valor: Number(report.conciliacion?.capitalizacion || 0)
+            }] : [])
         ];
 
-        const incomeRows = (report.incomeByCategory || []).map(item => ({
-            Concepto: item.name,
-            Valor: Number(item.total || 0)
-        }));
-        const expenseRows = (report.expenseByCategory || []).map(item => ({
-            Concepto: item.name,
-            Valor: Number(item.total || 0)
-        }));
+        const incomeRows = (report.incomeByCategory || [])
+            .filter(item => hasClosingValue(item.total))
+            .map(item => ({
+                Concepto: item.name,
+                Valor: Number(item.total || 0)
+            }));
+        const expenseRows = (report.expenseByCategory || [])
+            .filter(item => hasClosingValue(item.total))
+            .map(item => ({
+                Concepto: item.name,
+                Valor: Number(item.total || 0)
+            }));
         const cashRows = [
-            { Concepto: 'ENTRADAS REALES', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.incomeByDestination || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: 0 })),
-            { Concepto: 'SALIDAS REALES', Entrada: null, Salida: null, __style: 'section' },
-            ...(report.expenseByDestination || []).map(item => ({ Concepto: item.name, Entrada: 0, Salida: Number(item.total || 0) }))
+            ...((report.incomeByDestination || []).length > 0 ? [
+                { Concepto: 'ENTRADAS REALES', Entrada: null, Salida: null, __style: 'section' },
+                ...(report.incomeByDestination || []).map(item => ({ Concepto: item.name, Entrada: Number(item.total || 0), Salida: null }))
+            ] : []),
+            ...((report.expenseByDestination || []).length > 0 ? [
+                { Concepto: 'SALIDAS REALES', Entrada: null, Salida: null, __style: 'section' },
+                ...(report.expenseByDestination || []).map(item => ({ Concepto: item.name, Entrada: null, Salida: Number(item.total || 0) }))
+            ] : [])
         ];
 
         exportProfessionalWorkbook({
@@ -897,36 +1058,36 @@ const BookClosings = () => {
                         'El saldo neto de terceros debe revisarse con los respectivos soportes y remisiones.'
                     ]
                 },
-                {
+                ...(incomeRows.length > 0 ? [{
                     name: 'Ingresos',
-                    title: 'INGRESOS POR CONCEPTO',
+                    title: 'INGRESOS POR CUENTA PUC',
                     columns: [
-                        { key: 'Concepto', label: 'CONCEPTO', width: 55, type: 'text' },
+                        { key: 'Concepto', label: 'CUENTA / CONCEPTO', width: 55, type: 'text' },
                         { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
                     ],
                     rows: incomeRows,
                     summaryRows: [{ Concepto: 'TOTAL INGRESOS', Valor: Number(report.totalIncome || 0), __style: 'total' }]
-                },
-                {
+                }] : []),
+                ...(expenseRows.length > 0 ? [{
                     name: 'Gastos',
-                    title: 'GASTOS POR CONCEPTO',
+                    title: 'GASTOS POR CUENTA PUC',
                     columns: [
-                        { key: 'Concepto', label: 'CONCEPTO', width: 55, type: 'text' },
+                        { key: 'Concepto', label: 'CUENTA / CONCEPTO', width: 55, type: 'text' },
                         { key: 'Valor', label: 'VALOR (COP)', width: 20, type: 'currency' }
                     ],
                     rows: expenseRows,
                     summaryRows: [{ Concepto: 'TOTAL GASTOS', Valor: Number(report.totalExpense || 0), __style: 'total' }]
-                },
-                {
+                }] : []),
+                ...(cashRows.length > 0 ? [{
                     name: 'Flujo Real',
                     title: 'MOVIMIENTOS REALES DE EFECTIVO',
                     columns: [
-                        { key: 'Concepto', label: 'CONCEPTO / DESTINO', width: 58, type: 'text' },
+                        { key: 'Concepto', label: 'CUENTA / DESTINO', width: 58, type: 'text' },
                         { key: 'Entrada', label: 'ENTRADA', width: 19, type: 'currency' },
                         { key: 'Salida', label: 'SALIDA', width: 19, type: 'currency' }
                     ],
                     rows: cashRows
-                }
+                }] : [])
             ]
         });
         toast({ title: 'Excel profesional generado', description: 'Informe ejecutivo para la Curia exportado correctamente.' });
@@ -939,17 +1100,13 @@ const BookClosings = () => {
         const formattedStart = format(start, "d 'de' MMMM 'de' yyyy", { locale: es });
         const formattedEnd = format(end, "d 'de' MMMM 'de' yyyy", { locale: es });
 
-        const principalIngreso = report.incomeByCategory[0]?.name || 'Colectas Generales';
-        const principalGasto = report.expenseByCategory[0]?.name || 'Sostenimiento';
-
-        const hasConciliacion = report.conciliacion?.tercerosIn > 0 || report.conciliacion?.tercerosOut > 0 || report.conciliacion?.capitalizacion > 0;
         const saldoNetoTerceros = (report.conciliacion?.tercerosIn || 0) - (report.conciliacion?.tercerosOut || 0);
-
-        // Filtrar flujos para no duplicar los puentes que ya van en conciliación
-        const filteredIncomeFlow = (report.incomeByDestination || []).filter(item => !item.name.includes('PUENTE'));
-        const filteredExpenseFlow = (report.expenseByDestination || []).filter(item => !item.name.includes('PUENTE'));
+        const hasConciliacion =
+            (report.conciliacion?.tercerosList || []).length > 0 ||
+            hasClosingValue(report.conciliacion?.capitalizacion) ||
+            hasClosingValue(saldoNetoTerceros);
         
-                // BALANCE GENERAL: esta sección replica la metodología contable de Reports.jsx
+        // BALANCE GENERAL: esta sección replica la metodología contable de Reports.jsx
         // para que el Informe Ejecutivo utilice exactamente la misma fuente de saldos.
         const safeParseFloat = (value) => {
             const parsed = parseFloat(value);
@@ -1135,6 +1292,71 @@ const BookClosings = () => {
         const fmtMoney = (value) => Number(value || 0).toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
         const cuadre = Math.abs(balanceGeneral.totals.assets - balanceGeneral.totals.liabilitiesAndEquity) < 0.01;
 
+        const mainCashAccount = allAccounts.find(account => String(account.number || '') === '11050501')
+            || allAccounts.find(account => String(account.number || '').startsWith('1105'));
+        const investmentAccount = allAccounts.find(account => String(account.number || '') === '12950501')
+            || allAccounts.find(account => String(account.number || '').startsWith('1295'));
+
+        const financialPositionRows = [
+            ...(hasClosingValue(totalActivoCorriente) ? [
+                `<tr><td>Activo corriente</td><td>$ ${fmtMoney(totalActivoCorriente)}</td></tr>`
+            ] : []),
+            ...(hasClosingValue(totalActivoNoCorriente) ? [
+                `<tr><td>Activo no corriente</td><td>$ ${fmtMoney(totalActivoNoCorriente)}</td></tr>`
+            ] : []),
+            `<tr class="total"><td>Total activo</td><td>$ ${fmtMoney(balanceGeneral.totals.assets)}</td></tr>`,
+            ...(hasClosingValue(balanceGeneral.totals.liabilities) ? [
+                `<tr><td>Total pasivo</td><td>$ ${fmtMoney(balanceGeneral.totals.liabilities)}</td></tr>`
+            ] : []),
+            ...(hasClosingValue(retainedEquity) ? [
+                `<tr><td>Patrimonio institucional</td><td>$ ${fmtMoney(retainedEquity)}</td></tr>`
+            ] : []),
+            ...(hasClosingValue(balanceNetProfit) ? [
+                `<tr><td>Utilidad del ejercicio</td><td>$ ${fmtMoney(balanceNetProfit)}</td></tr>`
+            ] : []),
+            `<tr class="total"><td>Total pasivo + patrimonio</td><td>$ ${fmtMoney(balanceGeneral.totals.liabilitiesAndEquity)}</td></tr>`
+        ].join('');
+
+        const liquidityRows = [
+            ...(hasClosingValue(cajaPrincipalBalance) ? [
+                `<tr><td>${closingAccountDisplay(mainCashAccount?.number || '11050501', mainCashAccount?.name || 'CAJA PRINCIPAL')}</td><td>$ ${fmtMoney(cajaPrincipalBalance)}</td></tr>`
+            ] : []),
+            ...(cashAccounts || []).map(account => {
+                const value = liquidity.customCash?.[String(account.id)] || 0;
+                if (!hasClosingValue(value)) return '';
+                return `<tr><td>${closingAccountDisplay(account.accountingCode, account.accountingConcept || account.name, 'CAJA')}</td><td>$ ${fmtMoney(value)}</td></tr>`;
+            }).filter(Boolean),
+            ...(bankAccounts || []).map(account => {
+                const value = liquidity.banks?.[String(account.id)] || 0;
+                if (!hasClosingValue(value)) return '';
+                return `<tr><td>${closingAccountDisplay(account.accountingCode, account.accountingConcept || account.bankName, 'CUENTA BANCARIA')}</td><td>$ ${fmtMoney(value)}</td></tr>`;
+            }).filter(Boolean),
+            ...(hasClosingValue(totalInvestmentBalances) ? [
+                `<tr><td>${closingAccountDisplay(investmentAccount?.number || '12950501', investmentAccount?.name || 'APORTES ORDINARIOS')}</td><td>$ ${fmtMoney(totalInvestmentBalances)}</td></tr>`
+            ] : []),
+            `<tr class="total"><td>Efectivo, bancos y aportes</td><td>$ ${fmtMoney(cajaGeneralValue)}</td></tr>`
+        ].join('');
+
+        const hasOtherCurrentDetail =
+            hasClosingValue(accountsReceivableValue) ||
+            hasClosingValue(anticiposValue) ||
+            hasClosingValue(otherAssetsValue);
+
+        const otherCurrentRows = [
+            ...(hasClosingValue(accountsReceivableValue) ? [
+                `<tr><td>Cuentas por cobrar</td><td>$ ${fmtMoney(accountsReceivableValue)}</td></tr>`
+            ] : []),
+            ...(hasClosingValue(anticiposValue) ? [
+                `<tr><td>Anticipos a proveedores</td><td>$ ${fmtMoney(anticiposValue)}</td></tr>`
+            ] : []),
+            ...(hasClosingValue(otherAssetsValue) ? [
+                `<tr><td>Otros activos corrientes</td><td>$ ${fmtMoney(otherAssetsValue)}</td></tr>`
+            ] : []),
+            ...(hasOtherCurrentDetail ? [
+                `<tr class="total"><td>Activo corriente</td><td>$ ${fmtMoney(totalActivoCorriente)}</td></tr>`
+            ] : [])
+        ].join('');
+
         const htmlContent = `
             <!DOCTYPE html>
             <html>
@@ -1222,13 +1444,7 @@ const BookClosings = () => {
                     <div class="section-title">2. Situación financiera al cierre</div>
                     <table>
                         <tbody>
-                            <tr><td>Activo corriente</td><td>$ ${fmtMoney(totalActivoCorriente)}</td></tr>
-                            <tr><td>Activo no corriente</td><td>$ ${fmtMoney(totalActivoNoCorriente)}</td></tr>
-                            <tr class="total"><td>Total activo</td><td>$ ${fmtMoney(balanceGeneral.totals.assets)}</td></tr>
-                            <tr><td>Total pasivo</td><td>$ ${fmtMoney(balanceGeneral.totals.liabilities)}</td></tr>
-                            <tr><td>Patrimonio institucional</td><td>$ ${fmtMoney(retainedEquity)}</td></tr>
-                            <tr><td>Utilidad del ejercicio</td><td>$ ${fmtMoney(balanceNetProfit)}</td></tr>
-                            <tr class="total"><td>Total pasivo + patrimonio</td><td>$ ${fmtMoney(balanceGeneral.totals.liabilitiesAndEquity)}</td></tr>
+                            ${financialPositionRows}
                         </tbody>
                     </table>
                     <div class="balance-ok">${cuadre ? 'BALANCE GENERAL CUADRADO' : 'VERIFICAR CUADRE CONTABLE'}</div>
@@ -1239,28 +1455,24 @@ const BookClosings = () => {
                     <div class="two-col">
                         <table>
                             <tbody>
-                                <tr><td>Caja principal</td><td>$ ${fmtMoney(cajaPrincipalBalance)}</td></tr>
-                                <tr><td>Cuentas bancarias</td><td>$ ${fmtMoney(totalBankBalances)}</td></tr>
-                                <tr><td>Aportes ordinarios</td><td>$ ${fmtMoney(totalInvestmentBalances)}</td></tr>
-                                <tr class="total"><td>Efectivo y equivalentes</td><td>$ ${fmtMoney(cajaGeneralValue)}</td></tr>
+                                ${liquidityRows}
                             </tbody>
                         </table>
+                        ${hasOtherCurrentDetail ? `
                         <table>
                             <tbody>
-                                <tr><td>Cuentas por cobrar</td><td>$ ${fmtMoney(accountsReceivableValue)}</td></tr>
-                                <tr><td>Anticipos a proveedores</td><td>$ ${fmtMoney(anticiposValue)}</td></tr>
-                                <tr><td>Otros activos corrientes</td><td>$ ${fmtMoney(otherAssetsValue)}</td></tr>
-                                <tr class="total"><td>Activo corriente</td><td>$ ${fmtMoney(totalActivoCorriente)}</td></tr>
+                                ${otherCurrentRows}
                             </tbody>
                         </table>
+                        ` : ''}
                     </div>
                 </div>
 
-                ${((report.conciliacion?.tercerosList || []).length > 0) ? `
+                ${hasConciliacion ? `
                 <div class="third-party">
                     <div class="third-party-head">
-                        <p class="third-party-title">Fondos de terceros identificados</p>
-                        <p class="third-party-caption">Movimientos en calidad de puente institucional</p>
+                        <p class="third-party-title">Conciliación patrimonial y fondos de terceros</p>
+                        <p class="third-party-caption">Sólo se muestran conceptos con valor real al corte</p>
                     </div>
                     <table>
                         <thead>
@@ -1270,16 +1482,24 @@ const BookClosings = () => {
                             </tr>
                         </thead>
                         <tbody>
+                            ${hasClosingValue(report.conciliacion?.capitalizacion) ? `
+                                <tr>
+                                    <td>Capitalizaciones / traslados a inversión</td>
+                                    <td>$ ${fmtMoney(report.conciliacion.capitalizacion)}</td>
+                                </tr>
+                            ` : ''}
                             ${(report.conciliacion.tercerosList || []).map(item => `
                                 <tr>
                                     <td>${item.name}</td>
                                     <td>$ ${fmtMoney(item.total)}</td>
                                 </tr>
                             `).join('')}
+                            ${hasClosingValue(saldoNetoTerceros) ? `
                             <tr class="pending">
                                 <td>Saldo pendiente</td>
                                 <td>$ ${fmtMoney(saldoNetoTerceros)}</td>
                             </tr>
+                            ` : ''}
                         </tbody>
                     </table>
                 </div>
@@ -1633,10 +1853,14 @@ const months = [
                             </div>
                         </div>
 
-                        {report && (report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0 || report.conciliacion.capitalizacion > 0) && (
+                        {report && (
+                            (report.conciliacion?.tercerosList || []).length > 0 ||
+                            hasClosingValue(report.conciliacion?.capitalizacion) ||
+                            hasClosingValue((report.conciliacion?.tercerosIn || 0) - (report.conciliacion?.tercerosOut || 0))
+                        ) && (
                             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                                 
-                                {report.conciliacion.capitalizacion > 0 && (
+                                {hasClosingValue(report.conciliacion?.capitalizacion) && (
                                     <div className="bg-emerald-50 p-5 rounded-xl border border-emerald-200 shadow-sm">
                                         <h4 className="font-bold text-emerald-900 flex items-center gap-2 mb-2">
                                             <ArrowUpRight className="w-4 h-4" /> Inversión y Capitalización
@@ -1651,7 +1875,7 @@ const months = [
                                     </div>
                                 )}
 
-                                {(report.conciliacion.tercerosIn > 0 || report.conciliacion.tercerosOut > 0) && (
+                                {((report.conciliacion?.tercerosList || []).length > 0 || hasClosingValue((report.conciliacion?.tercerosIn || 0) - (report.conciliacion?.tercerosOut || 0))) && (
                                     <div className="bg-amber-50 p-5 rounded-xl border border-amber-200 shadow-sm flex flex-col justify-between">
                                         <div>
                                             <h4 className="font-bold text-amber-900 flex items-center gap-2 mb-2">
@@ -1671,12 +1895,14 @@ const months = [
                                             </div>
                                         </div>
                                         
-                                        <div className="mt-4 pt-3 border-t border-amber-200 flex justify-between">
-                                            <span className="text-sm font-bold text-amber-900">Saldo Pendiente (Deuda Viva):</span>
-                                            <span className="font-mono font-bold text-amber-900 text-lg">
-                                                ${(report.conciliacion.tercerosIn - report.conciliacion.tercerosOut).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
-                                            </span>
-                                        </div>
+                                        {hasClosingValue((report.conciliacion?.tercerosIn || 0) - (report.conciliacion?.tercerosOut || 0)) && (
+                                            <div className="mt-4 pt-3 border-t border-amber-200 flex justify-between">
+                                                <span className="text-sm font-bold text-amber-900">Saldo Pendiente (Deuda Viva):</span>
+                                                <span className="font-mono font-bold text-amber-900 text-lg">
+                                                    ${((report.conciliacion?.tercerosIn || 0) - (report.conciliacion?.tercerosOut || 0)).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -1684,7 +1910,7 @@ const months = [
                         )}
 
                         <div className="pt-6">
-                            <h3 className="text-xl font-bold text-slate-800 mb-4 border-b-2 border-slate-200 pb-2">Estado de Resultados (Por Categoría Operativa)</h3>
+                            <h3 className="text-xl font-bold text-slate-800 mb-4 border-b-2 border-slate-200 pb-2">Estado de Resultados (Por Cuenta PUC)</h3>
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
                                     <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
