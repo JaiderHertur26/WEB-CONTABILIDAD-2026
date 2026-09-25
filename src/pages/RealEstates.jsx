@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/components/ui/use-toast';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { usePermission } from '@/hooks/usePermission';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
@@ -31,6 +32,7 @@ const RealEstates = () => {
     const [fiscalYears] = useCompanyData('fiscal_years');
     const [monthlyClosings] = useCompanyData('monthly_closings');
     const { toast } = useToast();
+    const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
 
     const currentDate = toAccountingDateInput(new Date());
     const currentYear = getAccountingYear(currentDate);
@@ -243,7 +245,7 @@ const RealEstates = () => {
         setDialogOpen(false);
         setEditingEstate(null);
     };
-    const handleDelete = asset => {
+    const handleDelete = async asset => {
         if (!canDelete) return;
         const metadata = metadataFor(asset);
         if (asset.contractManaged || metadata?.contractManaged) {
@@ -258,9 +260,36 @@ const RealEstates = () => {
             toast({ variant: 'destructive', title: 'Historia contable protegida', description: 'No puede eliminarse un inmueble con transacción de origen o depreciación. Utilice la baja patrimonial.' });
             return;
         }
-        saveFixedAssets((fixedAssets || []).filter(item => String(item.id) !== String(asset.id)));
-        if (metadata) saveRealEstates((realEstates || []).filter(item => String(item.id) !== String(metadata.id)));
-        toast({ title: 'Propiedad eliminada' });
+
+        const destructiveAuthorization = await requestDestructiveAuthorization({
+            title: 'Eliminar propiedad',
+            subject: asset.name || asset.description || metadata?.name || 'Inmueble seleccionado',
+            description: 'Se eliminará el registro patrimonial y su ficha inmobiliaria. Solo es posible porque el inmueble no tiene historia contable.',
+        });
+        if (!destructiveAuthorization?.sessionToken) return;
+
+        try {
+            const options = { destructiveAuthorization };
+            const masterSaved = await saveFixedAssets(
+                (fixedAssets || []).filter(item => String(item.id) !== String(asset.id)),
+                options
+            );
+            if (masterSaved === false) throw new Error('No se pudo actualizar el Registro Patrimonial Maestro.');
+
+            if (metadata) {
+                const metadataSaved = await saveRealEstates(
+                    (realEstates || []).filter(item => String(item.id) !== String(metadata.id)),
+                    options
+                );
+                if (metadataSaved === false) throw new Error('No se pudo actualizar la ficha inmobiliaria.');
+            }
+
+            toast({ title: 'Propiedad eliminada', description: 'La eliminación fue autorizada con Acceso Total.' });
+        } catch (error) {
+            toast({ variant:'destructive', title:'Eliminación bloqueada', description:error?.message || 'No se pudo eliminar la propiedad.' });
+        } finally {
+            await releaseDestructiveAuthorization(destructiveAuthorization);
+        }
     };
 
     const handleRunDepreciation = async () => {
