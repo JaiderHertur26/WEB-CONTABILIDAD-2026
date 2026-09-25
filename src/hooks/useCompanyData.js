@@ -5,6 +5,7 @@ import { syncRead, syncWrite } from '@/lib/secureApi';
 import { useAuth } from '@/contexts/LocalAuthContext';
 import { getAccountingPeriodLockReason } from '@/lib/accountingPeriod';
 import { getCompanyScope } from '@/lib/companyHierarchy';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 
 const SYNC_META_VERSION = 3;
 const syncMetaKey = (storageKey) => `${storageKey}.__sync_meta_v3`;
@@ -226,6 +227,7 @@ const tagConsolidatedData = (value, company, activeCompany) =>
 export function useCompanyData(key) {
   const { activeCompany, companies, isConsolidated } = useCompany();
   const { sessionToken } = useAuth();
+  const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
   const [data, setData] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const mounted = useRef(true);
@@ -256,10 +258,11 @@ export function useCompanyData(key) {
     );
   }, []);
 
-  const uploadCloud = useCallback(async (companyId, value) => {
-    if (!sessionToken) throw new Error('Sesión segura no disponible');
+  const uploadCloud = useCallback(async (companyId, value, authorizationToken = null) => {
+    const effectiveToken = authorizationToken || sessionToken;
+    if (!effectiveToken) throw new Error('Sesión segura no disponible');
     const now = new Date().toISOString();
-    const uploadedAt = await syncWrite(sessionToken, companyId, key, value);
+    const uploadedAt = await syncWrite(effectiveToken, companyId, key, value);
     return uploadedAt || now;
   }, [key, sessionToken]);
 
@@ -544,7 +547,7 @@ export function useCompanyData(key) {
     };
   }, [loadData, activeCompany, companies, key, isConsolidated]);
 
-  const persistData = useCallback(async (newData, previousData) => {
+  const persistData = useCallback(async (newData, previousData, options = {}) => {
     if (!activeCompany || isConsolidated) {
       if (isConsolidated) {
         console.warn('[Sync] Escritura bloqueada en vista consolidada.');
@@ -560,7 +563,63 @@ export function useCompanyData(key) {
       Array.isArray(newData) ? newData : []
     );
 
+    const authorizationToken = options?.destructiveAuthorization?.sessionToken || null;
+    const isDestructiveWrite = Boolean(authorizationToken) && diff.mergeable && diff.deletedIds.length > 0;
+
     let meta = await readSyncMeta(storageKey) || defaultSyncMeta();
+
+    if (isDestructiveWrite) {
+      if (!sessionToken && !authorizationToken) throw new Error('Sesión segura no disponible');
+
+      let cloudRow = null;
+      const rows = await syncRead(authorizationToken, companyId, key);
+      cloudRow = Array.isArray(rows) ? (rows[0] || null) : null;
+
+      let finalData = newData;
+      if (
+        cloudRow &&
+        meta.lastCloudUpdatedAt &&
+        timestamp(cloudRow.updated_at) > timestamp(meta.lastCloudUpdatedAt) &&
+        diff.mergeable &&
+        hasStableIds(cloudRow.data) &&
+        hasStableIds(newData)
+      ) {
+        finalData = mergeRemoteWithLocalChanges({
+          remote: cloudRow.data,
+          local: newData,
+          changedIds: diff.changedIds,
+          deletedIds: diff.deletedIds,
+        });
+      }
+
+      const uploadedAt = await uploadCloud(companyId, finalData, authorizationToken);
+      meta = {
+        ...meta,
+        dirty: false,
+        needsReview: false,
+        lastCloudUpdatedAt: uploadedAt,
+        localUpdatedAt: new Date().toISOString(),
+        pendingChangedIds: [],
+        pendingDeletedIds: [],
+        status: 'in-sync',
+      };
+
+      await storage.setItem(storageKey, JSON.stringify(finalData));
+      await writeSyncMeta(storageKey, meta);
+
+      if (mounted.current) {
+        setData(finalData);
+        dataRef.current = finalData;
+      }
+
+      window.dispatchEvent(new CustomEvent('storage-updated', {
+        detail: { key: storageKey, source: 'sync-v3' },
+      }));
+      window.dispatchEvent(new CustomEvent('sync-status-changed', {
+        detail: { companyId, key, status: 'in-sync', updatedAt: uploadedAt },
+      }));
+      return finalData;
+    }
     meta = {
       ...meta,
       dirty: true,
@@ -652,10 +711,31 @@ export function useCompanyData(key) {
     sessionToken,
   ]);
 
-  const saveData = useCallback(async (newData) => {
-    if (!activeCompany) return;
+  const saveData = useCallback(async (newData, options = {}) => {
+    if (!activeCompany) return false;
 
     const previousData = dataRef.current;
+    const deletionDiff = diffById(
+      Array.isArray(previousData) ? previousData : [],
+      Array.isArray(newData) ? newData : []
+    );
+    const requiresDestructiveAuthorization = deletionDiff.mergeable && deletionDiff.deletedIds.length > 0;
+
+    let destructiveAuthorization = options?.destructiveAuthorization || null;
+    let ownsDestructiveAuthorization = false;
+
+    if (requiresDestructiveAuthorization && !destructiveAuthorization?.sessionToken) {
+      destructiveAuthorization = await requestDestructiveAuthorization({
+        title: key === 'transactions' ? 'Autorizar eliminación de transacción' : 'Autorizar eliminación',
+        subject: key === 'transactions'
+          ? `Se eliminará información contable (${deletionDiff.deletedIds.length} registro${deletionDiff.deletedIds.length === 1 ? '' : 's'}).`
+          : `Se eliminará ${deletionDiff.deletedIds.length} registro${deletionDiff.deletedIds.length === 1 ? '' : 's'} de ${key}.`,
+        description: 'Esta operación requiere la contraseña de Acceso Total. Si la validación falla o no hay conexión segura, no se eliminará nada.',
+      });
+      if (!destructiveAuthorization?.sessionToken) return false;
+      ownsDestructiveAuthorization = true;
+    }
+
     if (key === 'transactions') {
       if (hasLockedTransactionMutation(previousData, newData)) {
         const error = new Error('Un movimiento oficializado es inalterable y no puede modificarse ni eliminarse.');
@@ -699,17 +779,34 @@ export function useCompanyData(key) {
       }
     }
 
-    if (!isConsolidated && mounted.current) {
+    if (!requiresDestructiveAuthorization && !isConsolidated && mounted.current) {
       setData(newData);
       dataRef.current = newData;
     }
 
     saveQueueRef.current = saveQueueRef.current
       .catch(() => {})
-      .then(() => persistData(newData, previousData));
+      .then(() => persistData(newData, previousData, {
+        destructiveAuthorization,
+      }));
 
-    return saveQueueRef.current;
-  }, [activeCompany, isConsolidated, key, persistData, sessionToken]);
+    try {
+      await saveQueueRef.current;
+      return true;
+    } finally {
+      if (ownsDestructiveAuthorization) {
+        await releaseDestructiveAuthorization(destructiveAuthorization);
+      }
+    }
+  }, [
+    activeCompany,
+    isConsolidated,
+    key,
+    persistData,
+    sessionToken,
+    requestDestructiveAuthorization,
+    releaseDestructiveAuthorization,
+  ]);
 
   return [data, saveData, isLoaded];
 }
