@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/LocalAuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
-import { secureAdminLogin, secureCompanyLogin, sessionLogout } from '@/lib/secureApi';
+import { secureDestructiveAdminLogin, secureDestructiveCompanyLogin, sessionLogout } from '@/lib/secureApi';
 
 const DestructiveActionContext = createContext(null);
 
@@ -98,7 +98,7 @@ export const DestructiveActionProvider = ({ children }) => {
           return;
         }
 
-        const result = await secureAdminLogin(adminUsername.trim(), password);
+        const result = await secureDestructiveAdminLogin(adminUsername.trim(), password);
         temporarySession = result?.sessionToken || null;
 
         if (!result?.success || result?.accessLevel !== 'admin' || !temporarySession) {
@@ -123,7 +123,7 @@ export const DestructiveActionProvider = ({ children }) => {
         return;
       }
 
-      const result = await secureCompanyLogin(activeCompany.username, password);
+      const result = await secureDestructiveCompanyLogin(activeCompany.username, password);
       temporarySession = result?.sessionToken || null;
       const sameCompany = String(result?.company?.id || '') === String(activeCompany.id);
 
