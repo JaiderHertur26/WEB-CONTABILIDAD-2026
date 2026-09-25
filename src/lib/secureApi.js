@@ -14,6 +14,26 @@ export const secureCompanyLogin = (username, password) =>
 export const secureAdminLogin = (username, password) =>
   rpc('secure_admin_login', { p_username: username, p_password: password });
 
+export const secureDestructiveCompanyLogin = async (username, password) => {
+  try {
+    return await rpc('secure_destructive_login', { p_username: username, p_password: password });
+  } catch (error) {
+    const message = String(error?.message || '').toLowerCase();
+    if (!message.includes('secure_destructive_login') && !message.includes('does not exist') && !message.includes('schema cache')) throw error;
+    return secureCompanyLogin(username, password);
+  }
+};
+
+export const secureDestructiveAdminLogin = async (username, password) => {
+  try {
+    return await rpc('secure_admin_destructive_login', { p_username: username, p_password: password });
+  } catch (error) {
+    const message = String(error?.message || '').toLowerCase();
+    if (!message.includes('secure_admin_destructive_login') && !message.includes('does not exist') && !message.includes('schema cache')) throw error;
+    return secureAdminLogin(username, password);
+  }
+};
+
 export const sessionCompanies = sessionToken =>
   rpc('session_companies', { p_session_token: sessionToken });
 
