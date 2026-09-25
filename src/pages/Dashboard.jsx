@@ -17,7 +17,7 @@ import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { parseAccountingDate, getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
-import { summarizeFixedAssetsAtCutoff } from '@/lib/fixedAssetLifecycle';
+import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
 
 const Dashboard = () => {
   const { activeCompany, companies, isConsolidated, toggleConsolidation } = useCompany();
@@ -249,17 +249,14 @@ const Dashboard = () => {
     // --- ASSETS (ACTIVOS UNIFICADOS) ---
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
     
-    const fixedAssetSummary = summarizeFixedAssetsAtCutoff(
+    const patrimonialSummary = summarizePatrimonialAtCutoff(
         fFixedAssets,
+        fRealEstates,
         selectedCutoffDate,
         validTransactions
     );
-    const manualFixedAssetsValue = fixedAssetSummary.grossCost;
-    
-    const realEstatesValue = fRealEstates.filter(estate => {
-        const estateDate = toAccountingDateInput(estate.date);
-        return estateDate ? estateDate <= selectedCutoffDate : getSafeYear(estate.date) <= parseInt(selectedYear);
-    }).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
+    const manualFixedAssetsValue = patrimonialSummary.tangible.grossCost;
+    const realEstatesValue = patrimonialSummary.realEstate.grossCost;
     
     const accountsReceivableValue = fAccountsReceivable.reduce((sum, r) => {
         const rDate = getOpenItemDate(r);
@@ -268,7 +265,11 @@ const Dashboard = () => {
         return sum + getOutstandingBalance(r, selectedCutoffDate);
     }, 0);
     
-    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, intangiblesValue = 0, depreciacionAcumuladaValue = 0;
+    let anticiposValue = 0, construccionesValue = 0, otherAssetsValue = 0, legacyIntangiblesValue = 0;
+    const isMasterIntangibleTransaction = t => Boolean(t?.isPatrimonialAsset || t?.isFixedAsset) && (
+        t?.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ||
+        String(t?.fixedAssetAccountCode || '').startsWith('16')
+    );
 
     bsTransactions.forEach(t => {
         const amount = safeParseFloat(t.amount);
@@ -282,17 +283,15 @@ const Dashboard = () => {
 
             if (drCode.startsWith('1330')) anticiposValue += amount;
             else if (drCode.startsWith('1508')) construccionesValue += amount;
-            else if (drCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
-            else if (drCode.startsWith('16')) intangiblesValue += amount;
-            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+            else if (drCode.startsWith('16') && !isMasterIntangibleTransaction(t)) legacyIntangiblesValue += amount;
+            else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1295') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                 otherAssetsValue += amount;
             }
 
             if (crCode.startsWith('1330')) anticiposValue -= amount;
             else if (crCode.startsWith('1508')) construccionesValue -= amount;
-            else if (crCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-            else if (crCode.startsWith('16')) intangiblesValue -= amount;
-            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
+            else if (crCode.startsWith('16') && !isMasterIntangibleTransaction(t)) legacyIntangiblesValue -= amount;
+            else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1295') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                 otherAssetsValue -= amount;
             }
             return;
@@ -306,32 +305,21 @@ const Dashboard = () => {
 
         if (num.startsWith('1330')) anticiposValue += assetImpact;
         else if (num.startsWith('1508')) construccionesValue += assetImpact;
-        else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
-        else if (num.startsWith('16')) intangiblesValue += assetImpact;
-        else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
+        else if (num.startsWith('16') && !isMasterIntangibleTransaction(t)) legacyIntangiblesValue += assetImpact;
+        else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1295') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
             otherAssetsValue += assetImpact;
         }
     });
 
-    const totalDepreciacionInventario = fixedAssetSummary.accumulatedDepreciation;
-
-    const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
-        if (estate.status === 'Dado de Baja') return false;
-        return getSafeYear(estate.date) <= parseInt(selectedYear);
-    }).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
-
-    const depreciacionesFuturasPropiedades = validTransactions.filter(t => {
-        return t.category === 'Depreciación Acumulada Activos Fijos' && 
-               String(t.description).includes('Edificaciones') && 
-               toAccountingDateInput(t.date) > selectedCutoffDate;
-    }).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
-
-    const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
-
-    depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
+    const intangiblesValue = legacyIntangiblesValue + patrimonialSummary.intangible.grossCost;
+    const totalDepreciacionInventario = patrimonialSummary.tangible.accumulatedDepreciation;
+    const totalDepreciacionPropiedades = patrimonialSummary.realEstate.accumulatedDepreciation;
+    const totalAmortizacionIntangibles = patrimonialSummary.intangible.accumulatedAmortization;
+    const depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
+    const amortizacionAcumuladaValue = -Math.abs(totalAmortizacionIntangibles);
 
     const totalActivoCorriente = cajaGeneralTotal + accountsReceivableValue + anticiposValue + otherAssetsValue;
-    const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue;
+    const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue + amortizacionAcumuladaValue;
     const totalAssets = totalActivoCorriente + totalActivoNoCorriente;
 
    

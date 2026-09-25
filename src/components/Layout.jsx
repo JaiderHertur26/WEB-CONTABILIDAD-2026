@@ -6,7 +6,7 @@ import {
   Settings, LogOut, Briefcase, FileBarChart2, ArrowDownCircle,
   ArrowUpCircle, Users, ShieldCheck, ShieldAlert, Network,
   Wallet, Package, FileText, Heart, FileSignature, Church,
-  Calendar, ChevronRight
+  Calendar, ChevronRight, Boxes, KeyRound
 } from 'lucide-react';
 import { useCompany } from '@/contexts/CompanyContext';
 import { cn } from '@/lib/utils';
@@ -42,8 +42,10 @@ const navGroups = [
   {
     label: 'Patrimonio',
     links: [
-      { icon: Briefcase, text: 'Activos Fijos', path: '/fixed-assets' },
-      { icon: Building, text: 'Propiedades y Oficinas', path: '/real-estates' },
+      { icon: Boxes, text: 'Registro Patrimonial', path: '/patrimonial-registry' },
+      { icon: Briefcase, text: 'Activos Fijos Tangibles', path: '/fixed-assets' },
+      { icon: Building, text: 'Propiedades e Inmuebles', path: '/real-estates' },
+      { icon: KeyRound, text: 'Activos Intangibles', path: '/intangible-assets' },
     ],
   },
   {

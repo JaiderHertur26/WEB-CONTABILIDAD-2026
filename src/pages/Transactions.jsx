@@ -29,7 +29,12 @@ import { createPrintTarget } from '@/lib/nativePrint';
 import { cleanBankNumber, parseBankDate, buildReconciliationFingerprint } from '@/lib/bankReconciliation';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import TransactionsProfessionalHeader from '@/components/transactions/TransactionsProfessionalHeader';
-import { defaultUsefulLifeYears, suggestDepreciationAccounts } from '@/lib/fixedAssetLifecycle';
+import { defaultUsefulLifeYears } from '@/lib/fixedAssetLifecycle';
+import {
+    PATRIMONIAL_ASSET_TYPES,
+    inferPatrimonialAssetType,
+    suggestPatrimonialAccounts,
+} from '@/lib/patrimonialAssets';
 
 const cleanPrintedCompanyName = (name) => String(name || '').replace(/MAR[ÍI]A[\s\u00A0]*AUXILIO/gi, 'MARÍA AUXILIO').replace(/\s+/g, ' ').trim();
 
@@ -1015,13 +1020,14 @@ const Transactions = () => {
             toast({
                 variant: 'destructive',
                 title: 'Activo fijo vinculado',
-                description: 'Esta transacción dio origen a un activo fijo. No puede quitarse la vinculación desde la edición; usa el flujo de baja o un ajuste contable.'
+                description: 'Esta transacción dio origen a un activo patrimonial. No puede quitarse la vinculación desde la edición; usa el flujo de baja o un ajuste contable.'
             });
             return;
         }
 
         const linkedAssetHasHistory = linkedFixedAsset && (
             Number(linkedFixedAsset.accumulatedDepreciation || 0) > 0 ||
+            Number(linkedFixedAsset.accumulatedAmortization || 0) > 0 ||
             linkedFixedAsset.status === 'Dado de Baja' ||
             Boolean(linkedFixedAsset.retiredAt)
         );
@@ -1124,7 +1130,7 @@ const Transactions = () => {
         }
 
         const prepareFixedAssetTransaction = (data, txId, assetId) => {
-            const prepared = { ...data, fixedAssetId: assetId || data.fixedAssetId || null };
+            const prepared = { ...data, fixedAssetId: assetId || data.fixedAssetId || null, isPatrimonialAsset: Boolean(data.isFixedAsset) };
             if (!data.isFixedAsset) return prepared;
 
             if (data.type === 'income') {
@@ -1216,16 +1222,22 @@ const Transactions = () => {
 
         if (transactionData.isFixedAsset) {
             const assetAccount = (accounts || []).find(account => String(account.number || '') === String(transactionData.fixedAssetAccountCode || ''));
-            const suggested = suggestDepreciationAccounts(assetAccount || { number: transactionData.fixedAssetAccountCode }, accounts || []);
+            const patrimonialAssetType = transactionData.patrimonialAssetType || inferPatrimonialAssetType({ accountCode: transactionData.fixedAssetAccountCode });
+            const suggested = suggestPatrimonialAccounts(patrimonialAssetType, assetAccount || { number: transactionData.fixedAssetAccountCode }, accounts || []);
             const existingAssetIndex = updatedAssets.findIndex(asset =>
                 String(asset.id || '') === String(transactionData.fixedAssetId || '') ||
                 String(asset.transactionId || '') === String(transactionId)
             );
             const existingAsset = existingAssetIndex >= 0 ? updatedAssets[existingAssetIndex] : null;
             const assetId = existingAsset?.id || transactionData.fixedAssetId || `asset-${transactionId}`;
+            const isIntangible = patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE;
+            const existingAccumulated = isIntangible
+                ? Number(existingAsset?.accumulatedAmortization || 0)
+                : Number(existingAsset?.accumulatedDepreciation || 0);
             const assetPayload = {
                 ...(existingAsset || {}),
                 id: assetId,
+                assetType: patrimonialAssetType,
                 acquisitionDate: toAccountingDateInput(transactionData.date),
                 date: toAccountingDateInput(transactionData.date),
                 name: transactionData.description,
@@ -1233,22 +1245,35 @@ const Transactions = () => {
                 quantity: existingAsset?.quantity || 1,
                 model: transactionData.fixedAssetModel || existingAsset?.model || '',
                 location: transactionData.fixedAssetLocation || existingAsset?.location || '',
+                address: patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.REAL_ESTATE
+                    ? (transactionData.fixedAssetLocation || existingAsset?.address || existingAsset?.location || '')
+                    : (existingAsset?.address || ''),
+                provider: transactionData.fixedAssetProvider || existingAsset?.provider || '',
+                expiryDate: transactionData.fixedAssetExpiryDate || existingAsset?.expiryDate || '',
+                licenseReference: transactionData.fixedAssetLicenseReference || existingAsset?.licenseReference || '',
+                usefulLifeType: transactionData.fixedAssetUsefulLifeType || existingAsset?.usefulLifeType || 'finite',
                 category: transactionData.fixedAssetAccountName || assetAccount?.name || existingAsset?.category || '',
                 accountCode: transactionData.fixedAssetAccountCode || assetAccount?.number || existingAsset?.accountCode || '',
                 accountName: transactionData.fixedAssetAccountName || assetAccount?.name || existingAsset?.accountName || '',
-                usefulLifeYears: Number(transactionData.fixedAssetUsefulLifeYears ?? existingAsset?.usefulLifeYears ?? defaultUsefulLifeYears(transactionData.fixedAssetAccountCode)),
+                usefulLifeYears: Number(transactionData.fixedAssetUsefulLifeYears ?? existingAsset?.usefulLifeYears ?? (isIntangible ? 3 : defaultUsefulLifeYears(transactionData.fixedAssetAccountCode))),
                 residualValue: Number(transactionData.fixedAssetResidualValue ?? existingAsset?.residualValue ?? 0),
-                depreciationMethod: existingAsset?.depreciationMethod || 'linea_recta',
-                accumulatedDepreciationAccountCode: transactionData.fixedAssetAccumulatedDepreciationAccountCode || suggested.accumulated?.number || existingAsset?.accumulatedDepreciationAccountCode || '',
-                accumulatedDepreciationAccountName: transactionData.fixedAssetAccumulatedDepreciationAccountName || suggested.accumulated?.name || existingAsset?.accumulatedDepreciationAccountName || '',
-                depreciationExpenseAccountCode: transactionData.fixedAssetDepreciationExpenseAccountCode || suggested.expense?.number || existingAsset?.depreciationExpenseAccountCode || '',
-                depreciationExpenseAccountName: transactionData.fixedAssetDepreciationExpenseAccountName || suggested.expense?.name || existingAsset?.depreciationExpenseAccountName || '',
+                depreciationMethod: isIntangible ? existingAsset?.depreciationMethod : (existingAsset?.depreciationMethod || 'linea_recta'),
+                amortizationMethod: isIntangible ? (existingAsset?.amortizationMethod || 'linea_recta') : existingAsset?.amortizationMethod,
+                accumulatedDepreciationAccountCode: !isIntangible ? (transactionData.fixedAssetAccumulatedDepreciationAccountCode || suggested.accumulated?.number || existingAsset?.accumulatedDepreciationAccountCode || '') : (existingAsset?.accumulatedDepreciationAccountCode || ''),
+                accumulatedDepreciationAccountName: !isIntangible ? (transactionData.fixedAssetAccumulatedDepreciationAccountName || suggested.accumulated?.name || existingAsset?.accumulatedDepreciationAccountName || '') : (existingAsset?.accumulatedDepreciationAccountName || ''),
+                depreciationExpenseAccountCode: !isIntangible ? (transactionData.fixedAssetDepreciationExpenseAccountCode || suggested.expense?.number || existingAsset?.depreciationExpenseAccountCode || '') : (existingAsset?.depreciationExpenseAccountCode || ''),
+                depreciationExpenseAccountName: !isIntangible ? (transactionData.fixedAssetDepreciationExpenseAccountName || suggested.expense?.name || existingAsset?.depreciationExpenseAccountName || '') : (existingAsset?.depreciationExpenseAccountName || ''),
+                accumulatedAmortizationAccountCode: isIntangible ? (transactionData.fixedAssetAccumulatedDepreciationAccountCode || suggested.accumulated?.number || existingAsset?.accumulatedAmortizationAccountCode || '') : (existingAsset?.accumulatedAmortizationAccountCode || ''),
+                accumulatedAmortizationAccountName: isIntangible ? (transactionData.fixedAssetAccumulatedDepreciationAccountName || suggested.accumulated?.name || existingAsset?.accumulatedAmortizationAccountName || '') : (existingAsset?.accumulatedAmortizationAccountName || ''),
+                amortizationExpenseAccountCode: isIntangible ? (transactionData.fixedAssetDepreciationExpenseAccountCode || suggested.expense?.number || existingAsset?.amortizationExpenseAccountCode || '') : (existingAsset?.amortizationExpenseAccountCode || ''),
+                amortizationExpenseAccountName: isIntangible ? (transactionData.fixedAssetDepreciationExpenseAccountName || suggested.expense?.name || existingAsset?.amortizationExpenseAccountName || '') : (existingAsset?.amortizationExpenseAccountName || ''),
                 transactionId,
                 sourceType: transactionData.type,
-                status: existingAsset?.status || 'Bueno',
-                accumulatedDepreciation: Number(existingAsset?.accumulatedDepreciation || 0),
-                netBookValue: Math.max(0, Number(transactionData.amount || 0) - Number(existingAsset?.accumulatedDepreciation || 0)),
-                lifecycleVersion: 2,
+                status: existingAsset?.status || (isIntangible ? 'Activo' : 'Bueno'),
+                accumulatedDepreciation: isIntangible ? Number(existingAsset?.accumulatedDepreciation || 0) : existingAccumulated,
+                accumulatedAmortization: isIntangible ? existingAccumulated : Number(existingAsset?.accumulatedAmortization || 0),
+                netBookValue: Math.max(0, Number(transactionData.amount || 0) - existingAccumulated),
+                lifecycleVersion: 3,
                 company_id: activeCompany?.id,
                 companyId: activeCompany?.id,
             };
@@ -1336,13 +1361,14 @@ const Transactions = () => {
         );
         if (assetToDelete && (
             Number(assetToDelete.accumulatedDepreciation || 0) > 0 ||
+            Number(assetToDelete.accumulatedAmortization || 0) > 0 ||
             assetToDelete.status === 'Dado de Baja' ||
             Boolean(assetToDelete.retiredAt)
         )) {
             toast({
                 variant: 'destructive',
                 title: 'Activo con historia contable',
-                description: 'No puede eliminarse la transacción de alta porque el activo ya tiene depreciación o baja registrada. Debe conservarse la trazabilidad y corregirse mediante ajustes.'
+                description: 'No puede eliminarse la transacción de alta porque el activo ya tiene depreciación, amortización o baja registrada. Debe conservarse la trazabilidad y corregirse mediante ajustes.'
             });
             return;
         }
@@ -1471,38 +1497,54 @@ const Transactions = () => {
                 companyId: activeCompany?.id
             };
 
-            // Registro permanente en Activos Fijos si el débito pertenece a PPE (excepto obras en curso y depreciación acumulada)
-            if (debitAccObj.number.startsWith('15') && !debitAccObj.number.startsWith('1508') && !debitAccObj.number.startsWith('1592')) {
-                const suggested = suggestDepreciationAccounts(debitAccObj, accounts || []);
+            // Registro patrimonial automático cuando el débito corresponde a PPE o Intangibles.
+            const debitCode = String(debitAccObj.number || '');
+            const isPpeAsset = debitCode.startsWith('15') && !debitCode.startsWith('1508') && !debitCode.startsWith('1592');
+            const isIntangibleAsset = debitCode.startsWith('16') && !debitCode.startsWith('169');
+            if (isPpeAsset || isIntangibleAsset) {
+                const patrimonialAssetType = inferPatrimonialAssetType({ accountCode: debitCode });
+                const suggested = suggestPatrimonialAccounts(patrimonialAssetType, debitAccObj, accounts || []);
                 const assetId = `asset-${transactionId}`;
+                const intangible = patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE;
+
                 accountingTransaction.fixedAssetId = assetId;
                 accountingTransaction.isFixedAsset = true;
+                accountingTransaction.isPatrimonialAsset = true;
+                accountingTransaction.patrimonialAssetType = patrimonialAssetType;
                 accountingTransaction.fixedAssetAccountCode = debitAccObj.number;
                 accountingTransaction.fixedAssetAccountName = debitAccObj.name;
 
                 const newAsset = {
                     id: assetId,
+                    assetType: patrimonialAssetType,
                     acquisitionDate: toAccountingDateInput(transferData.date),
                     date: toAccountingDateInput(transferData.date),
                     name: transferData.description,
                     value: Number(transferData.amount || 0),
                     transactionId,
-                    status: 'Bueno',
+                    status: intangible ? 'Activo' : 'Bueno',
                     quantity: 1,
                     category: debitAccObj.name,
                     accountCode: debitAccObj.number,
                     accountName: debitAccObj.name,
-                    usefulLifeYears: defaultUsefulLifeYears(debitAccObj.number),
+                    usefulLifeType: 'finite',
+                    usefulLifeYears: intangible ? 3 : defaultUsefulLifeYears(debitAccObj.number),
                     residualValue: 0,
-                    depreciationMethod: 'linea_recta',
+                    depreciationMethod: intangible ? undefined : 'linea_recta',
+                    amortizationMethod: intangible ? 'linea_recta' : undefined,
                     accumulatedDepreciation: 0,
+                    accumulatedAmortization: 0,
                     netBookValue: Number(transferData.amount || 0),
-                    accumulatedDepreciationAccountCode: suggested.accumulated?.number || '',
-                    accumulatedDepreciationAccountName: suggested.accumulated?.name || '',
-                    depreciationExpenseAccountCode: suggested.expense?.number || '',
-                    depreciationExpenseAccountName: suggested.expense?.name || '',
+                    accumulatedDepreciationAccountCode: !intangible ? (suggested.accumulated?.number || '') : '',
+                    accumulatedDepreciationAccountName: !intangible ? (suggested.accumulated?.name || '') : '',
+                    depreciationExpenseAccountCode: !intangible ? (suggested.expense?.number || '') : '',
+                    depreciationExpenseAccountName: !intangible ? (suggested.expense?.name || '') : '',
+                    accumulatedAmortizationAccountCode: intangible ? (suggested.accumulated?.number || '') : '',
+                    accumulatedAmortizationAccountName: intangible ? (suggested.accumulated?.name || '') : '',
+                    amortizationExpenseAccountCode: intangible ? (suggested.expense?.number || '') : '',
+                    amortizationExpenseAccountName: intangible ? (suggested.expense?.name || '') : '',
                     sourceType: 'adjustment',
-                    lifecycleVersion: 2,
+                    lifecycleVersion: 3,
                     company_id: activeCompany?.id,
                     companyId: activeCompany?.id
                 };

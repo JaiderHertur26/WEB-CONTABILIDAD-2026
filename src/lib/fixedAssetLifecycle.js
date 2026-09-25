@@ -81,6 +81,7 @@ export const suggestDepreciationAccounts = (assetAccount, accounts) => {
     };
 };
 const cloneSignature = asset => [
+    String(asset?.assetType || asset?.patrimonialAssetType || ''),
     normalizeText(asset?.name),
     normalizeText(asset?.model),
     normalizeText(asset?.category),

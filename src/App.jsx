@@ -22,6 +22,8 @@ const Login = lazy(() => import('@/pages/Login'));
 const Companies = lazy(() => import('@/pages/Companies'));
 const FixedAssets = lazy(() => import('@/pages/FixedAssets'));
 const RealEstates = lazy(() => import('@/pages/RealEstates'));
+const IntangibleAssets = lazy(() => import('@/pages/IntangibleAssets'));
+const PatrimonialRegistry = lazy(() => import('@/pages/PatrimonialRegistry'));
 const TaxReports = lazy(() => import('@/pages/TaxReports'));
 const AccountsReceivable = lazy(() => import('@/pages/AccountsReceivable'));
 const AccountsPayable = lazy(() => import('@/pages/AccountsPayable'));
@@ -77,8 +79,10 @@ const AppRoutes = () => {
           <Route path="/inventory" element={!isGeneralAdmin ? <Inventory /> : <Navigate to="/companies" />} />
           <Route path="/cash-accounts" element={!isGeneralAdmin ? <CashAccounts /> : <Navigate to="/companies" />} />
           <Route path="/bank-accounts" element={!isGeneralAdmin ? <BankAccounts /> : <Navigate to="/companies" />} />
+          <Route path="/patrimonial-registry" element={!isGeneralAdmin ? <PatrimonialRegistry /> : <Navigate to="/companies" />} />
           <Route path="/fixed-assets" element={!isGeneralAdmin ? <FixedAssets /> : <Navigate to="/companies" />} />
           <Route path="/real-estates" element={!isGeneralAdmin ? <RealEstates /> : <Navigate to="/companies" />} />
+          <Route path="/intangible-assets" element={!isGeneralAdmin ? <IntangibleAssets /> : <Navigate to="/companies" />} />
           <Route path="/reports" element={!isGeneralAdmin ? <Reports /> : <Navigate to="/companies" />} />
           <Route path="/tax-reports" element={!isGeneralAdmin ? <TaxReports /> : <Navigate to="/companies" />} />
           <Route path="/contacts" element={!isGeneralAdmin ? <Contacts /> : <Navigate to="/companies" />} />

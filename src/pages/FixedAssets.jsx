@@ -20,9 +20,13 @@ import {
     canonicalizeFixedAssets,
     defaultUsefulLifeYears,
     getAssetSnapshot,
-    getFixedAssetAccounts,
     suggestDepreciationAccounts,
 } from '@/lib/fixedAssetLifecycle';
+import {
+    PATRIMONIAL_ASSET_TYPES,
+    getTangibleAssetAccounts,
+    inferPatrimonialAssetType,
+} from '@/lib/patrimonialAssets';
 
 const FixedAssets = () => {
     const { canEdit, canDelete, canAdd, canImport, isReadOnly, isConsolidatedReadOnly } = usePermission();
@@ -51,6 +55,10 @@ const FixedAssets = () => {
     const canonicalAssets = React.useMemo(
         () => canonicalizeFixedAssets(assets || []),
         [assets]
+    );
+    const tangibleAssets = React.useMemo(
+        () => canonicalAssets.filter(asset => inferPatrimonialAssetType(asset) === PATRIMONIAL_ASSET_TYPES.TANGIBLE),
+        [canonicalAssets]
     );
 
     useEffect(() => {
@@ -142,7 +150,7 @@ const FixedAssets = () => {
                 });
                 return;
             }
-            updatedAssets = canonicalAssets.map(asset => asset.id === editingAsset.id ? { ...asset, ...assetData, lifecycleVersion: 2 } : asset);
+            updatedAssets = canonicalAssets.map(asset => asset.id === editingAsset.id ? { ...asset, ...assetData, assetType: PATRIMONIAL_ASSET_TYPES.TANGIBLE, lifecycleVersion: 3 } : asset);
             toast({ title: "Activo actualizado" });
         } else {
             const acquisitionDate = toAccountingDateInput(assetData.acquisitionDate || assetData.date) || currentDateKey;
@@ -152,7 +160,8 @@ const FixedAssets = () => {
                 acquisitionDate,
                 date: acquisitionDate,
                 sourceType: 'manual',
-                lifecycleVersion: 2,
+                assetType: PATRIMONIAL_ASSET_TYPES.TANGIBLE,
+                lifecycleVersion: 3,
                 status: assetData.status || 'Bueno',
                 accumulatedDepreciation: Number(assetData.accumulatedDepreciation || 0),
                 netBookValue: Math.max(0, Number(assetData.value || 0) - Number(assetData.accumulatedDepreciation || 0)),
@@ -212,7 +221,7 @@ const FixedAssets = () => {
         const targetYear = currentYear - 1;
         const dateStr = `${targetYear}-12-31`;
 
-        const eligibleAssets = canonicalAssets.filter(asset => {
+        const eligibleAssets = tangibleAssets.filter(asset => {
             const acquisitionDate = toAccountingDateInput(asset.acquisitionDate || asset.date);
             const retiredAt = toAccountingDateInput(asset.retiredAt);
             return acquisitionDate && acquisitionDate <= dateStr && (!retiredAt || retiredAt > dateStr);
@@ -256,7 +265,7 @@ const FixedAssets = () => {
         }
 
         const groups = new Map();
-        canonicalAssets.forEach(asset => {
+        tangibleAssets.forEach(asset => {
             const acquisitionDate = toAccountingDateInput(asset.acquisitionDate || asset.date);
             const retiredAt = toAccountingDateInput(asset.retiredAt);
             const priorYears = Array.isArray(asset.depreciatedYears) ? asset.depreciatedYears.map(String) : [];
@@ -338,7 +347,7 @@ const FixedAssets = () => {
                 depreciatedYear: String(targetYear),
                 depreciatedYears: [...new Set([...priorYears, String(targetYear)])],
                 depreciationHistory: [...priorHistory, entry],
-                lifecycleVersion: 2,
+                lifecycleVersion: 3,
             };
         });
 
@@ -450,11 +459,11 @@ const FixedAssets = () => {
     };
     
     const fixedAssetAccounts = React.useMemo(
-        () => getFixedAssetAccounts(accounts || []),
+        () => getTangibleAssetAccounts(accounts || []),
         [accounts]
     );
 
-    const filteredAssets = canonicalAssets.filter(asset => {
+    const filteredAssets = tangibleAssets.filter(asset => {
         const search = searchTerm.trim().toLowerCase();
         if (!search) return true;
         return [
@@ -530,7 +539,8 @@ const FixedAssets = () => {
                 depreciationMethod: asset.depreciationMethod || 'linea_recta',
                 depreciationAsOf: currentDateKey,
                 sourceType: 'import',
-                lifecycleVersion: 2,
+                assetType: PATRIMONIAL_ASSET_TYPES.TANGIBLE,
+                lifecycleVersion: 3,
                 company_id: activeCompany?.id,
                 companyId: activeCompany?.id,
             };
@@ -546,8 +556,8 @@ const FixedAssets = () => {
         <div className="space-y-6">
             <ProfessionalModuleHero
                 eyebrow="Control patrimonial"
-                title="Registro Permanente de Activos Fijos"
-                subtitle="Registro permanente de cada bien: alta, cuenta PUC, depreciaciones, permanencia y baja, sin clones por vigencia."
+                title="Activos Fijos Tangibles"
+                subtitle="Bienes físicos permanentes: alta, cuenta PUC, depreciaciones, permanencia y baja. Inmuebles e intangibles se administran en sus vistas especializadas."
                 activeCompany={activeCompany}
                 icon={Archive}
                 accent="violet"

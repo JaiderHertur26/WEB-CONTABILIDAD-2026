@@ -17,7 +17,7 @@ import ContractTaxAlert from '@/components/contracts/ContractTaxAlert';
 import { getRetentionDueDate } from '@/lib/contractTaxEngine';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
-import { summarizeFixedAssetsAtCutoff } from '@/lib/fixedAssetLifecycle';
+import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
 
 const TaxReports = () => {
     const { activeCompany, companies, isConsolidated } = useCompany();
@@ -355,7 +355,7 @@ const TaxReports = () => {
                     initialAnticipos += amount;
                 } else if (code.startsWith('1508')) {
                     initialConstrucciones += amount;
-                } else if (code.startsWith('1') && !code.startsWith('11') && !code.startsWith('1305') && !code.startsWith('14') && !code.startsWith('15')) {
+                } else if (code.startsWith('1') && !code.startsWith('11') && !code.startsWith('1295') && !code.startsWith('1305') && !code.startsWith('14') && !code.startsWith('15')) {
                     initialOtherAssets += amount;
                 } else if (code.startsWith('2') && !code.startsWith('2305')) {
                     initialOtherLiabilities += Math.abs(amount);
@@ -367,14 +367,17 @@ const TaxReports = () => {
         let construccionesValue = initialConstrucciones;
         let otherAssetsValue = initialOtherAssets;
         let otherLiabilitiesValue = initialOtherLiabilities;
-        let depreciacionAcumuladaValue = initialDepreciacion;
-        let intangiblesValue = 0; // DECLARADO AQUÍ
+        let legacyIntangiblesValue = 0;
+        const isMasterIntangibleTransaction = t => Boolean(t?.isPatrimonialAsset || t?.isFixedAsset) && (
+            t?.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ||
+            String(t?.fixedAssetAccountCode || '').startsWith('16')
+        );
 
         fInitialBalance.forEach(item => {
             const itemYear = item.date ? getSafeYear(item.date) : new Date().getFullYear();
             if (itemYear <= parseInt(currentYear)) {
                 const code = String(item.accountingCode || '');
-                if (code.startsWith('16')) intangiblesValue += safeParseFloat(item.balance);
+                if (code.startsWith('16')) legacyIntangiblesValue += safeParseFloat(item.balance);
             }
         });
 
@@ -389,21 +392,19 @@ const TaxReports = () => {
 
                 if (drCode.startsWith('1330')) anticiposValue += amount;
                 else if (drCode.startsWith('1508')) construccionesValue += amount;
-                else if (drCode.startsWith('1592')) depreciacionAcumuladaValue += amount; 
-                else if (drCode.startsWith('16')) intangiblesValue += amount;
-                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+                else if (drCode.startsWith('16') && !isMasterIntangibleTransaction(t)) legacyIntangiblesValue += amount;
+                else if (drCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1295') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
                     otherAssetsValue += amount;
                 }
                 else if (drCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue -= amount;
 
                 if (crCode.startsWith('1330')) anticiposValue -= amount;
                 else if (crCode.startsWith('1508')) construccionesValue -= amount;
-                else if (crCode.startsWith('1592')) depreciacionAcumuladaValue -= amount; 
-                else if (crCode.startsWith('16')) intangiblesValue -= amount;
-                else if (crCode.startsWith('1') && !drCode.startsWith('11') && !drCode.startsWith('1305') && !drCode.startsWith('14') && !drCode.startsWith('15')) {
+                else if (crCode.startsWith('16') && !isMasterIntangibleTransaction(t)) legacyIntangiblesValue -= amount;
+                else if (crCode.startsWith('1') && !crCode.startsWith('11') && !crCode.startsWith('1295') && !crCode.startsWith('1305') && !crCode.startsWith('14') && !crCode.startsWith('15')) {
                     otherAssetsValue -= amount;
                 }
-                else if (crCode.startsWith('2') && !drCode.startsWith('2305')) otherLiabilitiesValue += amount;
+                else if (crCode.startsWith('2') && !crCode.startsWith('2305')) otherLiabilitiesValue += amount;
 
                 return;
             }
@@ -418,9 +419,8 @@ const TaxReports = () => {
 
             if (num.startsWith('1330')) anticiposValue += assetImpact;
             else if (num.startsWith('1508')) construccionesValue += assetImpact;
-            else if (num.startsWith('1592')) depreciacionAcumuladaValue += (t.type === 'expense' ? amount : -amount);
-            else if (num.startsWith('16')) intangiblesValue += assetImpact;
-            else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
+            else if (num.startsWith('16') && !isMasterIntangibleTransaction(t)) legacyIntangiblesValue += assetImpact;
+            else if (num.startsWith('1') && !num.startsWith('11') && !num.startsWith('1295') && !num.startsWith('1305') && !num.startsWith('14') && !num.startsWith('15')) {
                 otherAssetsValue += assetImpact;
             }
             else if (num.startsWith('2') && !num.startsWith('2305')) {
@@ -430,30 +430,20 @@ const TaxReports = () => {
 
         const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         
-        const fixedAssetSummary = summarizeFixedAssetsAtCutoff(
+        const patrimonialSummary = summarizePatrimonialAtCutoff(
             fFixedAssets,
+            fRealEstates,
             taxCutoffDate,
             baseValidTransactions
         );
-        const manualFixedAssetsValue = fixedAssetSummary.grossCost;
-        const totalDepreciacionInventario = fixedAssetSummary.accumulatedDepreciation;
-
-        const depreciacionPropiedadesGlobal = fRealEstates.filter(estate => {
-    if (estate.status === 'Dado de Baja') return false;
-    return getSafeYear(estate.date) <= parseInt(currentYear);
-}).reduce((sum, estate) => sum + safeParseFloat(estate.accumulatedDepreciation || 0), 0);
-
-const depreciacionesFuturasPropiedades = validTransactions.filter(t => {
-    return t.category === 'Depreciación Acumulada Activos Fijos' && 
-           String(t.description).includes('Edificaciones') && 
-           getSafeYear(t.date) > parseInt(currentYear);
-}).reduce((sum, t) => sum + safeParseFloat(t.amount), 0);
-
-const totalDepreciacionPropiedades = depreciacionPropiedadesGlobal - depreciacionesFuturasPropiedades;
-
-depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
-        
-        const realEstatesValue = fRealEstates.filter(estate => getSafeYear(estate.date) <= parseInt(selectedYear)).reduce((sum, estate) => sum + safeParseFloat(estate.value), 0);
+        const manualFixedAssetsValue = patrimonialSummary.tangible.grossCost;
+        const realEstatesValue = patrimonialSummary.realEstate.grossCost;
+        const intangiblesValue = legacyIntangiblesValue + patrimonialSummary.intangible.grossCost;
+        const totalDepreciacionInventario = patrimonialSummary.tangible.accumulatedDepreciation;
+        const totalDepreciacionPropiedades = patrimonialSummary.realEstate.accumulatedDepreciation;
+        const totalAmortizacionIntangibles = patrimonialSummary.intangible.accumulatedAmortization;
+        const depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
+        const amortizacionAcumuladaValue = -Math.abs(totalAmortizacionIntangibles);
 
         const accountsReceivableValue = fAccountsReceivable.reduce((sum, r) => {
             const rDate = getOpenItemDate(r);
@@ -469,7 +459,7 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
             return sum + getOutstandingBalance(p, taxCutoffDate);
         }, 0);
 
-        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue; 
+        const totalAssets = cajaGeneralValue + accountsReceivableValue + anticiposValue + otherAssetsValue + intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue + amortizacionAcumuladaValue;
         const totalDebts = accountsPayableValue + otherLiabilitiesValue;
         const netWorth = totalAssets - totalDebts;        
 
@@ -491,6 +481,7 @@ depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDeprec
             { Concepto: '    Depreciación acumulada de Activos Fijos', Valor: -Math.abs(totalDepreciacionInventario), isDetail: true },
             { Concepto: '    Depreciación acumulada de Propiedades/Inmuebles', Valor: -Math.abs(totalDepreciacionPropiedades), isDetail: true },
             { Concepto: '  TOTAL DEPRECIACIÓN ACUMULADA', Valor: depreciacionAcumuladaValue, isSubtotal: true },
+            { Concepto: '  Amortización acumulada de Intangibles', Valor: amortizacionAcumuladaValue, isSubtotal: true },
         ];
 
         return [

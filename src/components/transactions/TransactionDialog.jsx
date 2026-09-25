@@ -12,7 +12,15 @@ import { usePermission } from '@/hooks/usePermission';
 import ContactSelector from '@/components/transactions/ContactSelector';
 import { format } from 'date-fns';
 import { parseAccountingDate, toAccountingDateInput } from '@/lib/accountingDate';
-import { defaultUsefulLifeYears, getFixedAssetAccounts, suggestDepreciationAccounts } from '@/lib/fixedAssetLifecycle';
+import { defaultUsefulLifeYears } from '@/lib/fixedAssetLifecycle';
+import {
+  PATRIMONIAL_ASSET_TYPES,
+  getIntangibleAssetAccounts,
+  getRealEstateAccounts,
+  getTangibleAssetAccounts,
+  inferPatrimonialAssetType,
+  suggestPatrimonialAccounts,
+} from '@/lib/patrimonialAssets';
 
 // Utility component for highlighting text
 const Highlight = ({ text, highlight }) => {
@@ -83,12 +91,17 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
     contactId: '',
     destination: 'caja_principal|CAJA PRINCIPAL',
     isFixedAsset: false,
+    patrimonialAssetType: PATRIMONIAL_ASSET_TYPES.TANGIBLE,
     fixedAssetAccountCode: '',
     fixedAssetAccountName: '',
     fixedAssetUsefulLifeYears: 10,
     fixedAssetResidualValue: 0,
     fixedAssetModel: '',
     fixedAssetLocation: '',
+    fixedAssetProvider: '',
+    fixedAssetExpiryDate: '',
+    fixedAssetLicenseReference: '',
+    fixedAssetUsefulLifeType: 'finite',
     fixedAssetAccumulatedDepreciationAccountCode: '',
     fixedAssetAccumulatedDepreciationAccountName: '',
     fixedAssetDepreciationExpenseAccountCode: '',
@@ -120,10 +133,20 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
             amount: transaction.amount ?? '',
           }];
 
+      const inferredAssetType = transaction.patrimonialAssetType ||
+        inferPatrimonialAssetType({
+          ...transaction,
+          accountCode: transaction.fixedAssetAccountCode,
+        });
       setFormData({
         ...transaction,
         date: toAccountingDateInput(transaction.date),
         destination: transaction.destination || 'caja_principal|CAJA PRINCIPAL',
+        patrimonialAssetType: inferredAssetType,
+        fixedAssetUsefulLifeType: transaction.fixedAssetUsefulLifeType || 'finite',
+        fixedAssetProvider: transaction.fixedAssetProvider || '',
+        fixedAssetExpiryDate: transaction.fixedAssetExpiryDate || '',
+        fixedAssetLicenseReference: transaction.fixedAssetLicenseReference || '',
         allocations: existingAllocations,
       });
     } else {
@@ -135,13 +158,18 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
         category: '',
         contactId: '',
         destination: 'caja_principal|CAJA PRINCIPAL',
-isFixedAsset: false,
+        isFixedAsset: false,
+        patrimonialAssetType: PATRIMONIAL_ASSET_TYPES.TANGIBLE,
         fixedAssetAccountCode: '',
         fixedAssetAccountName: '',
         fixedAssetUsefulLifeYears: 10,
         fixedAssetResidualValue: 0,
         fixedAssetModel: '',
         fixedAssetLocation: '',
+        fixedAssetProvider: '',
+        fixedAssetExpiryDate: '',
+        fixedAssetLicenseReference: '',
+        fixedAssetUsefulLifeType: 'finite',
         fixedAssetAccumulatedDepreciationAccountCode: '',
         fixedAssetAccumulatedDepreciationAccountName: '',
         fixedAssetDepreciationExpenseAccountCode: '',
@@ -185,23 +213,51 @@ isFixedAsset: false,
     0
   );
 
-  const fixedAssetAccounts = React.useMemo(
-    () => getFixedAssetAccounts(accounts || []),
-    [accounts]
-  );
+  const patrimonialAccounts = React.useMemo(() => {
+    const type = formData.patrimonialAssetType || PATRIMONIAL_ASSET_TYPES.TANGIBLE;
+    if (type === PATRIMONIAL_ASSET_TYPES.INTANGIBLE) return getIntangibleAssetAccounts(accounts || []);
+    if (type === PATRIMONIAL_ASSET_TYPES.REAL_ESTATE) return getRealEstateAccounts(accounts || []);
+    return getTangibleAssetAccounts(accounts || []);
+  }, [accounts, formData.patrimonialAssetType]);
 
-  const handleFixedAssetAccountChange = (code) => {
-    const selected = fixedAssetAccounts.find(account => String(account.number) === String(code));
-    if (!selected) return;
-    const suggested = suggestDepreciationAccounts(selected, accounts || []);
-
+  const handlePatrimonialTypeChange = (assetType) => {
     setFormData(prev => {
       const currentTotal = (prev.allocations || []).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+      return {
+        ...prev,
+        patrimonialAssetType: assetType,
+        fixedAssetAccountCode: '',
+        fixedAssetAccountName: '',
+        fixedAssetUsefulLifeYears: assetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ? 3 : 10,
+        fixedAssetUsefulLifeType: 'finite',
+        fixedAssetAccumulatedDepreciationAccountCode: '',
+        fixedAssetAccumulatedDepreciationAccountName: '',
+        fixedAssetDepreciationExpenseAccountCode: '',
+        fixedAssetDepreciationExpenseAccountName: '',
+        allocations: prev.type === 'expense'
+          ? [{ id: prev.allocations?.[0]?.id || 'allocation-1', category: '', amount: currentTotal || '' }]
+          : prev.allocations,
+      };
+    });
+  };
+
+  const handleFixedAssetAccountChange = (code) => {
+    const selected = patrimonialAccounts.find(account => String(account.number) === String(code));
+    if (!selected) return;
+
+    setFormData(prev => {
+      const assetType = prev.patrimonialAssetType || PATRIMONIAL_ASSET_TYPES.TANGIBLE;
+      const suggested = suggestPatrimonialAccounts(assetType, selected, accounts || []);
+      const currentTotal = (prev.allocations || []).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+      const defaultLife = assetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE
+        ? Number(prev.fixedAssetUsefulLifeYears || 3)
+        : defaultUsefulLifeYears(selected.number);
+
       const next = {
         ...prev,
         fixedAssetAccountCode: selected.number,
         fixedAssetAccountName: selected.name,
-        fixedAssetUsefulLifeYears: defaultUsefulLifeYears(selected.number),
+        fixedAssetUsefulLifeYears: defaultLife,
         fixedAssetAccumulatedDepreciationAccountCode: suggested.accumulated?.number || '',
         fixedAssetAccumulatedDepreciationAccountName: suggested.accumulated?.name || '',
         fixedAssetDepreciationExpenseAccountCode: suggested.expense?.number || '',
@@ -231,7 +287,7 @@ isFixedAsset: false,
           allocations: [{ id: prev.allocations?.[0]?.id || 'allocation-1', category: '', amount: currentTotal || '' }],
         };
       }
-      const selected = fixedAssetAccounts.find(account => String(account.number) === String(prev.fixedAssetAccountCode));
+      const selected = patrimonialAccounts.find(account => String(account.number) === String(prev.fixedAssetAccountCode));
       return {
         ...prev,
         type,
@@ -249,6 +305,7 @@ isFixedAsset: false,
     setFormData(prev => ({
       ...prev,
       isFixedAsset: checked,
+      patrimonialAssetType: prev.patrimonialAssetType || PATRIMONIAL_ASSET_TYPES.TANGIBLE,
       destination: checked && prev.type === 'income'
         ? ''
         : (!checked && !prev.destination ? 'caja_principal|CAJA PRINCIPAL' : prev.destination),
@@ -280,7 +337,15 @@ isFixedAsset: false,
 
     if (formData.isFixedAsset) {
       if (!formData.fixedAssetAccountCode || !formData.fixedAssetAccountName) {
-        toast({ variant: "destructive", title: "Cuenta del activo requerida", description: "Selecciona la cuenta PUC a la que quedará vinculado el activo fijo." });
+        toast({ variant: "destructive", title: "Cuenta del activo requerida", description: "Selecciona la cuenta PUC a la que quedará vinculado el activo patrimonial." });
+        return;
+      }
+      if (
+        formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE &&
+        formData.fixedAssetUsefulLifeType !== 'indefinite' &&
+        Number(formData.fixedAssetUsefulLifeYears || 0) <= 0
+      ) {
+        toast({ variant: "destructive", title: "Vida útil requerida", description: "El intangible de vida finita debe tener una vida útil mayor que cero." });
         return;
       }
       if (normalizedAllocations.length !== 1) {
@@ -290,7 +355,7 @@ isFixedAsset: false,
       if (formData.type === 'income') {
         const counterpartCode = String(normalizedAllocations[0].accountNumber || '');
         if (counterpartCode === String(formData.fixedAssetAccountCode || '')) {
-          toast({ variant: "destructive", title: "Contrapartida inválida", description: "En un ingreso de activo fijo, selecciona como contrapartida la cuenta de ingreso, donación o patrimonio correspondiente." });
+          toast({ variant: "destructive", title: "Contrapartida inválida", description: "En una incorporación patrimonial en especie, selecciona como contrapartida la cuenta de ingreso, donación o patrimonio correspondiente." });
           return;
         }
         if (!counterpartCode.startsWith('3') && !counterpartCode.startsWith('4')) {
@@ -307,6 +372,7 @@ isFixedAsset: false,
 
     const dataToSave = {
       ...formData,
+      isPatrimonialAsset: Boolean(formData.isFixedAsset),
       destination: formData.isFixedAsset && formData.type === 'income' ? '' : formData.destination,
       allocations: normalizedAllocations,
       amount: normalizedAllocations.reduce((sum, line) => sum + line.amount, 0),
@@ -556,41 +622,71 @@ isFixedAsset: false,
             <div className="flex items-start gap-2">
               <input type="checkbox" id="isFixedAsset" disabled={isReadOnly} checked={formData.isFixedAsset} onChange={(e) => handleFixedAssetToggle(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50" />
               <div>
-                <Label htmlFor="isFixedAsset" className="cursor-pointer text-sm font-semibold text-slate-800">¿Esta transacción incorpora un Activo Fijo?</Label>
-                <p className="mt-0.5 text-xs text-slate-500">Registrará el bien en Activos Fijos y lo vinculará al asiento contable. Disponible tanto para compras como para incorporaciones en especie.</p>
+                <Label htmlFor="isFixedAsset" className="cursor-pointer text-sm font-semibold text-slate-800">¿Esta transacción incorpora un activo patrimonial?</Label>
+                <p className="mt-0.5 text-xs text-slate-500">Vincula la operación al Registro Patrimonial Maestro como tangible, inmueble o intangible, conservando una sola historia contable.</p>
               </div>
             </div>
 
             {formData.isFixedAsset && (
               <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs font-semibold text-slate-700">Tipo de activo patrimonial *</Label>
+                  <select value={formData.patrimonialAssetType || PATRIMONIAL_ASSET_TYPES.TANGIBLE} onChange={(e) => handlePatrimonialTypeChange(e.target.value)} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                    <option value={PATRIMONIAL_ASSET_TYPES.TANGIBLE}>Activo fijo tangible</option>
+                    <option value={PATRIMONIAL_ASSET_TYPES.REAL_ESTATE}>Propiedad / inmueble</option>
+                    <option value={PATRIMONIAL_ASSET_TYPES.INTANGIBLE}>Activo intangible (software / licencia / derecho)</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-xs font-semibold text-slate-700">Cuenta del Activo (PUC) *</Label>
                   <select value={formData.fixedAssetAccountCode || ''} onChange={(e) => handleFixedAssetAccountChange(e.target.value)} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
                     <option value="">Seleccionar cuenta del activo...</option>
-                    {fixedAssetAccounts.map(account => <option key={account.id || account.number} value={account.number}>{account.number} · {account.name}</option>)}
+                    {patrimonialAccounts.map(account => <option key={account.id || account.number} value={account.number}>{account.number} · {account.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-slate-600">Vida útil (años)</Label>
-                  <input type="number" min="0" step="1" value={formData.fixedAssetUsefulLifeYears ?? 10} onChange={(e) => setFormData({...formData, fixedAssetUsefulLifeYears: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                  <Label className="text-xs text-slate-600">{formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ? 'Vida útil (años)' : 'Vida útil / depreciación (años)'}</Label>
+                  <input type="number" min="0" step="1" value={formData.fixedAssetUsefulLifeYears ?? 10} onChange={(e) => setFormData({...formData, fixedAssetUsefulLifeYears: e.target.value})} disabled={isReadOnly || (formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE && formData.fixedAssetUsefulLifeType === 'indefinite')} className="w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-100" />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs text-slate-600">Valor residual</Label>
                   <input type="number" min="0" step="0.01" value={formData.fixedAssetResidualValue || 0} onChange={(e) => setFormData({...formData, fixedAssetResidualValue: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
                 </div>
+                {formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE && <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Naturaleza de la vida útil</Label>
+                    <select value={formData.fixedAssetUsefulLifeType || 'finite'} onChange={(e) => setFormData({...formData, fixedAssetUsefulLifeType: e.target.value, fixedAssetUsefulLifeYears: e.target.value === 'indefinite' ? 0 : (formData.fixedAssetUsefulLifeYears || 3)})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+                      <option value="finite">Finita / amortizable</option>
+                      <option value="indefinite">Indefinida / no amortizable por ahora</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Proveedor / titular</Label>
+                    <input value={formData.fixedAssetProvider || ''} onChange={(e) => setFormData({...formData, fixedAssetProvider: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Referencia licencia / contrato</Label>
+                    <input value={formData.fixedAssetLicenseReference || ''} onChange={(e) => setFormData({...formData, fixedAssetLicenseReference: e.target.value})} disabled={isReadOnly} placeholder="Referencia, no contraseña" className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-slate-600">Vencimiento (si aplica)</Label>
+                    <input type="date" value={formData.fixedAssetExpiryDate || ''} onChange={(e) => setFormData({...formData, fixedAssetExpiryDate: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                  </div>
+                </>}
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-slate-600">Marca / Modelo / Serie</Label>
+                  <Label className="text-xs text-slate-600">{formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ? 'Versión / referencia' : 'Marca / Modelo / Serie'}</Label>
                   <input value={formData.fixedAssetModel || ''} onChange={(e) => setFormData({...formData, fixedAssetModel: e.target.value})} disabled={isReadOnly} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-slate-600">Ubicación del bien</Label>
-                  <input value={formData.fixedAssetLocation || ''} onChange={(e) => setFormData({...formData, fixedAssetLocation: e.target.value})} disabled={isReadOnly} placeholder="Templo, despacho, casa cural..." className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                  <Label className="text-xs text-slate-600">{formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ? 'Área responsable / ubicación lógica' : formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.REAL_ESTATE ? 'Dirección / ubicación' : 'Ubicación del bien'}</Label>
+                  <input value={formData.fixedAssetLocation || ''} onChange={(e) => setFormData({...formData, fixedAssetLocation: e.target.value})} disabled={isReadOnly} placeholder={formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.REAL_ESTATE ? 'Dirección del inmueble...' : 'Templo, despacho, sistema...'} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
                 </div>
                 {formData.fixedAssetAccountCode && (
                   <div className="sm:col-span-2 rounded-lg border border-violet-100 bg-white p-3 text-xs text-slate-600">
                     <span className="font-semibold text-violet-700">Vinculación contable:</span> {formData.fixedAssetAccountCode} · {formData.fixedAssetAccountName}
-                    {formData.fixedAssetDepreciationExpenseAccountCode && <span> · Gasto dep. {formData.fixedAssetDepreciationExpenseAccountCode}</span>}
-                    {formData.fixedAssetAccumulatedDepreciationAccountCode && <span> · Dep. acum. {formData.fixedAssetAccumulatedDepreciationAccountCode}</span>}
+                    {formData.fixedAssetDepreciationExpenseAccountCode && <span> · {formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ? 'Gasto amort.' : 'Gasto dep.'} {formData.fixedAssetDepreciationExpenseAccountCode}</span>}
+                    {formData.fixedAssetAccumulatedDepreciationAccountCode && <span> · {formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE ? 'Amort. acum.' : 'Dep. acum.'} {formData.fixedAssetAccumulatedDepreciationAccountCode}</span>}
+                    {formData.patrimonialAssetType === PATRIMONIAL_ASSET_TYPES.INTANGIBLE && formData.fixedAssetUsefulLifeType !== 'indefinite' && (!formData.fixedAssetDepreciationExpenseAccountCode || !formData.fixedAssetAccumulatedDepreciationAccountCode) && <span className="mt-2 block font-semibold text-amber-700">Pendiente parametrizar cuentas de amortización en el Plan de Cuentas.</span>}
                   </div>
                 )}
               </div>
