@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { usePermission } from '@/hooks/usePermission';
 import { format, parseISO, addDays, subDays, addMonths, subMonths, addYears, subYears, isSameDay, isSameMonth, isSameYear, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -22,6 +23,7 @@ const MassIntentions = () => {
     const { activeCompany } = useCompany();
     const { canEdit, canDelete, canAdd } = usePermission();
     const { toast } = useToast();
+    const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
 
     const [intentions, saveIntentions] = useCompanyData('mass_intentions');
     const [transactions, saveTransactions] = useCompanyData('transactions');
@@ -198,14 +200,30 @@ const MassIntentions = () => {
             }
         }
 
-        if (!window.confirm("¿Seguro que deseas eliminar esta intención?")) return;
+        const destructiveAuthorization = await requestDestructiveAuthorization({
+            title: 'Eliminar intención de Misa',
+            subject: intentionToDelete.intention || intentionToDelete.name || intentionToDelete.requestedBy || 'Intención seleccionada',
+            description: linkedTransaction
+                ? 'Se eliminará la intención y también el comprobante contable de su ofrenda.'
+                : 'Se eliminará la intención seleccionada.',
+        });
+        if (!destructiveAuthorization?.sessionToken) return;
 
         try {
+            const options = { destructiveAuthorization };
             if (linkedTransaction) {
-                await saveTransactions((transactions || []).filter(t => String(t.id) !== String(linkedTransaction.id)));
+                const transactionSaved = await saveTransactions(
+                    (transactions || []).filter(t => String(t.id) !== String(linkedTransaction.id)),
+                    options
+                );
+                if (transactionSaved === false) throw new Error('No se pudo retirar el comprobante contable vinculado.');
             }
-            await saveIntentions((intentions || []).filter(i => i.id !== id));
-            toast({ title: "Intención eliminada exitosamente" });
+            const intentionSaved = await saveIntentions(
+                (intentions || []).filter(i => i.id !== id),
+                options
+            );
+            if (intentionSaved === false) throw new Error('No se pudo eliminar la intención.');
+            toast({ title: "Intención eliminada", description: "La eliminación fue autorizada con Acceso Total." });
         } catch (error) {
             console.error('No fue posible eliminar la intención:', error);
             toast({
@@ -213,6 +231,8 @@ const MassIntentions = () => {
                 title: 'No se pudo eliminar',
                 description: error?.message || 'La intención o su comprobante están protegidos.'
             });
+        } finally {
+            await releaseDestructiveAuthorization(destructiveAuthorization);
         }
     };
 
