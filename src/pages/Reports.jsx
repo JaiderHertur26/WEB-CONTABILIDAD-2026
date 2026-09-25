@@ -16,6 +16,7 @@ import { createPrintTarget } from '@/lib/nativePrint';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import FinancialReportsView from '@/components/reports/FinancialReportsView';
 import { summarizeFixedAssetsAtCutoff } from '@/lib/fixedAssetLifecycle';
+import { toAccountingDateInput } from '@/lib/accountingDate';
 
 const Reports = () => {
   const { activeCompany, companies, isConsolidated } = useCompany();
@@ -33,8 +34,8 @@ const Reports = () => {
   
   // Rango de fechas
   const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
-  const todayDateKey = new Date().toISOString().split('T')[0];
+  const [endDate, setEndDate] = useState(toAccountingDateInput(new Date()));
+  const todayDateKey = toAccountingDateInput(new Date());
   const effectiveEndDate = endDate > todayDateKey ? todayDateKey : endDate;
   const initializedRangeCompanyRef = useRef('');
 

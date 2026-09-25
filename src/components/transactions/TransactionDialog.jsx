@@ -75,7 +75,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
   const isReadOnly = isEditing && !canEdit;
 
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: toAccountingDateInput(new Date()),
     description: '',
     amount: '',
     type: 'income',
@@ -128,7 +128,7 @@ const TransactionDialog = ({ open, onOpenChange, transaction, onSave }) => {
       });
     } else {
       setFormData({
-        date: new Date().toISOString().split('T')[0],
+        date: toAccountingDateInput(new Date()),
         description: '',
         amount: '',
         type: 'income',
