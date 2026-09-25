@@ -8,6 +8,7 @@ import NativeAppBridge from '@/components/NativeAppBridge';
 import { Toaster } from '@/components/ui/toaster';
 import { LocalAuthProvider, useAuth } from '@/contexts/LocalAuthContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
+import { DestructiveActionProvider } from '@/contexts/DestructiveActionContext';
 import { migrateFromLocalStorage } from '@/lib/storageMigration';
 
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
@@ -136,11 +137,13 @@ function App() {
 
       <LocalAuthProvider>
         <CompanyProvider>
-          <Router>
-            <NativeAppBridge />
-            <Toaster />
-            <AppRoutes />
-          </Router>
+          <DestructiveActionProvider>
+            <Router>
+              <NativeAppBridge />
+              <Toaster />
+              <AppRoutes />
+            </Router>
+          </DestructiveActionProvider>
         </CompanyProvider>
       </LocalAuthProvider>
     </>
