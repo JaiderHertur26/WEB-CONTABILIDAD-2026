@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from '@/components/ui/label';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuth } from '@/contexts/LocalAuthContext';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { createCompanySecure, deleteCompanySecure } from '@/lib/secureApi';
 import { getCompanyScope } from '@/lib/companyHierarchy';
 
@@ -17,6 +18,7 @@ const Organization = () => {
     const { sessionToken } = useAuth();
     const { canModify, isReadOnly, accessLevel, isConsolidatedReadOnly } = usePermission();
     const { toast } = useToast();
+    const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isSecurityDialogOpen, setIsSecurityDialogOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
@@ -60,15 +62,24 @@ const Organization = () => {
 
     const handleDelete = async (id) => {
         if (!canModify || !sessionToken) return;
-        if (window.confirm('¿Estás seguro de eliminar esta sub-empresa? Se eliminarán también sus datos sincronizados dependientes.')) {
-            try {
-                await deleteCompanySecure(sessionToken, id);
-                if (typeof setCompanies === 'function') await setCompanies();
-                toast({ title: "Sub-empresa eliminada exitosamente" });
-            } catch (err) {
-                console.error("Error eliminando sub-empresa:", err);
-                toast({ variant: "destructive", title: "Error", description: err?.message || "No se pudo eliminar la sub-empresa." });
-            }
+
+        const target = organizationScope.find(company => String(company.id) === String(id));
+        const destructiveAuthorization = await requestDestructiveAuthorization({
+            title: 'Eliminar sub-empresa',
+            subject: target?.name || 'Entidad seleccionada',
+            description: 'Se eliminará la entidad y sus datos sincronizados dependientes. Esta operación exige la contraseña de Acceso Total de la entidad activa.',
+        });
+        if (!destructiveAuthorization?.sessionToken) return;
+
+        try {
+            await deleteCompanySecure(destructiveAuthorization.sessionToken, id);
+            if (typeof setCompanies === 'function') await setCompanies();
+            toast({ title: "Sub-empresa eliminada", description: "La eliminación fue autorizada con Acceso Total." });
+        } catch (err) {
+            console.error("Error eliminando sub-empresa:", err);
+            toast({ variant: "destructive", title: "Eliminación bloqueada", description: err?.message || "No se pudo eliminar la sub-empresa." });
+        } finally {
+            await releaseDestructiveAuthorization(destructiveAuthorization);
         }
     };
 
