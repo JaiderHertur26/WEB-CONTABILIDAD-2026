@@ -15,6 +15,7 @@ import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
+import { useDestructiveAction } from '@/contexts/DestructiveActionContext';
 import { format, isValid, parseISO, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import Voucher from '@/components/transactions/Voucher';
@@ -181,6 +182,7 @@ const findDuplicateVoucherKeys = (items = []) => {
 const Transactions = () => {
     const { activeCompany, isConsolidated, companies } = useCompany();
     const { canEdit, canDelete, canAdd, isReadOnly, isConsolidatedReadOnly } = usePermission();
+    const { requestDestructiveAuthorization, releaseDestructiveAuthorization } = useDestructiveAction();
 
     const [transactions, saveTransactions] = useCompanyData('transactions');
     const [accounts] = useCompanyData('accounts');
@@ -1290,7 +1292,7 @@ const Transactions = () => {
         setEditingTransaction(null);
     };
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (!canDelete) {
             toast({ variant: "destructive", title: "Acceso Denegado", description: "No tienes permiso para eliminar." });
             return;
@@ -1397,12 +1399,14 @@ const Transactions = () => {
         const voucherLabel = transactionToDelete.voucherNumber
             ? `${transactionToDelete.voucherPrefix || getTransactionTypeAndPrefix(transactionToDelete).prefix}-${String(transactionToDelete.voucherNumber).padStart(4, '0')}`
             : 'sin comprobante';
-        const confirmed = window.confirm(
-            `ELIMINAR TRANSACCIÓN ${voucherLabel}\n\n` +
-            `${formatSafeDate(transactionToDelete.date)} · ${transactionToDelete.description || 'Sin descripción'}\n\n` +
-            'Esta acción eliminará también los documentos o movimientos vinculados que correspondan. ¿Desea continuar?'
-        );
-        if (!confirmed) return;
+        const destructiveAuthorization = await requestDestructiveAuthorization({
+            title: `Eliminar transacción ${voucherLabel}`,
+            subject: `${formatSafeDate(transactionToDelete.date)} · ${transactionToDelete.description || 'Sin descripción'}`,
+            description: transactionsToDeleteIds.length > 1
+                ? `Se eliminarán ${transactionsToDeleteIds.length} movimientos contables vinculados y los registros dependientes que correspondan.`
+                : 'Se eliminará esta transacción y los registros dependientes que correspondan.',
+        });
+        if (!destructiveAuthorization?.sessionToken) return;
 
         let updatedInventory = [...(inventory || [])];
         let inventoryChanged = false;
@@ -1439,20 +1443,47 @@ const Transactions = () => {
             }
         });
 
-        if (inventoryChanged) {
-            saveInventory(updatedInventory);
-            toast({ title: "Inventario actualizado", description: "Se han revertido los cambios de stock." });
-        }
+        try {
+            const saveOptions = { destructiveAuthorization };
 
-        if (assetToDelete) {
-            saveFixedAssets(fixedAssets.filter(a => a.id !== assetToDelete.id));
-        }
-        if (docsToKeep.length !== (billingDocuments || []).length) {
-            saveBillingDocuments(docsToKeep);
-        }
+            if (inventoryChanged) {
+                const inventorySaved = await saveInventory(updatedInventory, saveOptions);
+                if (inventorySaved === false) throw new Error('No se pudo actualizar el inventario vinculado.');
+            }
 
-        saveTransactions(transactions.filter(t => !transactionsToDeleteIds.includes(t.id)));
-        toast({ title: "Transacción eliminada exitosamente" });
+            if (assetToDelete) {
+                const assetsSaved = await saveFixedAssets(
+                    fixedAssets.filter(a => a.id !== assetToDelete.id),
+                    saveOptions
+                );
+                if (assetsSaved === false) throw new Error('No se pudo actualizar el registro patrimonial vinculado.');
+            }
+
+            if (docsToKeep.length !== (billingDocuments || []).length) {
+                const documentsSaved = await saveBillingDocuments(docsToKeep, saveOptions);
+                if (documentsSaved === false) throw new Error('No se pudieron actualizar los documentos vinculados.');
+            }
+
+            const transactionsSaved = await saveTransactions(
+                transactions.filter(t => !transactionsToDeleteIds.includes(t.id)),
+                saveOptions
+            );
+            if (transactionsSaved === false) throw new Error('No se pudo eliminar la transacción.');
+
+            if (inventoryChanged) {
+                toast({ title: "Inventario actualizado", description: "Se revirtieron los cambios de stock vinculados." });
+            }
+            toast({ title: "Transacción eliminada", description: `${voucherLabel} fue eliminada después de validar Acceso Total.` });
+        } catch (error) {
+            console.error('No fue posible completar la eliminación protegida:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Eliminación bloqueada',
+                description: error?.message || 'No se pudo completar la eliminación de forma segura.'
+            });
+        } finally {
+            await releaseDestructiveAuthorization(destructiveAuthorization);
+        }
     };
 
     const handleSaveTransfer = (transferData) => {
