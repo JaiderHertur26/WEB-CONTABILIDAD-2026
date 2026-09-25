@@ -244,7 +244,7 @@ const Dashboard = () => {
     const totalInvestmentBalances = liquidity.investments;
     const customCashBalance = liquidity.totalCustomCash;
     const totalCashBalance = liquidity.totalCash;
-    const cajaGeneralTotal = liquidity.totalLiquidity;
+    const cajaGeneralExacta = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
     
     // --- ASSETS (ACTIVOS UNIFICADOS) ---
     const inventoryValue = fInventory.reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
@@ -318,7 +318,7 @@ const Dashboard = () => {
     const depreciacionAcumuladaValue = -Math.abs(totalDepreciacionInventario + totalDepreciacionPropiedades);
     const amortizacionAcumuladaValue = -Math.abs(totalAmortizacionIntangibles);
 
-    const totalActivoCorriente = cajaGeneralTotal + accountsReceivableValue + anticiposValue + otherAssetsValue;
+    const totalActivoCorriente = cajaGeneralExacta + accountsReceivableValue + anticiposValue + otherAssetsValue;
     const totalActivoNoCorriente = intangiblesValue + construccionesValue + realEstatesValue + manualFixedAssetsValue + inventoryValue + depreciacionAcumuladaValue + amortizacionAcumuladaValue;
     const totalAssets = totalActivoCorriente + totalActivoNoCorriente;
 
@@ -362,8 +362,6 @@ const Dashboard = () => {
             }
         }
     });
-
-    const cajaGeneralExacta = cajaPrincipalBalance + customCashBalance + totalBankBalances + totalInvestmentBalances;
 
     setStats({
       generalBalance: totalAssets,

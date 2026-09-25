@@ -38,6 +38,8 @@ const EMPTY = currentDate => ({
     amortizationMethod: 'linea_recta',
     accountCode: '',
     accountName: '',
+    recognitionAccountCode: '',
+    recognitionAccountName: '',
     amortizationExpenseAccountCode: '',
     amortizationExpenseAccountName: '',
     accumulatedAmortizationAccountCode: '',
@@ -52,7 +54,7 @@ const IntangibleAssets = () => {
     const { canAdd, canEdit, isReadOnly, isConsolidatedReadOnly } = usePermission();
     const [assets, saveAssets] = useCompanyData('fixedAssets');
     const [transactions, saveTransactions] = useCompanyData('transactions');
-    const [accounts] = useCompanyData('accounts');
+    const [accounts, saveAccounts] = useCompanyData('accounts');
     const [fiscalYears] = useCompanyData('fiscal_years');
     const [monthlyClosings] = useCompanyData('monthly_closings');
     const { toast } = useToast();
@@ -71,6 +73,40 @@ const IntangibleAssets = () => {
     const [historyAsset, setHistoryAsset] = useState(null);
     const [editingAsset, setEditingAsset] = useState(null);
     const [amortizationDialogOpen, setAmortizationDialogOpen] = useState(false);
+    const [pucSetupDialogOpen, setPucSetupDialogOpen] = useState(false);
+
+    const amortizationPucTemplate = [
+        { number: '1698', name: 'DEPRECIACIÓN Y/O AMORTIZACIÓN ACUMULADA' },
+        { number: '169840', name: 'LICENCIAS' },
+        { number: '16984001', name: 'AMORTIZACIÓN ACUMULADA LICENCIAS Y SOFTWARE' },
+        { number: '5165', name: 'AMORTIZACIONES' },
+        { number: '516510', name: 'INTANGIBLES' },
+        { number: '51651001', name: 'AMORTIZACIÓN DE INTANGIBLES' },
+    ];
+    const missingAmortizationPuc = amortizationPucTemplate.filter(template =>
+        !(accounts || []).some(account => String(account.number) === template.number)
+    );
+
+    const handlePrepareAmortizationPuc = async () => {
+        if (!canAdd || missingAmortizationPuc.length === 0) {
+            setPucSetupDialogOpen(false);
+            return;
+        }
+        const additions = missingAmortizationPuc.map(item => ({
+            ...item,
+            id: crypto.randomUUID(),
+        }));
+        await saveAccounts(
+            [...(accounts || []), ...additions].sort((a, b) =>
+                String(a.number || '').localeCompare(String(b.number || ''))
+            )
+        );
+        toast({
+            title: 'PUC de amortización preparado',
+            description: `Se agregaron ${additions.length} cuenta(s) faltante(s). No se creó ningún asiento ni se modificó ningún saldo.`
+        });
+        setPucSetupDialogOpen(false);
+    };
 
     const filteredAssets = intangibleAssets.filter(asset => {
         const q = searchTerm.trim().toLowerCase();
@@ -86,7 +122,7 @@ const IntangibleAssets = () => {
         const otherAssets = registry.filter(asset => asset.assetType !== PATRIMONIAL_ASSET_TYPES.INTANGIBLE);
         return saveAssets([...otherAssets, ...nextIntangibles]);
     };
-    const handleSave = data => {
+    const handleSave = async data => {
         if (editingAsset ? !canEdit : !canAdd) return;
 
         const value = Number(data.value || 0);
@@ -105,6 +141,23 @@ const IntangibleAssets = () => {
         }
 
         const acquisitionDate = toAccountingDateInput(data.acquisitionDate || data.date) || currentDate;
+        const prior = editingAsset || null;
+        const recognitionAccount = !prior && value > 0
+            ? (accounts || []).find(account => String(account.number) === String(data.recognitionAccountCode || ''))
+            : null;
+        if (!prior && value > 0 && !recognitionAccount) {
+            toast({
+                variant: 'destructive',
+                title: 'Contrapartida requerida',
+                description: 'Selecciona la cuenta que explica el reconocimiento inicial del intangible: Caja/Banco, cuenta por pagar, patrimonio o ingreso/donación.'
+            });
+            return;
+        }
+        if (recognitionAccount && String(recognitionAccount.number) === String(data.accountCode)) {
+            toast({ variant: 'destructive', title: 'Contrapartida inválida', description: 'La cuenta del intangible y su contrapartida no pueden ser la misma.' });
+            return;
+        }
+
         const normalized = {
             ...data,
             assetType: PATRIMONIAL_ASSET_TYPES.INTANGIBLE,
@@ -114,23 +167,25 @@ const IntangibleAssets = () => {
             residualValue: residual,
             usefulLifeYears: data.usefulLifeType === 'indefinite' ? 0 : Number(data.usefulLifeYears || 0),
             accumulatedAmortization: Number(data.accumulatedAmortization || 0),
+            recognitionAccountCode: prior?.recognitionAccountCode || recognitionAccount?.number || data.recognitionAccountCode || '',
+            recognitionAccountName: prior?.recognitionAccountName || recognitionAccount?.name || data.recognitionAccountName || '',
             lifecycleVersion: 3,
             company_id: activeCompany?.id,
             companyId: activeCompany?.id,
         };
 
         let next;
-        if (editingAsset) {
+        if (prior) {
             const protectedHistory =
-                Number(editingAsset.accumulatedAmortization || 0) > 0 ||
-                Boolean(editingAsset.transactionId) ||
-                (Array.isArray(editingAsset.amortizationHistory) && editingAsset.amortizationHistory.length > 0);
+                Number(prior.accumulatedAmortization || 0) > 0 ||
+                Boolean(prior.transactionId) ||
+                (Array.isArray(prior.amortizationHistory) && prior.amortizationHistory.length > 0);
 
             if (protectedHistory) {
                 const changedBase =
-                    Number(editingAsset.value || 0) !== value ||
-                    toAccountingDateInput(editingAsset.acquisitionDate || editingAsset.date) !== acquisitionDate ||
-                    (editingAsset.accountCode && String(editingAsset.accountCode) !== String(data.accountCode));
+                    Number(prior.value || 0) !== value ||
+                    toAccountingDateInput(prior.acquisitionDate || prior.date) !== acquisitionDate ||
+                    (prior.accountCode && String(prior.accountCode) !== String(data.accountCode));
                 if (changedBase) {
                     toast({
                         variant: 'destructive',
@@ -140,20 +195,57 @@ const IntangibleAssets = () => {
                     return;
                 }
             }
-            next = intangibleAssets.map(asset => asset.id === editingAsset.id ? { ...asset, ...normalized } : asset);
+            next = intangibleAssets.map(asset => asset.id === prior.id ? { ...asset, ...normalized } : asset);
             toast({ title: 'Intangible actualizado' });
         } else {
-            next = [...intangibleAssets, {
+            const assetId = `intangible-${Date.now()}`;
+            const newAsset = {
                 ...normalized,
-                id: `intangible-${Date.now()}`,
+                id: assetId,
                 sourceType: 'manual',
                 accumulatedAmortization: Number(normalized.accumulatedAmortization || 0),
                 netBookValue: Math.max(0, value - Number(normalized.accumulatedAmortization || 0)),
-            }];
-            toast({ title: 'Intangible registrado', description: 'El activo conservará su historia de amortización entre vigencias.' });
+            };
+
+            if (value > 0) {
+                const lockReason = periodLockReason(acquisitionDate);
+                if (lockReason) {
+                    toast({ variant: 'destructive', title: 'Período contable cerrado', description: lockReason });
+                    return;
+                }
+                const year = getAccountingYear(acquisitionDate).toString();
+                const voucherNumber = (transactions || [])
+                    .filter(t => getAccountingYear(t.date).toString() === year && (t.type === 'transfer' || t.voucherPrefix === 'T'))
+                    .reduce((max, t) => Math.max(max, Number(t.voucherNumber) || 0), 0) + 1;
+                const transactionId = `txn-intangible-${assetId}`;
+                newAsset.transactionId = transactionId;
+                await saveTransactions([...(transactions || []), {
+                    id: transactionId,
+                    date: acquisitionDate,
+                    type: 'transfer',
+                    voucherPrefix: 'T',
+                    voucherNumber,
+                    description: `Registro Inicial de Intangible: ${newAsset.name}`,
+                    amount: value,
+                    category: recognitionAccount.name,
+                    debitAccount: { code: newAsset.accountCode, name: newAsset.accountName },
+                    creditAccount: { code: recognitionAccount.number, name: recognitionAccount.name },
+                    isInternalTransfer: false,
+                    isInitialStock: true,
+                    isFixedAsset: true,
+                    isPatrimonialAsset: true,
+                    patrimonialAssetType: PATRIMONIAL_ASSET_TYPES.INTANGIBLE,
+                    fixedAssetId: assetId,
+                    company_id: activeCompany?.id,
+                    companyId: activeCompany?.id,
+                }]);
+            }
+
+            next = [...intangibleAssets, newAsset];
+            toast({ title: 'Intangible registrado', description: 'El activo quedó vinculado a su reconocimiento contable y conservará su historia de amortización.' });
         }
 
-        saveIntoRegistry(next);
+        await saveIntoRegistry(next);
         setDialogOpen(false);
         setEditingAsset(null);
     };
@@ -303,7 +395,8 @@ const IntangibleAssets = () => {
                         { label: 'Pendientes PUC amort.', value: filteredAssets.filter(asset => asset.usefulLifeType !== 'indefinite' && (!asset.amortizationExpenseAccountCode || !asset.accumulatedAmortizationAccountCode)).length },
                     ]}
                     actions={
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                            {canAdd && missingAmortizationPuc.length > 0 && <Button variant="outline" onClick={() => setPucSetupDialogOpen(true)} className="h-10 border-amber-300/30 bg-amber-300/10 text-amber-100 hover:bg-amber-300/20 hover:text-white"><AlertTriangle className="mr-2 h-4 w-4" />Preparar PUC</Button>}
                             {canEdit && <Button variant="outline" onClick={() => setAmortizationDialogOpen(true)} className="h-10 border-white/15 bg-white/10 text-white hover:bg-white/15 hover:text-white">Amortizar {currentYear - 1}</Button>}
                             {canAdd && <Button onClick={() => { setEditingAsset(null); setDialogOpen(true); }} className="h-10 bg-indigo-500 text-white hover:bg-indigo-400"><Plus className="mr-2 h-4 w-4" />Nuevo intangible</Button>}
                         </div>
@@ -368,6 +461,7 @@ const IntangibleAssets = () => {
             />
             <HistoryDialog open={Boolean(historyAsset)} onOpenChange={open => { if (!open) setHistoryAsset(null); }} asset={historyAsset} transactions={transactions || []} />
             <AmortizationDialog open={amortizationDialogOpen} onOpenChange={setAmortizationDialogOpen} year={currentYear - 1} onRun={handleRunAmortization} />
+            <PucSetupDialog open={pucSetupDialogOpen} onOpenChange={setPucSetupDialogOpen} missing={missingAmortizationPuc} onConfirm={handlePrepareAmortizationPuc} />
         </>
     );
 };
@@ -395,6 +489,19 @@ const IntangibleDialog = ({ open, onOpenChange, asset, accounts, intangibleAccou
     };
     const accumulatedAccounts = [...leafByPrefix('1698'), ...leafByPrefix('169')].filter((account, index, arr) => arr.findIndex(x => x.number === account.number) === index);
     const expenseAccounts = [...leafByPrefix('5165'), ...leafByPrefix('5265')].filter((account, index, arr) => arr.findIndex(x => x.number === account.number) === index);
+    const counterpartCandidates = (accounts || []).filter(account => {
+        const code = String(account.number || '');
+        return code.startsWith('11') || code.startsWith('2') || code.startsWith('3') || code.startsWith('4');
+    });
+    const counterpartAccounts = counterpartCandidates
+        .filter(account => {
+            const code = String(account.number || '');
+            return !counterpartCandidates.some(other => {
+                const otherCode = String(other.number || '');
+                return otherCode !== code && otherCode.startsWith(code);
+            });
+        })
+        .sort((a,b)=>String(a.number||'').localeCompare(String(b.number||'')));
 
     const handleAccount = code => {
         const selected = intangibleAccounts.find(account => String(account.number) === String(code));
@@ -418,6 +525,14 @@ const IntangibleDialog = ({ open, onOpenChange, asset, accounts, intangibleAccou
             : { ...prev, accumulatedAmortizationAccountCode: selected?.number || '', accumulatedAmortizationAccountName: selected?.name || '' }
         );
     };
+    const selectRecognitionAccount = code => {
+        const selected = counterpartAccounts.find(account => String(account.number) === String(code));
+        setData(prev => ({
+            ...prev,
+            recognitionAccountCode: selected?.number || '',
+            recognitionAccountName: selected?.name || '',
+        }));
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -435,6 +550,14 @@ const IntangibleDialog = ({ open, onOpenChange, asset, accounts, intangibleAccou
                     <div className="space-y-1"><Label>Referencia de licencia / contrato</Label><input value={data.licenseReference || ''} onChange={e=>setData({...data,licenseReference:e.target.value})} className="w-full rounded-lg border p-2" placeholder="Referencia, no contraseña" /></div>
                     <div className="space-y-1"><Label>Costo histórico</Label><input type="number" min="0" step="0.01" required value={data.value ?? ''} onChange={e=>setData({...data,value:e.target.value})} className="w-full rounded-lg border p-2" /></div>
                     <div className="space-y-1"><Label>Valor residual</Label><input type="number" min="0" step="0.01" value={data.residualValue || 0} onChange={e=>setData({...data,residualValue:e.target.value})} className="w-full rounded-lg border p-2" /></div>
+                    {!asset && Number(data.value || 0) > 0 && <div className="space-y-1 md:col-span-2">
+                        <Label>Contrapartida del reconocimiento inicial *</Label>
+                        <select required value={data.recognitionAccountCode || ''} onChange={e=>selectRecognitionAccount(e.target.value)} className="w-full rounded-lg border bg-white p-2">
+                            <option value="">Seleccionar cuenta...</option>
+                            {counterpartAccounts.filter(account=>String(account.number)!==String(data.accountCode||'')).map(account=><option key={account.id||account.number} value={account.number}>{account.number} · {account.name}</option>)}
+                        </select>
+                        <p className="text-[11px] text-slate-500">Elige la cuenta real que origina el intangible: Caja/Banco, cuenta por pagar, patrimonio o ingreso/donación. No se seleccionará automáticamente.</p>
+                    </div>}
                     <div className="space-y-1"><Label>Vida útil</Label><select value={data.usefulLifeType || 'finite'} onChange={e=>setData({...data,usefulLifeType:e.target.value})} className="w-full rounded-lg border p-2"><option value="finite">Finita</option><option value="indefinite">Indefinida / no amortizable por ahora</option></select></div>
                     {data.usefulLifeType !== 'indefinite' && <div className="space-y-1"><Label>Vida útil (años)</Label><input type="number" min="1" step="1" required value={data.usefulLifeYears || ''} onChange={e=>setData({...data,usefulLifeYears:e.target.value})} className="w-full rounded-lg border p-2" /></div>}
                     <div className="space-y-1"><Label>Fecha de vencimiento (si aplica)</Label><input type="date" value={data.expiryDate || ''} onChange={e=>setData({...data,expiryDate:e.target.value})} className="w-full rounded-lg border p-2" /></div>
@@ -460,6 +583,35 @@ const HistoryDialog = ({ open, onOpenChange, asset, transactions }) => {
 
 const AmortizationDialog = ({ open, onOpenChange, year, onRun }) => (
     <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Amortización de intangibles · {year}</DialogTitle><DialogDescription>Calcula la amortización pendiente según costo, residual, vida útil y cuentas PUC. No afecta Caja ni Bancos.</DialogDescription></DialogHeader><div className="flex justify-end gap-2 pt-4"><DialogClose asChild><Button variant="outline">Cancelar</Button></DialogClose><Button onClick={onRun} className="bg-indigo-600 hover:bg-indigo-700">Calcular y registrar</Button></div></DialogContent></Dialog>
+);
+
+const PucSetupDialog = ({ open, onOpenChange, missing, onConfirm }) => (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-lg">
+            <DialogHeader>
+                <DialogTitle>Preparar PUC para amortización</DialogTitle>
+                <DialogDescription>
+                    Se agregarán únicamente las cuentas faltantes para amortización de licencias y software. Esta acción no crea asientos, no cambia saldos y no modifica cuentas existentes.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                {(missing || []).map(account => (
+                    <div key={account.number} className="flex gap-3 text-sm">
+                        <span className="font-mono font-bold text-indigo-700">{account.number}</span>
+                        <span className="text-slate-700">{account.name}</span>
+                    </div>
+                ))}
+                {(missing || []).length === 0 && <p className="text-sm text-emerald-700">El PUC ya está preparado.</p>}
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                Jerarquía utilizada: 1698 / 169840 para amortización acumulada de licencias y 5165 / 516510 para gasto de amortización de intangibles.
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+                <DialogClose asChild><Button type="button" variant="outline">Cancelar</Button></DialogClose>
+                <Button onClick={onConfirm} disabled={!missing?.length} className="bg-indigo-600 hover:bg-indigo-700">Crear cuentas faltantes</Button>
+            </div>
+        </DialogContent>
+    </Dialog>
 );
 
 export default IntangibleAssets;

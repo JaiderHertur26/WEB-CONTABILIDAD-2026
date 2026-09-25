@@ -97,9 +97,24 @@ const RealEstates = () => {
             return;
         }
 
-        const selectedAccount = estateAccounts.find(account => String(account.number) === String(data.accountCode));
-        const suggested = suggestPatrimonialAccounts(PATRIMONIAL_ASSET_TYPES.REAL_ESTATE, selectedAccount, accounts || []);
         const prior = editingEstate || null;
+        const selectedAccount = estateAccounts.find(account => String(account.number) === String(data.accountCode));
+        const recognitionAccount = !prior && value > 0
+            ? (accounts || []).find(account => String(account.number) === String(data.recognitionAccountCode || ''))
+            : null;
+        if (!prior && value > 0 && !recognitionAccount) {
+            toast({
+                variant: 'destructive',
+                title: 'Contrapartida requerida',
+                description: 'Selecciona la cuenta contable que explica el reconocimiento inicial del inmueble: Caja/Banco, cuenta por pagar, patrimonio o ingreso/donación.'
+            });
+            return;
+        }
+        if (recognitionAccount && String(recognitionAccount.number) === String(data.accountCode)) {
+            toast({ variant: 'destructive', title: 'Contrapartida inválida', description: 'La cuenta del inmueble y su contrapartida no pueden ser la misma.' });
+            return;
+        }
+        const suggested = suggestPatrimonialAccounts(PATRIMONIAL_ASSET_TYPES.REAL_ESTATE, selectedAccount, accounts || []);
         const hasHistory = prior && (
             Number(prior.accumulatedDepreciation || 0) > 0 ||
             Boolean(prior.transactionId) ||
@@ -150,6 +165,8 @@ const RealEstates = () => {
             status: prior?.status || 'Activo',
             contractManaged: Boolean(prior?.contractManaged || data.contractManaged),
             sourceContractNumber: prior?.sourceContractNumber || data.sourceContractNumber || '',
+            recognitionAccountCode: prior?.recognitionAccountCode || recognitionAccount?.number || data.recognitionAccountCode || '',
+            recognitionAccountName: prior?.recognitionAccountName || recognitionAccount?.name || data.recognitionAccountName || '',
             lifecycleVersion: 3,
             company_id: activeCompany?.id,
             companyId: activeCompany?.id,
@@ -175,6 +192,8 @@ const RealEstates = () => {
             status: normalizedMaster.status,
             contractManaged: normalizedMaster.contractManaged,
             sourceContractNumber: normalizedMaster.sourceContractNumber,
+            recognitionAccountCode: normalizedMaster.recognitionAccountCode || '',
+            recognitionAccountName: normalizedMaster.recognitionAccountName || '',
             company_id: activeCompany?.id,
             companyId: activeCompany?.id,
         };
@@ -190,11 +209,7 @@ const RealEstates = () => {
                 toast({ variant: 'destructive', title: 'Período contable cerrado', description: lockReason });
                 return;
             }
-            const equity = (accounts || []).find(account => String(account.number || '').startsWith('3'));
-            if (!equity) {
-                toast({ variant: 'destructive', title: 'Cuenta de contrapartida faltante', description: 'No se encontró una cuenta patrimonial clase 3 para el reconocimiento inicial.' });
-                return;
-            }
+            const counterpart = recognitionAccount;
             const voucherNumber = getNextVoucher('transfer', acquisitionDate);
             const transactionId = `txn-estate-${masterId}`;
             normalizedMaster.transactionId = transactionId;
@@ -206,10 +221,10 @@ const RealEstates = () => {
                 voucherNumber,
                 description: `Registro Inicial de Propiedad: ${normalizedMaster.name}`,
                 amount: value,
-                category: equity.name,
+                category: counterpart.name,
                 debitAccount: { code: normalizedMaster.accountCode, name: normalizedMaster.accountName },
-                creditAccount: { code: equity.number, name: equity.name },
-                isInternalTransfer: true,
+                creditAccount: { code: counterpart.number, name: counterpart.name },
+                isInternalTransfer: false,
                 isInitialStock: true,
                 isEstateInitialEntry: true,
                 isFixedAsset: true,
@@ -437,7 +452,7 @@ const RealEstates = () => {
 };
 
 const EstateDialog = ({open,onOpenChange,onSave,estate,accounts,estateAccounts,currentDate}) => {
-    const blank = useMemo(() => ({name:'',address:'',acquisitionDate:currentDate,date:currentDate,value:'',residualValue:0,usefulLifeYears:45,accountCode:'',accountName:'',accumulatedDepreciation:0,accumulatedDepreciationAccountCode:'',accumulatedDepreciationAccountName:'',depreciationExpenseAccountCode:'',depreciationExpenseAccountName:''}), [currentDate]);
+    const blank = useMemo(() => ({name:'',address:'',acquisitionDate:currentDate,date:currentDate,value:'',residualValue:0,usefulLifeYears:45,accountCode:'',accountName:'',recognitionAccountCode:'',recognitionAccountName:'',accumulatedDepreciation:0,accumulatedDepreciationAccountCode:'',accumulatedDepreciationAccountName:'',depreciationExpenseAccountCode:'',depreciationExpenseAccountName:''}), [currentDate]);
     const [data,setData]=useState(blank);
     useEffect(()=>{if(open)setData(estate?{...blank,...estate,address:estate.address||estate.location||'',acquisitionDate:toAccountingDateInput(estate.acquisitionDate||estate.date)||currentDate}:blank)},[estate,open,currentDate,blank]);
 
@@ -447,6 +462,19 @@ const EstateDialog = ({open,onOpenChange,onSave,estate,accounts,estateAccounts,c
     };
     const depAccum=[...leafByPrefix('1592')];
     const depExpense=[...leafByPrefix('5160')];
+    const counterpartCandidates = (accounts || []).filter(account => {
+        const code = String(account.number || '');
+        return code.startsWith('11') || code.startsWith('2') || code.startsWith('3') || code.startsWith('4');
+    });
+    const counterpartAccounts = counterpartCandidates
+        .filter(account => {
+            const code = String(account.number || '');
+            return !counterpartCandidates.some(other => {
+                const otherCode = String(other.number || '');
+                return otherCode !== code && otherCode.startsWith(code);
+            });
+        })
+        .sort((a,b)=>String(a.number||'').localeCompare(String(b.number||'')));
 
     const handleAccount=code=>{
         const selected=estateAccounts.find(a=>String(a.number)===String(code));
@@ -458,6 +486,14 @@ const EstateDialog = ({open,onOpenChange,onSave,estate,accounts,estateAccounts,c
         const selected=pool.find(a=>String(a.number)===String(code));
         setData(prev=>kind==='expense'?{...prev,depreciationExpenseAccountCode:selected?.number||'',depreciationExpenseAccountName:selected?.name||''}:{...prev,accumulatedDepreciationAccountCode:selected?.number||'',accumulatedDepreciationAccountName:selected?.name||''});
     };
+    const pickRecognitionAccount = code => {
+        const selected = counterpartAccounts.find(account => String(account.number) === String(code));
+        setData(prev => ({
+            ...prev,
+            recognitionAccountCode: selected?.number || '',
+            recognitionAccountName: selected?.name || '',
+        }));
+    };
 
     return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="w-[calc(100vw-1rem)] max-h-[92dvh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{estate?'Editar':'Nueva'} Propiedad</DialogTitle><DialogDescription>El inmueble queda enlazado al Registro Patrimonial Maestro y al Plan de Cuentas.</DialogDescription></DialogHeader><form onSubmit={e=>{e.preventDefault();onSave(data)}} className="grid grid-cols-1 gap-4 pt-2 md:grid-cols-2">
         <div className="space-y-1"><Label>Nombre</Label><input required value={data.name||''} onChange={e=>setData({...data,name:e.target.value})} className="w-full rounded-lg border p-2"/></div>
@@ -466,6 +502,14 @@ const EstateDialog = ({open,onOpenChange,onSave,estate,accounts,estateAccounts,c
         <div className="space-y-1 md:col-span-2"><Label>Cuenta del inmueble (PUC) *</Label><select required value={data.accountCode||''} onChange={e=>handleAccount(e.target.value)} className="w-full rounded-lg border bg-white p-2"><option value="">Seleccionar cuenta...</option>{estateAccounts.map(a=><option key={a.id||a.number} value={a.number}>{a.number} · {a.name}</option>)}</select></div>
         <div className="space-y-1"><Label>Costo histórico</Label><input type="number" min="0" step="0.01" required value={data.value??''} onChange={e=>setData({...data,value:e.target.value})} className="w-full rounded-lg border p-2"/></div>
         <div className="space-y-1"><Label>Valor residual</Label><input type="number" min="0" step="0.01" value={data.residualValue||0} onChange={e=>setData({...data,residualValue:e.target.value})} className="w-full rounded-lg border p-2"/></div>
+        {!estate && Number(data.value || 0) > 0 && <div className="space-y-1 md:col-span-2">
+            <Label>Contrapartida del reconocimiento inicial *</Label>
+            <select required value={data.recognitionAccountCode||''} onChange={e=>pickRecognitionAccount(e.target.value)} className="w-full rounded-lg border bg-white p-2">
+                <option value="">Seleccionar cuenta...</option>
+                {counterpartAccounts.filter(account=>String(account.number)!==String(data.accountCode||'')).map(account=><option key={account.id||account.number} value={account.number}>{account.number} · {account.name}</option>)}
+            </select>
+            <p className="text-[11px] text-slate-500">Elige la cuenta que realmente financia u origina el inmueble: Caja/Banco, cuenta por pagar, patrimonio o ingreso/donación. El sistema no escogerá una por ti.</p>
+        </div>}
         <div className="space-y-1"><Label>Vida útil (años)</Label><input type="number" min="0" step="1" disabled={String(data.accountCode||'').startsWith('1504')} value={data.usefulLifeYears??45} onChange={e=>setData({...data,usefulLifeYears:e.target.value})} className="w-full rounded-lg border p-2 disabled:bg-slate-100"/><p className="text-[11px] text-slate-500">Terrenos: 0 / no depreciables.</p></div>
         {!estate&&<div className="space-y-1"><Label>Depreciación acumulada histórica</Label><input type="number" min="0" step="0.01" value={data.accumulatedDepreciation||0} onChange={e=>setData({...data,accumulatedDepreciation:e.target.value})} className="w-full rounded-lg border p-2 text-rose-600"/></div>}
         {!String(data.accountCode||'').startsWith('1504')&&<>

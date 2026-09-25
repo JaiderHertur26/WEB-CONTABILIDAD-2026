@@ -1054,7 +1054,7 @@ const BookClosings = () => {
         });
 
         const totalCashBalance = liquidity.totalCash;
-        const cajaGeneralValue = liquidity.totalLiquidity;
+        const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
 
         const inventoryValue = (inventory || []).reduce((sum, p) => sum + ((parseFloat(p.quantity) || 0) * (parseFloat(p.unit_cost) || 0)), 0);
         const patrimonialSummary = summarizePatrimonialAtCutoff(

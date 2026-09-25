@@ -334,7 +334,7 @@ const TaxReports = () => {
         const totalCashBalance = liquidity.totalCash;
         const totalBankBalances = liquidity.totalBanks;
         const totalInvestmentBalances = liquidity.investments;
-        const cajaGeneralValue = liquidity.totalLiquidity;
+        const cajaGeneralValue = totalCashBalance + totalBankBalances + totalInvestmentBalances;
 
         const dynamicCashAccounts = fCashAccounts.map(acc => ({
             ...acc,
