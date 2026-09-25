@@ -186,9 +186,10 @@ const Accounts = () => {
     toast({ title: editingAccount ? "Cuenta actualizada" : "Cuenta creada" });
   };
 
-  const handleDeleteAccount = (id) => {
+  const handleDeleteAccount = async (id) => {
     if (!canDelete) return;
     const accToDelete = accounts.find(a => a.id === id);
+    if (!accToDelete) return;
     const hasChildren = accounts.some(a => a.number.startsWith(accToDelete.number) && a.id !== id);
     if (hasChildren) {
         toast({ variant: "destructive", title: "Error", description: "Elimine las subcuentas primero." });
@@ -202,8 +203,13 @@ const Accounts = () => {
         });
         return;
     }
-    saveAccounts(accounts.filter(a => a.id !== id));
-    toast({ title: "Cuenta eliminada" });
+    try {
+      const saved = await saveAccounts(accounts.filter(a => a.id !== id));
+      if (saved === false) return;
+      toast({ title: "Cuenta eliminada", description: "La eliminación fue autorizada con Acceso Total." });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Eliminación bloqueada', description: error?.message || 'No se pudo eliminar la cuenta.' });
+    }
   };
   
   const handleExport = () => {
