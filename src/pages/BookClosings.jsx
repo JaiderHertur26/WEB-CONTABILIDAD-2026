@@ -32,6 +32,7 @@ import { usePermission } from '@/hooks/usePermission';
 import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
+import { resolveAccountForTransaction, getRecordCompanyId } from '@/lib/accountScope';
 import {
     format,
     parseISO,
@@ -275,7 +276,7 @@ const BookClosings = () => {
             }
 
             // B. Transacciones Normales o Cruces Internos Automáticos
-            const accountObj = (accounts || []).find(a => a.name === t.category);
+            const accountObj = resolveAccountForTransaction(accounts || [], t);
             let prefix = '0';
             
             if (accountObj) {
@@ -464,7 +465,7 @@ const BookClosings = () => {
                 if (isPureTransfer) return `${baseDestName}${transferSuffix}`;
 
                 // Identificamos si es un movimiento de terceros
-                const accObj = (accounts || []).find(a => a.name === tObj.category);
+                const accObj = resolveAccountForTransaction(accounts || [], tObj);
                 if (accObj && String(accObj.number).startsWith('2')) {
                     const terceroName = closingAccountDisplay(accObj.number, accObj.name || tObj.category, 'FONDO DE TERCEROS');
                     return `${baseDestName} (PUENTE: ${terceroName})`;
@@ -473,7 +474,8 @@ const BookClosings = () => {
                 return baseDestName;
             };
 
-            if (isCashOrBank(t.destination) || ((accounts || []).find(a => a.name === t.category) && String((accounts || []).find(a => a.name === t.category).number).startsWith('2'))) {
+            const scopedCategoryAccount = resolveAccountForTransaction(accounts || [], t);
+            if (isCashOrBank(t.destination) || (scopedCategoryAccount && String(scopedCategoryAccount.number).startsWith('2'))) {
                 const destName = extractTargetNameWithPuente(t);
                 
                 if (t.type === 'income') {
@@ -1124,7 +1126,7 @@ const BookClosings = () => {
             const tDate = t.date?.substring(0, 10) || '';
             return tDate <= endStr;
         });
-        const allAccounts = Array.from(new Map((accounts || []).filter(a => a?.name).map(a => [String(a.name).trim(), a])).values());
+        const allAccounts = Array.from(new Map((accounts || []).filter(a => a?.name).map(a => [`${getRecordCompanyId(a)}|${String(a.number || '').trim()}|${String(a.name).trim().toUpperCase()}`, a])).values());
 
         const getAccountCreationYear = (accountId, defaultDate) => {
             if (defaultDate && isValid(parseISO(defaultDate))) return getAccountingYear(defaultDate);
@@ -1197,7 +1199,7 @@ const BookClosings = () => {
                 return;
             }
 
-            const acc = allAccounts.find(a => a.name === t.category);
+            const acc = resolveAccountForTransaction(allAccounts, t);
             if (!acc) return;
             const num = String(acc.number);
             const assetImpact = t.type === 'expense' ? amount : -amount;

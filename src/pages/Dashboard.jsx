@@ -18,6 +18,7 @@ import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance
 import { parseAccountingDate, getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
+import { resolveAccountForTransaction } from '@/lib/accountScope';
 
 const Dashboard = () => {
   const { activeCompany, companies, isConsolidated, toggleConsolidation } = useCompany();
@@ -165,11 +166,6 @@ const Dashboard = () => {
         return dateKey && dateKey <= selectedCutoffDate;
     });
 
-    const getAccountPrefix = (categoryName) => {
-        const account = allAccounts.find(a => a.name === categoryName);
-        return account ? String(account.number).charAt(0) : null;
-    };
-
     const cashAccountIds = new Set();
     cashAccountIds.add('caja_principal');
     if (allAccounts) { 
@@ -211,7 +207,7 @@ const Dashboard = () => {
         }
         if (t.category === 'INGRESOS POR DONACIONES' || t.voucherPrefix === 'A') {
             const assetAcc = getAssetDetails(t.destination, t.category);
-            const catObj = (accountsData || []).find(a => a.name === t.category) || { number: '421004', name: t.category };
+            const catObj = resolveAccountForTransaction(accountsData || [], t) || { number: '421004', name: t.category };
             return { debit: { code: assetAcc.code, name: assetAcc.name, value: amount }, credit: { code: catObj.number || '421004', name: catObj.name || t.category, value: amount } };
         }
         if (t.type === 'transfer' && t.fromAccount && t.toAccount) {
@@ -220,7 +216,7 @@ const Dashboard = () => {
             return { debit: { ...debit, value: amount }, credit: { ...credit, value: amount } };
         }
         const assetAcc = getAssetDetails(t.destination, t.category);
-        const catObj = (accountsData || []).find(a => a.name === t.category);
+        const catObj = resolveAccountForTransaction(accountsData || [], t);
         const catAcc = { code: t._accountNumber || (catObj ? catObj.number : (t.type === 'income' ? '4105' : '5105')), name: t.category };
         if (t.type === 'income') {
             return { debit: { ...assetAcc, value: amount }, credit: { ...catAcc, value: amount } };
@@ -297,7 +293,7 @@ const Dashboard = () => {
             return;
         }
 
-        const acc = allAccounts.find(a => a.name === t.category);
+        const acc = resolveAccountForTransaction(allAccounts, t);
         if (!acc) return;
         const num = String(acc.number);
 
@@ -343,7 +339,7 @@ const Dashboard = () => {
             return;
         }
 
-        const accountObj = allAccounts.find(a => a.name === t.category);
+        const accountObj = resolveAccountForTransaction(allAccounts, t);
         let prefix = '0';
         if (accountObj) {
             prefix = String(accountObj.number).charAt(0);
@@ -408,7 +404,7 @@ const Dashboard = () => {
                 return;
             }
 
-            const accountObj = allAccounts.find(a => a.name === t.category);
+            const accountObj = resolveAccountForTransaction(allAccounts, t);
             let prefix = '0';
             if (accountObj) {
                 prefix = String(accountObj.number).charAt(0);
@@ -449,7 +445,7 @@ const Dashboard = () => {
             return;
         }
 
-        const accountObj = allAccounts.find(a => a.name === t.category);
+        const accountObj = resolveAccountForTransaction(allAccounts, t);
         let prefix = '0';
         if (accountObj) {
             prefix = String(accountObj.number).charAt(0);

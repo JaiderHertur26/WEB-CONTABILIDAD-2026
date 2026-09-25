@@ -18,6 +18,7 @@ import { getRetentionDueDate } from '@/lib/contractTaxEngine';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import ProfessionalModuleHero from '@/components/layout/ProfessionalModuleHero';
 import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
+import { resolveAccountForTransaction, getAccountPrefixForTransaction, getRecordCompanyId } from '@/lib/accountScope';
 
 const hasTaxReportValue = value => Number.isFinite(Number(value)) && Math.abs(Number(value)) >= 0.005;
 const taxAccountDisplay = (code, name, fallback = 'CUENTA CONTABLE') => {
@@ -238,7 +239,8 @@ const TaxReports = () => {
         (accounts || []).forEach(acc => {
             if (!acc || !acc.name) return;
             const exactName = String(acc.name).trim().toUpperCase();
-            if (!uniqueAccountsMap.has(exactName)) uniqueAccountsMap.set(exactName, acc);
+            const scopedKey = `${getRecordCompanyId(acc)}|${String(acc.number || '').trim()}|${exactName}`;
+            if (!uniqueAccountsMap.has(scopedKey)) uniqueAccountsMap.set(scopedKey, acc);
         });
         const allAccounts = Array.from(uniqueAccountsMap.values());
         const currentYear = selectedYear;
@@ -272,10 +274,8 @@ const TaxReports = () => {
             return new Date().getFullYear();
         };
 
-        const getAccountPrefix = (categoryName) => {
-            const account = allAccounts.find(a => a.name === categoryName);
-            return account ? String(account.number).charAt(0) : null;
-        };
+        const getAccountPrefix = transaction =>
+            getAccountPrefixForTransaction(allAccounts, transaction);
         
         // 1. P&L Logic (Blindada contra Gastos Ocultos)
         let totalIncomes = 0;
@@ -309,10 +309,10 @@ const TaxReports = () => {
                 }
             } else {
                 if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return;
-                let prefix = getAccountPrefix(t.category);
+                let prefix = getAccountPrefix(t);
                 if (!prefix) prefix = t.type === 'income' ? '4' : (t.type === 'expense' ? '5' : null);
                 
-                const matchedAccount = allAccounts.find(account => account.name === t.category);
+                const matchedAccount = resolveAccountForTransaction(allAccounts, t);
                 const label = taxAccountDisplay(matchedAccount?.number, t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS'));
                 if (prefix === '4') {
                     const impact = t.type === 'income' ? amount : -amount;
@@ -460,7 +460,7 @@ const TaxReports = () => {
             }
 
             // --- CUALQUIER TRANSACCIÓN (INCLUSO CRUCES CONTABLES) FLUYE POR AQUÍ ---
-            const acc = allAccounts.find(a => a.name === t.category);
+            const acc = resolveAccountForTransaction(allAccounts, t);
             if (!acc) return;
             const num = String(acc.number);
 

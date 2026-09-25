@@ -17,6 +17,7 @@ import { getCompanyScopeIds } from '@/lib/companyHierarchy';
 import FinancialReportsView from '@/components/reports/FinancialReportsView';
 import { summarizePatrimonialAtCutoff, PATRIMONIAL_ASSET_TYPES } from '@/lib/patrimonialAssets';
 import { toAccountingDateInput } from '@/lib/accountingDate';
+import { resolveAccountForTransaction, getAccountPrefixForTransaction, getRecordCompanyId } from '@/lib/accountScope';
 
 const hasReportValue = value => Number.isFinite(Number(value)) && Math.abs(Number(value)) >= 0.005;
 const accountDisplay = (code, name, fallback = 'CUENTA CONTABLE') => {
@@ -138,9 +139,10 @@ const Reports = () => {
     const uniqueAccountsMap = new Map();
     (accounts || []).forEach(acc => {
         if (!acc || !acc.name) return;
-        const exactName = String(acc.name).trim();
-        if (!uniqueAccountsMap.has(exactName)) {
-            uniqueAccountsMap.set(exactName, acc);
+        const exactName = String(acc.name).trim().toUpperCase();
+        const scopedKey = `${getRecordCompanyId(acc)}|${String(acc.number || '').trim()}|${exactName}`;
+        if (!uniqueAccountsMap.has(scopedKey)) {
+            uniqueAccountsMap.set(scopedKey, acc);
         }
     });
     const allAccounts = Array.from(uniqueAccountsMap.values());
@@ -192,10 +194,8 @@ const Reports = () => {
         return new Date().getFullYear();
     };
 
-    const getAccountPrefix = (categoryName) => {
-        const account = allAccounts.find(a => a.name === categoryName);
-        return account ? String(account.number).charAt(0) : null;
-    };
+    const getAccountPrefix = transaction =>
+        getAccountPrefixForTransaction(allAccounts, transaction);
 
     const totalIncome = pnlTransactions.reduce((sum, t) => {
         if (t.debitAccount && t.creditAccount) {
@@ -205,7 +205,7 @@ const Reports = () => {
         }
         if (t.isInternalTransfer) return sum;
         
-        if (getAccountPrefix(t.category) === '4') {
+        if (getAccountPrefix(t) === '4') {
             return sum + (t.type === 'income' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
         }
         return sum;
@@ -219,7 +219,7 @@ const Reports = () => {
         }
         if (t.isInternalTransfer) return sum;
 
-        if (['6', '7'].includes(getAccountPrefix(t.category))) {
+        if (['6', '7'].includes(getAccountPrefix(t))) {
             return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
         }
         return sum;
@@ -233,7 +233,7 @@ const Reports = () => {
         }
         if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return sum;
 
-        if (getAccountPrefix(t.category) === '5') {
+        if (getAccountPrefix(t) === '5') {
             return sum + (t.type === 'expense' ? safeParseFloat(t.amount) : -safeParseFloat(t.amount));
         }
         return sum;
@@ -289,9 +289,9 @@ const Reports = () => {
             }
         } else {
             if (t.isInternalTransfer || t.isFixedAsset || t.isPurchase) return;
-            let prefix = getAccountPrefix(t.category);
+            let prefix = getAccountPrefix(t);
             if (!prefix) prefix = t.type === 'income' ? '4' : (t.type === 'expense' ? '5' : null);
-            const matchedAccount = allAccounts.find(a => a.name === t.category);
+            const matchedAccount = resolveAccountForTransaction(allAccounts, t);
             const name = accountDisplay(matchedAccount?.number, t.category || (t.type === 'income' ? 'INGRESOS VARIOS' : 'GASTOS VARIOS'));
             
             if (prefix === '4') dynamicIncomes[name] = (dynamicIncomes[name] || 0) + (t.type === 'income' ? amount : -amount);
@@ -403,7 +403,7 @@ const Reports = () => {
             return;
         }
 
-        const acc = allAccounts.find(a => a.name === t.category);
+        const acc = resolveAccountForTransaction(allAccounts, t);
         if (!acc) return;
         const num = String(acc.number);
         const assetImpact = t.type === 'expense' ? amount : -amount;

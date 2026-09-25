@@ -29,6 +29,7 @@ import { isNativeApp, shareBase64File } from '@/lib/nativeFiles';
 import { createPrintTarget } from '@/lib/nativePrint';
 import { cleanBankNumber, parseBankDate, buildReconciliationFingerprint } from '@/lib/bankReconciliation';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
+import { resolveAccountForTransaction } from '@/lib/accountScope';
 import TransactionsProfessionalHeader from '@/components/transactions/TransactionsProfessionalHeader';
 import { defaultUsefulLifeYears } from '@/lib/fixedAssetLifecycle';
 import {
@@ -391,7 +392,7 @@ const Transactions = () => {
 
         if ((t.category === 'INGRESOS POR DONACIONES' || t.voucherPrefix === 'A') && allocations.length <= 1) {
             const assetAcc = getAssetDetails(t.destination, t.category);
-            const catObj = (accounts || []).find(a => a.name === t.category) || { number: '421004', name: t.category };
+            const catObj = resolveAccountForTransaction(accounts || [], t) || { number: '421004', name: t.category };
             return [
                 { account: { code: assetAcc.code, name: assetAcc.name }, debit: amount, credit: 0 },
                 { account: { code: catObj.number || '421004', name: catObj.name || t.category }, debit: 0, credit: amount },
