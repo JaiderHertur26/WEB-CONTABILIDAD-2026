@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 
 const typeLabel = type => ({
+  exequias: 'Exequias',
   difunto: 'Difunto',
   gracias: 'Acción de Gracias',
   salud: 'Salud',

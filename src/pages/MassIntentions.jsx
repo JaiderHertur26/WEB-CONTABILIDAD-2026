@@ -106,6 +106,7 @@ const MassIntentions = () => {
     // AGRUPACIÓN PARA EL MENÚ LATERAL
     const grouped = useMemo(() => {
         return {
+            exequias: filteredIntentions.filter(i => i.type === 'exequias'),
             difuntos: filteredIntentions.filter(i => i.type === 'difunto'),
             gracias: filteredIntentions.filter(i => i.type === 'gracias'),
             salud: filteredIntentions.filter(i => i.type === 'salud'),
@@ -125,6 +126,7 @@ const MassIntentions = () => {
                 groups[key] = {
                     date: dateStr,
                     time: timeStr,
+                    exequias: [],
                     difuntos: [],
                     gracias: [],
                     salud: [],
@@ -135,7 +137,8 @@ const MassIntentions = () => {
             groups[key].totalAmount += (parseFloat(i.amount) || 0);
             
             const t = i.type || 'otra';
-            if (t === 'difunto') groups[key].difuntos.push(i);
+            if (t === 'exequias') groups[key].exequias.push(i);
+            else if (t === 'difunto') groups[key].difuntos.push(i);
             else if (t === 'gracias') groups[key].gracias.push(i);
             else if (t === 'salud') groups[key].salud.push(i);
             else groups[key].otras.push(i);
@@ -295,7 +298,7 @@ const MassIntentions = () => {
             }
         }
 
-        const typeLabels = { difunto: 'Difuntos', gracias: 'A. de Gracias', salud: 'Salud', otra: 'Otras Intenciones' };
+        const typeLabels = { exequias: 'Exequias', difunto: 'Difuntos', gracias: 'A. de Gracias', salud: 'Salud', otra: 'Otras Intenciones' };
         const descType = typeLabels[data.type] || 'Otras Intenciones';
         const cleanName = (data.name || '').replace(/^[+✝]\s*/, '').trim();
         const selectedContact = data.contactId
@@ -463,7 +466,7 @@ const MassIntentions = () => {
     // COMPONENTE PARA RENDERIZAR CADA BLOQUE EN EL PDF
     const renderPrintCategory = (title, items, colorClass) => {
         if (!items || items.length === 0) return null;
-        const prefix = title === 'DIFUNTOS' ? '✝ ' : '• ';
+        const prefix = (title === 'EXEQUIAS' || title === 'DIFUNTOS') ? '✝ ' : '• ';
         const showAmount = viewMode !== 'day'; // Muestra precios solo en reportes
         
         return (
@@ -494,7 +497,7 @@ const MassIntentions = () => {
 
     const IntentionItem = ({ intention, icon, iconColor }) => {
         const cleanName = (intention.name || '').replace(/^[+✝]\s*/, '').trim();
-        const prefix = intention.type === 'difunto' ? '✝ ' : '';
+        const prefix = (intention.type === 'exequias' || intention.type === 'difunto') ? '✝ ' : '';
         const linkedTransaction = intention.transactionId
             ? (transactions || []).find(t => String(t.id) === String(intention.transactionId))
             : null;
@@ -588,6 +591,19 @@ const MassIntentions = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     <div className="lg:col-span-7 space-y-6">
                         
+                        <div className="overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-[0_16px_42px_-30px_rgba(87,83,78,0.3)]">
+                            <div className="bg-stone-100/80 p-4 border-b border-stone-200 flex items-center gap-3">
+                                <div className="bg-stone-700 text-white p-2 rounded-lg shadow-sm"><span className="block w-5 h-5 text-center leading-5 text-lg">✝</span></div>
+                                <div>
+                                    <h3 className="font-bold text-stone-900 tracking-wide">EXEQUIAS</h3>
+                                    <p className="text-xs font-semibold text-stone-600">{grouped.exequias.length} exequias</p>
+                                </div>
+                            </div>
+                            <div className="p-2">
+                                {grouped.exequias.length > 0 ? grouped.exequias.map(i => <IntentionItem key={i.id} intention={i} icon={<span className="text-base leading-none">✝</span>} iconColor="text-stone-500" />) : <p className="p-4 text-center text-sm text-slate-400">No hay exequias registradas.</p>}
+                            </div>
+                        </div>
+
                         <div className="overflow-hidden rounded-3xl border border-purple-100 bg-white shadow-[0_16px_42px_-30px_rgba(88,28,135,0.35)]">
                             <div className="bg-purple-50/50 p-4 border-b border-purple-100 flex items-center gap-3">
                                 <div className="bg-purple-600 text-white p-2 rounded-lg shadow-sm"><Plus className="w-5 h-5" /></div>
@@ -687,6 +703,7 @@ const MassIntentions = () => {
                                                         </div>
 
                                                         <div className="space-y-6">
+                                                            {renderPrintCategory('EXEQUIAS', group.exequias, 'text-[#57534e]')}
                                                             {renderPrintCategory('DIFUNTOS', group.difuntos, 'text-[#6b21a8]')}
                                                             {renderPrintCategory('ACCIÓN DE GRACIAS', group.gracias, 'text-[#059669]')}
                                                             {renderPrintCategory('POR LA SALUD', group.salud, 'text-[#2563eb]')}
@@ -746,6 +763,7 @@ const MassIntentions = () => {
                                                                     )}
                                                                 </div>
 
+                                                                {renderPrintCategory('EXEQUIAS', group.exequias, 'text-[#57534e]')}
                                                                 {renderPrintCategory('DIFUNTOS', group.difuntos, 'text-[#6b21a8]')}
                                                                 {renderPrintCategory('ACCIÓN DE GRACIAS', group.gracias, 'text-[#059669]')}
                                                                 {renderPrintCategory('POR LA SALUD', group.salud, 'text-[#2563eb]')}
@@ -945,6 +963,7 @@ const IntentionDialog = ({ open, onOpenChange, intention, onSave, accounts, cont
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
+                                    <SelectItem value="exequias"><span className="text-stone-700 font-medium">✝ Exequias</span></SelectItem>
                                     <SelectItem value="difunto"><span className="text-purple-700 font-medium">✝ Difunto</span></SelectItem>
                                     <SelectItem value="gracias"><span className="text-emerald-700 font-medium">♥ Acción de Gracias</span></SelectItem>
                                     <SelectItem value="salud"><span className="text-blue-700 font-medium">✚ Por la Salud</span></SelectItem>
