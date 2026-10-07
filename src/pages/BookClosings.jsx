@@ -506,11 +506,25 @@ const BookClosings = () => {
                 return String(a.id || '').localeCompare(String(b.id || ''));
             });
 
+        const accountingBalance = totalIncome - totalExpense;
+        const closingLiquidity = calculateLiquidityBalances({
+            transactions: (transactions || []).filter(isRelevantCompany),
+            initialBalances: (initialBalance || []).filter(isRelevantCompany),
+            bankAccounts: (bankAccounts || []).filter(isRelevantCompany),
+            cashAccounts: (cashAccounts || []).filter(isRelevantCompany),
+            accounts: accounts || [],
+            cutoffDate: format(end, 'yyyy-MM-dd'),
+        });
+        const availableBalance = closingLiquidity.cashAndBanks;
+        const contributionsBalance = closingLiquidity.investments;
+
         setReport({
             period: { start, end },
             totalIncome,
             totalExpense,
-            balance: totalIncome - totalExpense,
+            balance: accountingBalance,
+            availableBalance,
+            contributionsBalance,
             monthlySummary: activeMonthlySummary,
             incomeByCategory: sortMap(incomeMap),
             expenseByCategory: sortMap(expenseMap),
@@ -545,7 +559,15 @@ const BookClosings = () => {
                 Resultado: null,
                 __style: 'subtotal'
             }] : []),
-            { Concepto: 'UTILIDAD / PÉRDIDA DEL PERÍODO', Ingresos: null, Gastos: null, Resultado: Number(report.balance || 0), __style: 'total' },
+            { Concepto: 'UTILIDAD / PÉRDIDA CONTABLE DEL PERÍODO', Ingresos: null, Gastos: null, Resultado: Number(report.balance || 0), __style: 'subtotal' },
+            ...(hasClosingValue(report.contributionsBalance) ? [{
+                Concepto: 'APORTES / INVERSIONES AL CORTE (NO DISPONIBLES)',
+                Ingresos: null,
+                Gastos: null,
+                Resultado: Number(report.contributionsBalance || 0),
+                __style: 'subtotal'
+            }] : []),
+            { Concepto: 'DISPONIBLE REAL AL CORTE (CAJA + BANCOS)', Ingresos: null, Gastos: null, Resultado: Number(report.availableBalance ?? report.balance ?? 0), __style: 'total' },
             ...((report.monthlySummary || []).length > 0 ? [
                 { Concepto: 'RESUMEN MENSUAL', Ingresos: null, Gastos: null, Resultado: null, __style: 'section' },
                 ...(report.monthlySummary || []).map(item => ({
@@ -568,7 +590,9 @@ const BookClosings = () => {
                 ...(report.expenseByCategory || []).map(item => ({ Concepto: item.name, Valor: Number(item.total || 0) })),
                 { Concepto: 'TOTAL GASTOS', Valor: Number(report.totalExpense || 0), __style: 'subtotal' },
             ] : []),
-            { Concepto: 'UTILIDAD / PÉRDIDA', Valor: Number(report.balance || 0), __style: 'total' }
+            { Concepto: 'UTILIDAD / PÉRDIDA CONTABLE', Valor: Number(report.balance || 0), __style: 'subtotal' },
+            ...(hasClosingValue(report.contributionsBalance) ? [{ Concepto: 'APORTES / INVERSIONES AL CORTE (NO DISPONIBLES)', Valor: Number(report.contributionsBalance || 0), __style: 'subtotal' }] : []),
+            { Concepto: 'DISPONIBLE REAL AL CORTE (CAJA + BANCOS)', Valor: Number(report.availableBalance ?? report.balance ?? 0), __style: 'total' }
         ];
 
         const netThirdParties = Number(report.conciliacion?.tercerosIn || 0) - Number(report.conciliacion?.tercerosOut || 0);
@@ -795,7 +819,7 @@ const BookClosings = () => {
                     .title { text-align: center; font-size: 15px; font-weight: bold; margin-top: 0; margin-bottom: 5px; text-decoration: underline; }
                     .period { text-align: center; font-size: 12px; margin-top: 0; margin-bottom: 15px; color: #475569; }
                     .summary-box { display: flex; justify-content: space-between; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; margin-bottom: 15px; background-color: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .summary-item { text-align: center; width: 33%; }
+                    .summary-item { text-align: center; width: 25%; }
                     .summary-item:not(:last-child) { border-right: 1px solid #cbd5e1; }
                     .summary-label { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; margin-bottom: 3px; }
                     .summary-value { font-size: 16px; font-weight: bold; }
@@ -833,8 +857,13 @@ const BookClosings = () => {
                         <div class="summary-value" style="color: #dc2626;">$${report.totalExpense.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
                     </div>
                     <div class="summary-item">
-                        <div class="summary-label">Utilidad / Pérdida</div>
+                        <div class="summary-label">Utilidad / Pérdida Contable</div>
                         <div class="summary-value" style="color: #2563eb;">$${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Disponible Real</div>
+                        <div class="summary-value" style="color: #7c3aed;">$${Number(report.availableBalance || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>
+                        ${hasClosingValue(report.contributionsBalance) ? `<div style="margin-top:4px;font-size:9px;color:#64748b;">Caja + bancos · Aportes inmovilizados: $${report.contributionsBalance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</div>` : `<div style="margin-top:4px;font-size:9px;color:#64748b;">Caja + bancos · Sin aportes</div>`}
                     </div>
                 </div>
         
@@ -986,7 +1015,9 @@ const BookClosings = () => {
                 Valor: Number(report.totalExpense || 0),
                 __style: 'subtotal'
             }] : []),
-            { Indicador: 'UTILIDAD / PÉRDIDA', Valor: Number(report.balance || 0), __style: 'total' },
+            { Indicador: 'UTILIDAD / PÉRDIDA CONTABLE', Valor: Number(report.balance || 0), __style: 'subtotal' },
+            ...(hasClosingValue(report.contributionsBalance) ? [{ Indicador: 'APORTES / INVERSIONES AL CORTE (NO DISPONIBLES)', Valor: Number(report.contributionsBalance || 0), __style: 'subtotal' }] : []),
+            { Indicador: 'DISPONIBLE REAL AL CORTE (CAJA + BANCOS)', Valor: Number(report.availableBalance ?? report.balance ?? 0), __style: 'total' },
             ...((report.incomeByCategory || []).length > 0 ? [{
                 Indicador: 'PRINCIPAL FUENTE DE INGRESO',
                 Detalle: report.incomeByCategory[0].name,
@@ -1384,7 +1415,7 @@ const BookClosings = () => {
                     th, td { border-bottom: 1px solid #d1d5db; padding: 6px 7px; }
                     th { text-align: left; font-size: 8.5pt; text-transform: uppercase; color: #4b5563; }
                     td:last-child, th:last-child { text-align: right; }
-                    .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 3px; }
+                    .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 3px; }
                     .metric { border: 1px solid #d1d5db; padding: 8px; text-align: center; }
                     .metric-label { font-size: 8pt; text-transform: uppercase; color: #6b7280; }
                     .metric-value { margin-top: 3px; font-size: 12.5pt; font-weight: 700; }
@@ -1438,7 +1469,8 @@ const BookClosings = () => {
                     <div class="metric-grid">
                         <div class="metric"><div class="metric-label">Ingresos</div><div class="metric-value">$ ${fmtMoney(report.totalIncome)}</div></div>
                         <div class="metric"><div class="metric-label">Egresos</div><div class="metric-value">$ ${fmtMoney(report.totalExpense)}</div></div>
-                        <div class="metric"><div class="metric-label">Resultado neto</div><div class="metric-value">$ ${fmtMoney(report.balance)}</div></div>
+                        <div class="metric"><div class="metric-label">Utilidad contable</div><div class="metric-value">$ ${fmtMoney(report.balance)}</div></div>
+                        <div class="metric"><div class="metric-label">Disponible real (caja + bancos)</div><div class="metric-value">$ ${fmtMoney(report.availableBalance)}</div></div>
                     </div>
                 </div>
 
@@ -1822,7 +1854,7 @@ const months = [
 
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                             <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-xl border border-green-100 shadow-sm print:shadow-none print:border-slate-300">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="bg-green-100 p-2 rounded-lg print:bg-transparent"><TrendingUp className="w-6 h-6 text-green-600 print:text-black" /></div>
@@ -1846,11 +1878,25 @@ const months = [
                                     <div className={`${report.balance >= 0 ? 'bg-blue-100' : 'bg-orange-100'} p-2 rounded-lg print:bg-transparent`}>
                                         <DollarSign className={`w-6 h-6 ${report.balance >= 0 ? 'text-blue-600' : 'text-orange-600'} print:text-black`} />
                                     </div>
-                                    <span className={`text-xs font-semibold px-2 py-1 rounded-full print:bg-transparent print:border print:border-black print:text-black ${report.balance >= 0 ? 'text-blue-600 bg-blue-100' : 'text-orange-600 bg-orange-100'}`}>Balance Neto</span>
+                                    <span className={`text-xs font-semibold px-2 py-1 rounded-full print:bg-transparent print:border print:border-black print:text-black ${report.balance >= 0 ? 'text-blue-600 bg-blue-100' : 'text-orange-600 bg-orange-100'}`}>Resultado</span>
                                 </div>
                                 <p className="text-slate-600 text-sm font-medium">Utilidad / Pérdida</p>
                                 <p className={`text-3xl font-bold mt-1 ${report.balance >= 0 ? 'text-blue-900' : 'text-orange-900'} print:text-black`}>
                                     ${report.balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                                </p>
+                            </div>
+
+                            <div className="bg-gradient-to-br from-violet-50 to-purple-50 p-6 rounded-xl border border-violet-100 shadow-sm print:shadow-none print:border-slate-300">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="bg-violet-100 p-2 rounded-lg print:bg-transparent"><Wallet className="w-6 h-6 text-violet-600 print:text-black" /></div>
+                                    <span className="text-xs font-semibold text-violet-600 bg-violet-100 px-2 py-1 rounded-full print:bg-transparent print:border print:border-black print:text-black">Sin Aportes</span>
+                                </div>
+                                <p className="text-slate-600 text-sm font-medium">Disponible Real</p>
+                                <p className="text-3xl font-bold text-violet-900 mt-1 print:text-black">
+                                    ${Number(report.availableBalance || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                                </p>
+                                <p className="mt-2 text-xs text-slate-500 print:text-black">
+                                    Caja + bancos · Sin aportes{hasClosingValue(report.contributionsBalance) ? ` · Aportes netos: $${report.contributionsBalance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}` : ''}
                                 </p>
                             </div>
                         </div>

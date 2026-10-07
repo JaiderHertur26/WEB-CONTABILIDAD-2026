@@ -13,7 +13,7 @@ import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { format, startOfMonth, subMonths, eachMonthOfInterval, startOfDay, endOfDay, startOfYear, endOfYear, isBefore, isAfter, isWithinInterval } from 'date-fns';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
-import { calculateLiquidityBalances } from '@/lib/financialMovements';
+import { calculateLiquidityBalances, calculateInvestmentMovement } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { parseAccountingDate, getAccountingYear, toAccountingDateInput } from '@/lib/accountingDate';
 import { getCompanyScopeIds } from '@/lib/companyHierarchy';
@@ -38,6 +38,8 @@ const Dashboard = () => {
     totalIncome: 0,
     totalExpenses: 0,
     cashBalance: 0,
+    contributions: 0,
+    availableResult: 0,
   });
 
   const [chartData, setChartData] = useState([]);
@@ -359,11 +361,26 @@ const Dashboard = () => {
         }
     });
 
+    const baseTransactionsInPeriod = validTransactions.filter(t => {
+      if (!t.date) return false;
+      const comparisonDate = parseAccountingDate(t.date);
+      return comparisonDate >= pickerStart && comparisonDate <= pickerEnd;
+    });
+    const contributionMovement = calculateInvestmentMovement({
+      transactions: baseTransactionsInPeriod,
+      bankAccounts: fBankAccounts,
+      cashAccounts: fCashAccounts,
+      accounts: allAccounts,
+    });
+    const accountingResult = totalIncomes - totalExpenses;
+
     setStats({
       generalBalance: totalAssets,
       totalIncome: totalIncomes,
       totalExpenses: totalExpenses,
-      cashBalance: cajaGeneralExacta, 
+      cashBalance: liquidity.cashAndBanks,
+      contributions: totalInvestmentBalances,
+      availableResult: accountingResult - contributionMovement,
     });
 
     const monthlyData = generateMonthlyData(transactionsInPeriod, dateRange.from, dateRange.to, allAccounts);
@@ -507,7 +524,7 @@ const Dashboard = () => {
           <StatCard title="Total Activos" value={`$${stats.generalBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={DollarSign} trend="static" color="blue" tooltip="Activos corrientes y no corrientes al corte seleccionado" caption={`Corte: ${selectedCutoffDate}`} />
           <StatCard title="Ingresos (P&L)" value={`$${stats.totalIncome.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingUp} trend="static" color="green" tooltip="Ingresos de cuentas clase 4 en el rango seleccionado" caption={`${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`} />
           <StatCard title="Costos y Gastos (P&L)" value={`$${stats.totalExpenses.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={TrendingDown} trend="static" color="red" tooltip="Costos y gastos de cuentas clases 5, 6 y 7 en el rango seleccionado" caption={`${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`} />
-          <StatCard title="Liquidez Total" value={`$${stats.cashBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={PiggyBank} trend="static" color="purple" tooltip="Caja principal + cajas auxiliares + bancos + aportes/inversiones" caption={`Corte: ${selectedCutoffDate}`} />
+          <StatCard title="Liquidez Disponible" value={`$${stats.cashBalance.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} icon={PiggyBank} trend="static" color="purple" tooltip="Dinero realmente disponible: caja principal + cajas auxiliares + bancos. Los aportes/inversiones se muestran como patrimonio, pero no se cuentan aquí porque están inmovilizados." caption={`Sin aportes · Corte: ${selectedCutoffDate}`} />
         </div>
 
         <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.8fr)]">

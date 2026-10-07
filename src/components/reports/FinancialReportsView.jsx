@@ -265,8 +265,8 @@ const FinancialReportsView = ({
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <KpiCard label="Ingresos operacionales" value={`$ ${money(reportData.summary.totalIncome)}`} hint="P&L" icon={ArrowUpRight} tone="emerald" />
         <KpiCard label="Costos y gastos" value={`$ ${money(reportData.summary.totalExpenses)}`} hint="P&L" icon={ArrowDownRight} tone="rose" />
-        <KpiCard label="Utilidad neta" value={signedMoney(reportData.summary.netProfit)} hint="Resultado" icon={TrendingUp} tone="blue" />
-        <KpiCard label="Margen neto" value={Number(reportData.summary.profitMargin || 0).toLocaleString('es-CO')} suffix="%" hint="Rentabilidad" icon={Activity} tone="violet" />
+        <KpiCard label="Disponible neto" value={signedMoney(reportData.summary.availableProfit ?? reportData.summary.netProfit)} hint="Sin aportes" icon={TrendingUp} tone="blue" />
+        <KpiCard label="Margen disponible" value={Number(reportData.summary.availableMargin ?? reportData.summary.profitMargin ?? 0).toLocaleString('es-CO')} suffix="%" hint="Sin aportes" icon={Activity} tone="violet" />
       </section>
 
       <div className="md:hidden">

@@ -201,6 +201,27 @@ const sumObject = (obj) => Object.values(obj || {}).reduce((sum, value) => sum +
 
 export const sumCashAndBankDelta = (deltas) =>
   num(deltas?.mainCash) + sumObject(deltas?.customCash) + sumObject(deltas?.banks);
+
+// Movimiento neto hacia Aportes/Inversiones (1295) dentro de un conjunto de movimientos.
+// Positivo = dinero que quedó inmovilizado en aportes; negativo = dinero liberado de aportes.
+export const calculateInvestmentMovement = ({
+  transactions = [],
+  bankAccounts = [],
+  cashAccounts = [],
+  accounts = [],
+} = {}) => {
+  const context = buildContext({ bankAccounts, cashAccounts, accounts });
+
+  return (transactions || []).reduce((sum, transaction) => {
+    if (!transaction) return sum;
+    const status = upper(transaction.status).toLowerCase();
+    if (['eliminado', 'anulado', 'cancelado', 'borrador'].includes(status)) return sum;
+
+    const deltas = getTransactionLiquidityDeltas(transaction, context);
+    return sum + num(deltas.investments);
+  }, 0);
+};
+
 export const calculateLiquidityBalances = ({
   transactions = [],
   initialBalances = [],

@@ -42,7 +42,8 @@ const DashboardHero = ({
   onNewTransaction,
   onReports,
 }) => {
-  const netResult = Number(stats.totalIncome || 0) - Number(stats.totalExpenses || 0);
+  const accountingResult = Number(stats.totalIncome || 0) - Number(stats.totalExpenses || 0);
+  const netResult = Number(stats.availableResult ?? accountingResult);
   const resultMargin = Number(stats.totalIncome || 0) > 0
     ? (netResult / Number(stats.totalIncome || 0)) * 100
     : 0;
@@ -107,7 +108,7 @@ const DashboardHero = ({
             <div className="col-span-2 rounded-2xl border border-white/10 bg-white/[0.08] p-4 backdrop-blur-xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-slate-400">Resultado del período</p>
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.15em] text-slate-400">Disponible del período · sin aportes</p>
                   <p className={`mt-2 whitespace-nowrap font-mono text-2xl font-black tracking-[-0.045em] ${netResult >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
                     {netResult < 0 ? '- ' : ''}$ {money(Math.abs(netResult))}
                   </p>
@@ -127,7 +128,7 @@ const DashboardHero = ({
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-3.5 backdrop-blur">
               <Landmark className="h-4 w-4 text-blue-300" />
-              <p className="mt-3 text-[9px] font-extrabold uppercase tracking-[0.13em] text-slate-400">Liquidez</p>
+              <p className="mt-3 text-[9px] font-extrabold uppercase tracking-[0.13em] text-slate-400">Liquidez disponible</p>
               <p className="mt-1 whitespace-nowrap font-mono text-[13px] font-black text-white min-[390px]:text-sm">$ {money(stats.cashBalance)}</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-3.5 backdrop-blur">

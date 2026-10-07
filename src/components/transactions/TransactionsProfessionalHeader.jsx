@@ -155,9 +155,9 @@ const TransactionsProfessionalHeader = ({
         tone="rose"
       />
       <SummaryCard
-        label="Balance neto"
-        value={`${summary.net < 0 ? '- ' : ''}$ ${formatMoney(summary.net)}`}
-        hint="Resultado"
+        label="Disponible neto"
+        value={`${(summary.availableNet ?? summary.net) < 0 ? '- ' : ''}$ ${formatMoney(summary.availableNet ?? summary.net)}`}
+        hint="Sin aportes"
         icon={FileText}
         tone="blue"
       />
