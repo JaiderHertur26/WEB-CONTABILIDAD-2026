@@ -11,7 +11,7 @@ import InternalTransferDialog from '@/components/transactions/InternalTransferDi
 import StoreTransaction from '@/components/transactions/StoreTransaction';
 import { exportToExcel, exportProfessionalTable, exportProfessionalWorkbook } from '@/lib/excel';
 import { getTransactionAllocations, getTransactionCategoryLabel, getTransactionTotal } from '@/lib/transactionAllocations';
-import { calculateLiquidityBalances, calculateInvestmentMovement } from '@/lib/financialMovements';
+import { calculateLiquidityBalances } from '@/lib/financialMovements';
 import { useCompanyData } from '@/hooks/useCompanyData';
 import { useCompany } from '@/contexts/CompanyContext';
 import { usePermission } from '@/hooks/usePermission';
@@ -845,23 +845,13 @@ const Transactions = () => {
             if (intelligentType === 'expense') expense += amount;
         });
 
-        const contributionMovement = calculateInvestmentMovement({
-            transactions: filteredTransactions || [],
-            bankAccounts: bankAccounts || [],
-            cashAccounts: cashAccounts || [],
-            accounts: accounts || [],
-        });
-        const net = income - expense;
-
         return {
             income,
             expense,
-            net,
-            availableNet: net - contributionMovement,
-            contributionMovement,
+            net: income - expense,
             count: displayTransactions.length,
         };
-    }, [filteredTransactions, displayTransactions, bankAccounts, cashAccounts, accounts]);
+    }, [filteredTransactions, displayTransactions]);
 
     const groupedBillingDocuments = useMemo(() => {
         if (!billingDocuments) return {};

@@ -9,7 +9,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Label } from "@/components/ui/label";
 import { getDynamicCashAccounts } from '@/lib/cashAccountUtils';
 import { expandTransactionsByAllocation } from '@/lib/transactionAllocations';
-import { calculateLiquidityBalances, buildCashFlowFromLiquidity, calculateInvestmentMovement } from '@/lib/financialMovements';
+import { calculateLiquidityBalances, buildCashFlowFromLiquidity } from '@/lib/financialMovements';
 import { getOpenItemDate, getOutstandingBalance } from '@/lib/outstandingBalance';
 import { isValid, parseISO } from 'date-fns';
 import { createPrintTarget } from '@/lib/nativePrint';
@@ -51,7 +51,7 @@ const Reports = () => {
       incomeStatement: [], 
       balanceSheet: { assets: [], liabilities: [], equity: [], totals: {} }, 
       cashFlow: { initial: 0, sources: [], uses: [], totalSources: 0, totalUses: 0, final: 0 }, 
-      summary: { totalIncome: 0, totalExpenses: 0, netProfit: 0, availableProfit: 0, contributionMovement: 0, profitMargin: 0, availableMargin: 0 }
+      summary: { totalIncome: 0, totalExpenses: 0, netProfit: 0, profitMargin: 0 } 
   });
   const { toast } = useToast();
 
@@ -240,20 +240,8 @@ const Reports = () => {
     }, 0);
 
     const netProfit = totalIncome - totalCosts - totalExpenses;
-    const basePnlTransactions = baseValidTransactions.filter(t => {
-        const tDate = t.date?.substring(0, 10) || '';
-        return tDate >= startDate && tDate <= effectiveEndDate;
-    });
-    const contributionMovement = calculateInvestmentMovement({
-        transactions: basePnlTransactions,
-        bankAccounts: fBankAccounts,
-        cashAccounts: fCashAccounts,
-        accounts: allAccounts,
-    });
-    const availableProfit = netProfit - contributionMovement;
     const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
-    const availableMargin = totalIncome > 0 ? ((availableProfit / totalIncome) * 100).toFixed(2) : 0;
-    const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, availableProfit, contributionMovement, profitMargin, availableMargin };
+    const summaryData = { totalIncome, totalExpenses: (totalCosts + totalExpenses), netProfit, profitMargin };
     
     const calculateTotalForCategory = (categoryName, classPrefix) => pnlTransactions.reduce((sum, t) => {
         if (t.debitAccount && t.creditAccount) {
@@ -353,11 +341,7 @@ const Reports = () => {
             { item: 'Total Gastos', amount: -totalExpenses, isSubtotal: true, isTopBorder: true },
         ] : []),
 
-        { item: 'UTILIDAD NETA CONTABLE (Estado de Resultados)', amount: netProfit, isBold: true, isSubtotal: true, isTopBorder: true },
-        ...(hasReportValue(contributionMovement) ? [
-            { item: 'APORTES / INVERSIONES NETOS DEL PERÍODO', amount: contributionMovement, isSubtotal: true },
-        ] : []),
-        { item: 'DISPONIBLE OPERATIVO (SIN APORTES)', amount: availableProfit, isBold: true, isTotal: true },
+        { item: 'UTILIDAD NETA (Estado de Resultados)', amount: netProfit, isBold: true, isTotal: true },
     ];
     
     const isAccountMatch = (targetId, accountIdOrString) => {
